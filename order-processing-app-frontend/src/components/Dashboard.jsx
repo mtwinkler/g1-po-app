@@ -16,9 +16,12 @@ function Dashboard() {
     const [ingesting, setIngesting] = useState(false);
     const [ingestionMessage, setIngestionMessage] = useState('');
 
-    // ***** NEW: State for status counts *****
+    // State for status counts
     const [statusCounts, setStatusCounts] = useState({});
-    const [loadingCounts, setLoadingCounts] = useState(true); // Optional: for count loading state
+    const [loadingCounts, setLoadingCounts] = useState(true); // Optional
+
+    // NEW: State to track if there are any "Pending" or "International" orders for the asterisk
+    const [hasPendingOrInternational, setHasPendingOrInternational] = useState(false);
 
     const formatShippingMethod = (method) => {
         if (!method) { return 'N/A'; }
@@ -53,7 +56,7 @@ function Dashboard() {
             } else {
                 setIngestionMessage(result.message || "Ingestion process completed successfully.");
                 fetchOrders(null); // Refresh orders list
-                fetchStatusCounts(); // ***** NEW: Refresh counts after ingest *****
+                fetchStatusCounts(null); // Refresh counts
             }
         } catch (err) {
             setIngestionMessage(`Ingestion request failed: ${err.message || 'Network error or invalid response'}`);
@@ -61,7 +64,8 @@ function Dashboard() {
             setIngesting(false);
             setTimeout(() => setIngestionMessage(''), 7000);
         }
-    }, [VITE_API_BASE_URL]); // Removed fetchOrders from here, will be called directly
+    }, [VITE_API_BASE_URL]);
+
 
     const fetchOrders = useCallback(async (signal) => {
         setLoading(true);
@@ -96,11 +100,9 @@ function Dashboard() {
         }
     }, [filterStatus, VITE_API_BASE_URL]);
 
-    // ***** NEW: Function to fetch status counts *****
     const fetchStatusCounts = useCallback(async (signal) => {
         if (!VITE_API_BASE_URL) {
             console.error("Dashboard.jsx: VITE_API_BASE_URL is not defined for status counts.");
-            // Optionally set an error state for counts
             return;
         }
         setLoadingCounts(true);
@@ -112,9 +114,18 @@ function Dashboard() {
             const counts = await response.json();
             if (signal && signal.aborted) return;
             setStatusCounts(counts || {});
+
+            // NEW: Check for pending or international orders for asterisk
+            if (counts && ( (counts.pending > 0) || (counts.international_manual > 0) ) ) {
+                setHasPendingOrInternational(true);
+            } else {
+                setHasPendingOrInternational(false);
+            }
+
         } catch (error) {
             console.error("Error fetching status counts:", error);
-            setStatusCounts({}); // Reset or handle error appropriately
+            setStatusCounts({});
+            setHasPendingOrInternational(false);
         } finally {
             if (!signal || !signal.aborted) setLoadingCounts(false);
         }
@@ -124,28 +135,31 @@ function Dashboard() {
     useEffect(() => {
         const abortController = new AbortController();
         fetchOrders(abortController.signal);
-        fetchStatusCounts(abortController.signal); // ***** NEW: Fetch counts on initial load & filter change (optional here, or just once) *****
-
+        fetchStatusCounts(abortController.signal);
         return () => abortController.abort();
-    }, [fetchOrders, fetchStatusCounts]); // fetchStatusCounts added
+    }, [fetchOrders, fetchStatusCounts]); // Removed filterStatus as fetchOrders already depends on it. fetchStatusCounts does not.
 
-    // This useEffect can be simplified or removed if fetchOrders is always called manually after ingest.
-    // The main dependency is that fetchOrders should use the latest filterStatus.
-    useEffect(() => {
-        // console.log("Dashboard.jsx: fetchOrders dependency updated for handleIngestOrders");
-    }, [fetchOrders]);
+     useEffect(() => {
+        // This effect runs when filterStatus changes, calling fetchOrders.
+        // fetchOrders is already memoized and includes filterStatus in its dependencies.
+    }, [filterStatus, fetchOrders]);
 
 
     const handleRowClick = (orderId) => navigate(`/orders/${orderId}`);
     const handleLinkClick = (e) => e.stopPropagation();
 
-    // ***** NEW: Define filterable statuses for links *****
-    const filterableStatuses = [
+    const handleFilterChange = (event) => {
+        setFilterStatus(event.target.value);
+    };
+
+    // Define the statuses for the dropdown
+    const dropdownStatuses = [
         { value: 'new', label: 'New' },
         { value: 'RFQ Sent', label: 'RFQ Sent' },
+        { value: 'Processed', label: 'Processed' }, // "Completed" in UI was "Processed"
         { value: 'international_manual', label: 'International' },
         { value: 'pending', label: 'Pending' },
-        { value: 'Processed', label: 'Completed' } // "Completed" will filter by "Processed" status
+        { value: '', label: 'All Orders' } // '' for all
     ];
 
     if (loading && orders.length === 0 && !error) return <div className="loading-message">Loading orders...</div>;
@@ -161,38 +175,33 @@ function Dashboard() {
                 </span>
             </h2>
 
-            {/* ***** NEW: Status filter links ***** */}
             <div className="dashboard-controls-bar">
-                <div className="dashboard-status-links">
-                    <span style={{ marginRight: '10px', fontWeight: '500', color: 'var(--text-main)'}}>View:</span>
-                    {filterableStatuses.map(statusObj => (
-                        <a
-                            key={statusObj.value}
-                            href="#"
-                            className={filterStatus === statusObj.value ? 'active-status-link' : 'status-link'}
-                            onClick={(e) => {
-                                e.preventDefault();
-                                setFilterStatus(statusObj.value);
-                            }}
-                            title={`View ${statusObj.label} orders`}
-                        >
-                            {statusObj.label}
-                            {statusObj.label !== 'Completed' && statusCounts[statusObj.value] !== undefined ? ` (${statusCounts[statusObj.value]})` : ''}
-                        </a>
-                    ))}
-                    <a
-                        key="all"
-                        href="#"
-                        className={filterStatus === '' ? 'active-status-link' : 'status-link'}
-                        onClick={(e) => {
-                            e.preventDefault();
-                            setFilterStatus(''); // Empty string for "All"
-                        }}
-                        title="View all orders"
+                <div className="dashboard-filters">
+                    <label htmlFor="statusFilter" style={{ fontWeight: '500', color: 'var(--text-main)'}}>
+                        Filter by Status:
+                        {/* NEW: Asterisk indicator */}
+                        {hasPendingOrInternational && <span style={{ color: 'red', marginLeft: '2px', fontWeight: 'bold' }}>*</span>}
+                    </label>
+                    <select
+                        id="statusFilter"
+                        value={filterStatus}
+                        onChange={handleFilterChange}
+                        style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--border-input)' }}
+                        disabled={loadingCounts} // Optionally disable while counts are loading
                     >
-                        All Orders
-                        {/* Optionally, show total count for 'All Orders' if available */}
-                    </a>
+                        {dropdownStatuses.map(statusObj => {
+                            const count = statusCounts[statusObj.value];
+                            const displayCount = (count !== undefined && statusObj.label !== 'All Orders') ? ` (${count})` : '';
+                            // NEW: Asterisk for individual Pending or International options
+                            const optionAsterisk = (statusObj.value === 'pending' && statusCounts.pending > 0) || (statusObj.value === 'international_manual' && statusCounts.international_manual > 0) ? '*' : '';
+
+                            return (
+                                <option key={statusObj.value} value={statusObj.value}>
+                                    {statusObj.label}{displayCount}{optionAsterisk}
+                                </option>
+                            );
+                        })}
+                    </select>
                 </div>
             </div>
 
@@ -264,8 +273,8 @@ function Dashboard() {
                             {ingestionMessage}
                         </div>
                     }
-                    <button onClick={handleIngestOrders} disabled={ingesting} className="ingest-button">
-                        {ingesting ? 'Importing...' : 'IMPORT NEW ORDERS'}
+                    <button onClick={handleIngestOrders} disabled={ingesting || loadingCounts} className="ingest-button">
+                        {ingesting ? 'Importing...' : (loadingCounts ? 'Loading Filters...' : 'IMPORT NEW ORDERS')}
                     </button>
                 </div>
             </div>
