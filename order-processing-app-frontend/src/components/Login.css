@@ -1,0 +1,39 @@
+/* src/components/Login.css or your global CSS file */
+
+.login-container {
+  /* You can add more specific container styles here if needed */
+  font-family: var(--font-sans); /* Assuming you have --font-sans defined in App.css or index.css */
+}
+
+.google-signin-custom-button {
+  background-color: transparent; /* Make button background invisible */
+  border: none;                 /* Remove button border */
+  padding: 0;                   /* Remove button padding */
+  cursor: pointer;
+  display: inline-block;        /* Or block if you want it on its own line with specific width */
+  line-height: 0;               /* Helps remove extra space around the image if button has line-height */
+}
+
+.google-signin-custom-button img {
+  display: block; /* Ensures the image behaves like a block element within the button */
+  /* The width/height can be set inline on the img tag or here */
+}
+
+.google-signin-custom-button:disabled {
+  cursor: not-allowed;
+}
+
+.google-signin-custom-button:disabled img {
+  opacity: 0.6; /* Make image appear disabled */
+}
+
+.google-signin-custom-button:hover:not(:disabled) img {
+  /* Optional: Add a slight hover effect if desired */
+  filter: brightness(95%); /* Example: slightly darken image on hover */
+  /* box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2); */ /* Example: subtle shadow */
+}
+
+.google-signin-custom-button:focus {
+  outline: 2px solid var(--primary-accent, blue); /* Example focus outline for accessibility */
+  outline-offset: 2px;
+}

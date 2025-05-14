@@ -1,87 +1,94 @@
-console.log("VITE_API_BASE_URL from deployed app:", import.meta.env.VITE_API_BASE_URL);
+// App.jsx
 
+import React from 'react'; // Import React if not already (though often implicit)
+import './App.css';
 
-import { useState, useEffect } from 'react'; // Keep existing imports if needed elsewhere in App (less likely after refactoring)
-import './App.css'; // Keep default styling if you want
+// --- Import Routes, Route, Link from react-router-dom ---
+// BrowserRouter (or Router alias) should wrap your App in main.jsx or index.jsx
+import { Routes, Route, Link, Navigate } from 'react-router-dom';
 
-// --- Import Routes, Route, and Link from react-router-dom ---
-import { Routes, Route, Link } from 'react-router-dom';
+// --- Import AuthProvider and useAuth hook ---
+import { AuthProvider, useAuth } from './contexts/AuthContext'; // Create this file
 
 // --- Import all the components you have created ---
-import Dashboard from './components/Dashboard'; // Import the new Dashboard component
+import Dashboard from './components/Dashboard';
 import SupplierList from './components/SupplierList';
 import SupplierForm from './components/SupplierForm';
 import EditSupplierForm from './components/EditSupplierForm';
 import ProductMappingList from './components/ProductMappingList';
 import ProductMappingForm from './components/ProductMappingForm';
 import EditProductMappingForm from './components/EditProductMappingForm';
-import OrderDetail from './components/OrderDetail'; // Import OrderDetail component
+import OrderDetail from './components/OrderDetail';
+import Login from './components/Login'; // Create this component
+import ProtectedRoute from './components/ProtectedRoute'; // Create this component
 
+// Main App content component
+function AppContent() {
+  const { currentUser, logout } = useAuth(); // Get auth state and logout function
 
-function App() {
-  // --- Remove the old dashboard state and useEffect from here ---
-  // They are now in the Dashboard.jsx component
-
-
-  // --- Main App Component Structure ---
   return (
     <div className="App">
       <nav className="main-navigation">
-        {/* --- Basic Navigation Links --- */}
-        {/* Use Link components for client-side navigation */}
-        <Link to="/">Dashboard</Link> |{' '}
-        <Link to="/suppliers">Suppliers</Link> |{' '}
-        <Link to="/products">Products</Link>
-        {/* Add other top-level links here */}
+        {currentUser && (
+          <>
+            <Link to="/">Dashboard</Link> |{' '}
+            <Link to="/suppliers">Suppliers</Link> |{' '}
+            <Link to="/products">Products</Link>
+            <button
+              onClick={async () => {
+                try {
+                  await logout();
+                  // Optional: navigate('/login') or rely on ProtectedRoute to redirect
+                } catch (e) {
+                  console.error("Logout failed", e);
+                }
+              }}
+              style={{ marginLeft: '20px', background: 'none', border: 'none', color: 'var(--text-nav-link)', cursor: 'pointer', textDecoration: 'underline', padding: '0', fontSize: 'inherit' }}
+            >
+              Logout
+            </button>
+          </>
+        )}
+        {!currentUser && (
+          <Link to="/login" style={{fontWeight: 'bold'}}>Login</Link> // Maybe style login link differently
+        )}
       </nav>
 
-      {/* --- Define Routes --- */}
-      {/* Routes component wraps individual Route components */}
-      <Routes>
-        {/* --- Route for the Dashboard --- */}
-        {/* Renders the Dashboard component when the path is exactly "/" */}
-        <Route path="/" element={<Dashboard />} exact />
+      <div id="page-content" style={{paddingTop: '1rem'}}> {/* Add some padding if nav is fixed or takes space */}
+        <Routes>
+          {/* Public Login Route */}
+          <Route path="/login" element={<Login />} />
 
+          {/* Protected Routes */}
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} /> {/* Explicit dashboard route */}
+          <Route path="/suppliers" element={<ProtectedRoute><SupplierList /></ProtectedRoute>} />
+          <Route path="/suppliers/add" element={<ProtectedRoute><SupplierForm /></ProtectedRoute>} />
+          <Route path="/suppliers/edit/:supplierId" element={<ProtectedRoute><EditSupplierForm /></ProtectedRoute>} />
+          <Route path="/products" element={<ProtectedRoute><ProductMappingList /></ProtectedRoute>} />
+          <Route path="/products/add" element={<ProtectedRoute><ProductMappingForm /></ProtectedRoute>} />
+          <Route path="/products/edit/:productId" element={<ProtectedRoute><EditProductMappingForm /></ProtectedRoute>} />
+          <Route path="/orders/:orderId" element={<ProtectedRoute><OrderDetail /></ProtectedRoute>} />
 
-        {/* --- Routes for Supplier Management --- */}
-        {/* Renders SupplierList when path is exactly "/suppliers" */}
-        <Route path="/suppliers" element={<SupplierList />} />
-        {/* Renders SupplierForm for adding new suppliers */}
-        <Route path="/suppliers/add" element={<SupplierForm />} />
-        {/* Renders EditSupplierForm for editing a specific supplier */}
-        {/* :supplierId is a URL parameter that react-router-dom captures and passes to the component via useParams */}
-        <Route path="/suppliers/edit/:supplierId" element={<EditSupplierForm />} />
-
-
-        {/* --- Routes for Product Mapping Management --- */}
-        {/* Renders ProductMappingList when path is exactly "/products" */}
-        <Route path="/products" element={<ProductMappingList />} />
-        {/* Renders ProductMappingForm for adding new mappings */}
-        <Route path="/products/add" element={<ProductMappingForm />} />
-        {/* Renders EditProductMappingForm for editing a specific mapping */}
-        {/* :productId is a URL parameter captured by react-router-dom */}
-        <Route path="/products/edit/:productId" element={<EditProductMappingForm />} />
-
-
-        {/* --- Route for viewing Order Details --- */}
-        {/* Renders OrderDetail component when path matches "/orders/" followed by any ID */}
-        {/* :orderId is a URL parameter captured by react-router-dom */}
-        <Route path="/orders/:orderId" element={<OrderDetail />} />
-
-
-        {/* --- Optional: Add a Catch-all Route for 404 Not Found --- */}
-        {/* This route will match any path that hasn't been matched by the routes above */}
-        {/* You would create a simple NotFound component (e.g., showing "Page not found") */}
-        {/* <Route path="*" element={<div>Page not found</div>} /> */}
-
-
-      </Routes>
-
-      {/* Content below Routes will appear on all pages */}
-      {/* Optional: Add a footer or other global elements here */}
+          {/* Optional: Add a Catch-all Route for 404 Not Found */}
+          <Route path="*" element={
+            currentUser ? <div>Page not found. Go to <Link to="/">Dashboard</Link>.</div> : <Navigate to="/login" />
+          } />
+        </Routes>
+      </div>
     </div>
   );
 }
 
-// --- Export the App component ---
+// Wrapper App component that includes AuthProvider
+function App() {
+  console.log("VITE_API_BASE_URL from deployed app:", import.meta.env.VITE_API_BASE_URL);
+  // BrowserRouter should be in main.jsx/index.jsx
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}
+
 export default App;
