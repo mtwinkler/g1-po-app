@@ -90,9 +90,16 @@
   --border-nav: var(--border-nav-lm);
   --border-input: var(--border-input-lm);
 
-  /* Other variables from OrderDetail.css can also be moved here if they are truly global */
-  --status-new-bg: #dc3545; 
-  /* ... etc. for all status, success, error variables ... */
+  --status-new-bg-lm: #dc3545;
+  --status-processed-bg-lm: #28a745;
+  --status-pending-bg-lm: #ffc107;
+  --status-pending-text-lm: #333;
+  --status-international-bg-lm: #fd7e14;
+  --status-rfqsent-bg-lm: #17a2b8; /* Assuming this exists or is added for RFQ Sent */
+  --status-completed-offline-bg-lm: #000000; /* Black background for light mode */
+  --status-completed-offline-text-lm: #ffffff; /* White text for light mode */
+  --status-unknown-bg-lm: #6c757d;
+  --status-text-lm: #ffffff; /* Default text for most status badges */
 }
 
 /* --- Dark Mode Overrides --- */
@@ -116,11 +123,21 @@
     --border-nav: var(--border-nav-dm);
     --border-input: var(--border-input-dm);
 
-    /* Override status, success, error variables if needed for dark mode */
-    /* Example:
-    --status-pending-bg: #AD8C00; 
-    --status-pending-text: #121212; 
-    */
+    --status-new-bg-dm: #cf6679;
+    --status-processed-bg-dm: #66bb6a;
+    --status-pending-bg-dm: #ffee58;
+    --status-pending-text-dm: #121212;
+    --status-international-bg-dm: #ffa726;
+    --status-rfqsent-bg-dm: #4dd0e1; /* Assuming this exists or is added */
+    --status-completed-offline-bg-dm: #333333; /* Dark grey for dark mode (or stick with black) */
+    --status-completed-offline-text-dm: #ffffff; /* White text for dark mode */
+    --status-unknown-bg-dm: #78909c;
+    --status-text-dm: #ffffff;
+
+    /* ... then update the semantic variables for dark mode ... */
+    --status-completed-offline-bg: var(--status-completed-offline-bg-dm);
+    --status-completed-offline-text: var(--status-completed-offline-text-dm);
+
   }
 }
 

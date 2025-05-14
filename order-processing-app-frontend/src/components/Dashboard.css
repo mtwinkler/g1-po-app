@@ -101,12 +101,18 @@
 }
 
 /* Status Colors */
-.status-new { background-color: #dc3545; }
-.status-processed { background-color: #28a745; }
-.status-pending { background-color: #ffc107; color: #333; }
-.status-international_manual { background-color: #fd7e14; }
-.status-unknown { background-color: #6c757d; }
-.status-rfq-sent { background-color: #17a2b8; }
+.status-new { background-color: var(--status-new-bg); /* Uses variable */ }
+.status-processed { background-color: var(--status-processed-bg); /* Uses variable */ }
+.status-pending { background-color: var(--status-pending-bg); color: var(--status-pending-text); /* Uses variables */ }
+.status-international_manual { background-color: var(--status-international-bg); /* Uses variable */ }
+.status-rfq-sent { background-color: var(--status-rfqsent-bg); /* Example, if you have RFQ Sent */ }
+.status-unknown { background-color: var(--status-unknown-bg); /* Uses variable */ }
+
+/* ***** NEW RULE for Completed Offline ***** */
+.status-completed-offline {
+  background-color: var(--status-completed-offline-bg, #000000); /* Black background, or use variable */
+  color: var(--status-completed-offline-text, #ffffff) !important; /* White text, added !important for specificity if needed */
+}
 /* Add more statuses as needed */
 
 /* CSS Variables */

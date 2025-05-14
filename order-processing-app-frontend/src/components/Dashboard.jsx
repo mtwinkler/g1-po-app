@@ -142,7 +142,8 @@ function Dashboard() {
         { value: 'RFQ Sent', label: 'RFQ Sent' },
         { value: 'pending', label: 'Pending' },
         { value: 'international_manual', label: 'International' },
-        { value: 'Processed', label: 'Processed' } // "Completed" in UI was "Processed"
+        { value: 'Processed', label: 'Processed' }, // "Completed" in UI was "Processed"
+        { value: 'Completed Offline', label: 'Completed Offline' } // <-- ADDED HERE
         // "All Orders" is removed as per request
     ];
 
@@ -168,16 +169,19 @@ function Dashboard() {
                     <select
                         id="statusFilter"
                         value={filterStatus}
-                        onChange={handleFilterChange}
+                        onChange={handleFilterChange} // Ensure handleFilterChange is defined: const handleFilterChange = (event) => setFilterStatus(event.target.value);
                         style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--border-input)' }}
-                        disabled={loadingCounts}
+                        disabled={loadingCounts} // Assuming loadingCounts state exists
                     >
-                        {/* ***** MODIFIED: Map over orderedDropdownStatuses ***** */}
                         {orderedDropdownStatuses.map(statusObj => {
                             const count = statusCounts[statusObj.value];
-                            // Display count for all items in this specific ordered list now
-                            const displayCount = (count !== undefined) ? ` (${count})` : ' (0)'; // Show (0) if count is undefined
-                            const optionAsterisk = (statusObj.value === 'pending' && statusCounts.pending > 0) || (statusObj.value === 'international_manual' && statusCounts.international_manual > 0) ? '*' : '';
+                            const displayCount = (count !== undefined) ? ` (${count})` : ' (0)';
+                            // Asterisk logic for Pending or International in the dropdown option itself
+                            const optionAsterisk = (
+                                (statusObj.value === 'pending' && statusCounts.pending > 0) ||
+                                (statusObj.value === 'international_manual' && statusCounts.international_manual > 0)
+                            ) ? '*' : '';
+
                             return (
                                 <option key={statusObj.value} value={statusObj.value}>
                                     {statusObj.label}{displayCount}{optionAsterisk}

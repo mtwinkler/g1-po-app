@@ -461,7 +461,7 @@ def get_order_status_counts():
         print(f"DEBUG GET_STATUS_COUNTS: Fetched counts: {status_counts_dict}")
         # Ensure all desired statuses are present, even if count is 0
         # (This is optional, frontend can handle missing keys, but good for consistency)
-        defined_statuses = ['new', 'RFQ Sent', 'Processed', 'international_manual', 'pending'] # Match frontend's expectations
+        defined_statuses = ['new', 'RFQ Sent', 'Processed', 'international_manual', 'pending', 'Completed Offline'] # Match frontend's expectations
         for s in defined_statuses:
             if s not in status_counts_dict:
                 status_counts_dict[s] = 0
