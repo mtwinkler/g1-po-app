@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+pip-selfcheck.json
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# package-lock.json # Sometimes committed, sometimes not. Let's commit it for now.
+# If you use create-react-app, it might have its own .gitignore with more specifics
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Secrets - VERY IMPORTANT
+.env
+.env.*
+!.env.example
+!.env.template
+# Add any other files containing secrets
+
+# Cloud SQL Proxy executable (if you download it into the project)
+cloud_sql_proxy
+cloud_sql_proxy.exe
+
+# Log files
+*.log

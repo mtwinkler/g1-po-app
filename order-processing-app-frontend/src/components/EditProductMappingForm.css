@@ -1,0 +1,5 @@
+/* EditProductMappingForm.css */
+@import './FormCommon.css'; /* Import the common form styles */
+
+/* Add any EditProductMappingForm-specific styles here if needed. */
+/* The submit button color is handled by className="form-button warning" in JSX */

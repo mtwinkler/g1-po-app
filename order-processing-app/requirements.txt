@@ -1,0 +1,92 @@
+# Essential for Flask & Web Serving
+Flask==3.1.0
+Flask-CORS==4.0.1
+gunicorn==22.0.0  # Or latest stable version
+Werkzeug==3.1.3
+itsdangerous==2.2.0
+Jinja2==3.1.6
+click==8.1.8
+blinker==1.9.0
+
+# Database (PostgreSQL with pg8000 as per docs)
+SQLAlchemy==2.0.40
+pg8000==1.31.2
+# psycopg2-binary==2.9.10 # Keeping pg8000 as per your docs, remove if switching
+greenlet==3.2.1 # Often a dependency for DB drivers or SQLAlchemy async
+
+# Google Cloud
+google-cloud-storage==3.1.0
+google-cloud-core==2.4.3
+google-api-core==2.25.0rc1
+google-auth==2.39.0
+googleapis-common-protos==1.70.0
+proto-plus==1.26.1
+protobuf==6.30.2 # Ensure this version is compatible with others; sometimes can be tricky
+google-crc32c==1.7.1
+google-resumable-media==2.7.2
+cloud-sql-python-connector==1.18.1 # For connecting to Cloud SQL
+# google-cloud-secret-manager==X.Y.Z # Add if you plan to fetch secrets programmatically
+
+# Environment & Config
+python-dotenv==1.1.0
+
+# API Clients & HTTP
+requests==2.32.3
+aiohttp==3.11.18 # If used for async external calls
+aiosignal==1.3.2
+aiofiles==24.1.0
+aiohappyeyeballs==2.6.1
+attrs==25.3.0
+frozenlist==1.6.0
+idna==3.10
+multidict==6.4.3
+urllib3==2.4.0
+yarl==1.20.0
+charset-normalizer==3.4.2
+certifi==2025.4.26
+
+
+# BigCommerce API
+bigcommerce==0.23.4
+
+# PDF Generation
+reportlab==4.4.0
+Pillow==11.2.1 # Often a dependency for ReportLab with images
+
+# Excel Generation
+openpyxl==3.1.5
+
+# Data Handling (if still used directly in backend, pandas is heavy)
+# pandas==2.2.3 # Consider if this is strictly necessary for the backend runtime
+# numpy==2.2.5  # Often a dependency of pandas
+
+# Utilities & Others
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2025.2
+six==1.17.0
+typing_extensions==4.13.2
+MarkupSafe==3.0.2
+colorama==0.4.6 # Usually for CLI coloring, might not be needed in production server
+cachetools==5.5.2
+propcache==0.3.1
+
+# Cryptography & Security (often dependencies of other libs)
+cryptography==44.0.3
+asn1crypto==1.5.1
+cffi==1.17.1
+pycparser==2.22
+PyJWT==2.10.1
+pyasn1==0.6.1
+pyasn1_modules==0.4.2
+rsa==4.9.1
+scramp==1.4.5 # For PostgreSQL SCRAM authentication if used
+
+# Web Scraping/Parsing (if used in backend, typically frontend/data ingestion script)
+# beautifulsoup4==4.13.4
+# soupsieve==2.7
+# dnspython==2.7.0 # For DNS lookups, sometimes a dep
+# et_xmlfile==2.0.0 # For openpyxl
+
+# Misc
+postmarker==1.0.0

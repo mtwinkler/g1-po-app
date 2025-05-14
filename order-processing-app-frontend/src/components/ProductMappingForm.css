@@ -1,0 +1,10 @@
+/* ProductMappingForm.css */
+@import './FormCommon.css'; /* Import the common form styles */
+
+/* Add any ProductMappingForm-specific styles here if needed. */
+/* For example: */
+/*
+.product-form-container .some-specific-class {
+  border-left: 3px solid var(--info-color);
+}
+*/

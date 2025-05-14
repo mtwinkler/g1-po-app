@@ -1,0 +1,383 @@
+/* Dashboard.css */
+
+/* Container for the whole dashboard page */
+.dashboard-container {
+  max-width: 1200px;
+  margin: 10px auto;
+  padding: 10px;
+}
+
+/* Dashboard title */
+.dashboard-container h2 {
+  color: #002a5c; /* Dark blue */
+  margin-bottom: 20px;
+  border-bottom: 1px solid #eee; /* Separator */
+  padding-bottom: 10px;
+  text-align: center;    /* Center the text */
+  text-transform: uppercase; /* Make text all caps */
+  font-weight: 600;
+}
+
+/* Optional wrapper for table, useful for border/background */
+.table-responsive-container {
+    width: 100%;
+    overflow-x: auto; /* Allows horizontal scroll on desktop if table is wide */
+    border: 1px solid #dee2e6; /* Add border around table */
+    border-radius: 6px;
+    background-color: #fff; /* White background for table area */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* Subtle shadow */
+}
+
+/* === Desktop Table Styling === */
+.order-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.order-table th,
+.order-table td {
+  padding: 10px 12px; /* Cell padding */
+  text-align: left;
+  border-bottom: 1px solid #dee2e6; /* Row separator */
+  vertical-align: middle; /* Align content vertically */
+  /* ***** MODIFICATION: Set a darker default text color ***** */
+  color: var(--text-color); /* Was inherit, now uses #333 */
+}
+
+/* Table Header */
+.order-table thead th {
+  background-color: #f8f9fa; /* Light header background */
+  font-weight: 600; /* Bolder header text */
+  color: #495057; /* Header text color */
+  border-bottom-width: 2px; /* Thicker border below header */
+  white-space: nowrap; /* Prevent header text wrapping */
+}
+
+/* Table Body Rows */
+.order-table tbody tr:nth-child(even) {
+     background-color: #fdfdfd; /* Very subtle row striping */
+}
+
+.order-table tbody tr:hover {
+  background-color: #f1f3f5; /* Subtle hover effect */
+}
+/* Add hover specifically for clickable rows */
+.order-table tbody tr.clickable-row:hover {
+  background-color: #e9ecef; /* Slightly darker hover for clickable */
+}
+
+
+/* Link Styling within table */
+.order-table td a {
+    color: #0056b3 !important;
+    text-decoration: none;
+    font-weight: 500;
+}
+.order-table td a:hover {
+    text-decoration: underline;
+    color: #004085 !important; /* Darker blue on hover */
+}
+
+/* Specific Column Alignment/Styling */
+.total-column {
+    text-align: right; /* Align total right */
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* === Status Badge Styling (for table) === */
+.order-status-badge-table {
+    font-weight: bold;
+    padding: 3px 7px; /* Slightly smaller padding */
+    border-radius: 10px;
+    color: white;
+    font-size: 0.8em; /* Smaller font */
+    margin-left: 8px; /* Space from link on desktop */
+    display: inline-block; /* Default display */
+    vertical-align: middle; /* Align with text/link */
+    text-transform: uppercase; /* Optional: makes status clearer */
+    letter-spacing: 0.5px; /* Optional */
+}
+
+/* Status Colors */
+.status-new { background-color: #dc3545; }
+.status-processed { background-color: #28a745; }
+.status-pending { background-color: #ffc107; color: #333; }
+.status-international_manual { background-color: #fd7e14; }
+.status-unknown { background-color: #6c757d; }
+.status-rfq-sent { background-color: #17a2b8; }
+/* Add more statuses as needed */
+
+/* CSS Variables */
+:root {
+  --primary-color-light: #e7f1fc; /* Card background color */
+  --text-color: #333;
+  --text-light: #555;
+  --primary-color: #ffffff; /* was 0056b3 */
+  --primary-color-dark: #adbbcb; /* was 004085 */
+  --border-light: #eee;
+  --border-medium: #dee2e6;
+  /* Added for ingest button consistency */
+  --primary-accent: #0056b3; /* Example: Blue */
+  --primary-accent-dark: #004085; /* Darker blue for hover */
+  --text-on-primary: #ffffff; /* White text on blue button */
+  --bg-disabled: #e9ecef; /* Background for disabled button */
+  --text-secondary: #6c757d; /* Text color for disabled button */
+  --bg-card: #ffffff; /* Background for sticky wrapper, assuming white */
+  --error-text: #721c24; /* For error messages */
+  --success-text: #155724; /* For success messages */
+  --border-input: #ced4da; /* For select border */
+  --text-main: #212529; /* For labels */
+}
+
+
+/* === Mobile Responsive Styles for Dashboard Table === */
+@media (max-width: 768px) {
+  .table-responsive-container { border: none; background-color: transparent; box-shadow: none; overflow-x: visible; }
+  .order-table { border: 0; }
+  .order-table thead { border: none; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; width: 1px; white-space: nowrap; }
+
+  .order-table tr { /* This is the card */
+      display: block;
+      margin-bottom: 15px;
+      border: 1px solid var(--border-medium);
+      border-radius: 6px;
+      background-color: var(--primary-color-light); /* THIS SETS THE CARD BACKGROUND */
+      color: var(--text-color);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      padding: 5px 0;
+      width: 95%;
+      margin-left: auto;
+      margin-right: auto;
+      position: relative; /* Essential for absolute positioning of children */
+  }
+  .order-table tr.clickable-row { cursor: pointer; transition: background-color 0.2s ease, box-shadow 0.2s ease; }
+  .order-table tr.clickable-row:hover {
+      background-color: var(--primary-color-light); /* Or a slightly different hover like #ddeafd */
+      box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+  }
+
+  /* General Cell Styling (TD) for side-by-side label/value */
+  .order-table td {
+      display: block;
+      padding: 6px 12px;
+      border-bottom: 1px dotted var(--border-light);
+      position: relative;
+      min-height: auto;
+      /* color: inherit; */ /* Color is now set globally for td */
+      text-align: right; /* Default alignment for the value part on the right */
+  }
+
+   /* General Label styling for side-by-side layout */
+  .order-table td::before {
+      content: attr(data-label);
+      position: absolute;
+      left: 12px;
+      width: 45%; /* Adjust as needed for label width (e.g., 40%, 50%) */
+      padding-right: 10px; /* Space between label and value */
+      white-space: nowrap;
+      text-align: left;
+      font-weight: bold;
+      color: var(--text-light);
+  }
+  /* Remove bottom border from the last cell in a card */
+  .order-table tr td:last-child {
+    border-bottom: 0;
+  }
+
+  /* Hide columns marked with .hide-mobile */
+  .order-table .hide-mobile { display: none !important; } /* Added !important for robustness */
+
+  /* Date/Time display at the top right of the card */
+  .order-card-datetime-top-right {
+    position: absolute;
+    top: 8px; /* Adjust for vertical alignment */
+    right: 12px; /* Adjust for horizontal alignment */
+    text-align: right;
+    font-size: 0.9em; /* UPDATED FONT SIZE */
+    color: var(--text-light);
+    line-height: 1.3;
+    background-color: transparent; /* Ensures it blends with the card background */
+    padding: 1px 3px;
+    border-radius: 3px;
+  }
+  .order-card-date { display: block; }
+  .order-card-time { display: block; font-size: 0.9em; /* Relative to parent's 0.9em or absolute */ }
+
+
+  /* Specific Cell Styling for Mobile */
+
+  /* Order # Cell (label hidden, content left-aligned) */
+  .order-table td[data-label="Order #"] {
+      padding-top: 10px;
+      padding-bottom: 6px;
+      font-size: 1.1em;
+      font-weight: 500;
+      text-align: left;
+      border-bottom: none; /* If status badge is directly below */
+  }
+   .order-table td[data-label="Order #"] a { color: var(--primary-color); font-weight: 600; }
+   .order-table td[data-label="Order #"] a:hover { color: var(--primary-color-dark); }
+   .order-table td[data-label="Order #"]::before { content: ""; display: none; } /* Hide label */
+
+  /* Status Badge (typically under Order # on mobile) */
+  .order-status-badge-table {
+      display: block;
+      margin-left: 0; /* Align to left under Order # */
+      margin-top: 5px; /* Space from Order # link */
+      width: fit-content;
+  }
+
+  /* Order Date Cell (content moved to top right, so hide this cell structure) */
+  .order-table td[data-label="Order Date"]::before { content: ""; display: none; }
+  .order-table td[data-label="Order Date"] {
+      font-size: 0; padding: 0 !important; margin: 0 !important;
+      border-bottom: none !important; min-height: 0 !important; line-height: 0;
+  }
+
+  /* --- STYLING FOR COMMENTS (Stacked Layout & Conditional Label Hiding) --- */
+  .order-table td[data-label="Comments"]::before {
+      position: static; 
+      display: block;   
+      width: 100%;      
+      text-align: left; 
+      margin-bottom: 3px; 
+      padding-right: 0; 
+  }
+  .order-table td.no-label::before {
+      display: none !important; 
+  }
+  .order-table td[data-label="Comments"] {
+      text-align: left; 
+      padding-top: 8px; 
+      padding-bottom: 8px;
+  }
+  .order-table td[data-label="Comments"].no-label {
+      padding-top: 6px; 
+  }
+  .order-table td[data-label="Comments"] .comment-value {
+     display: -webkit-box; 
+     -webkit-box-orient: vertical;
+     -webkit-line-clamp: 2; 
+     line-clamp: 2;         
+     overflow: hidden;
+     text-overflow: ellipsis; 
+     width: 100%;
+     text-align: left;
+     white-space: normal;    
+     word-break: break-word;
+     font-weight: normal;
+     color: var(--text-color);
+     font-size: 0.9em;
+     line-height: 1.4;       
+  }
+  /* --- END STYLING FOR COMMENTS --- */
+
+.order-table td[data-label="Customer"] {
+    font-weight: 500;
+}
+   .order-table td[data-label="Ship Method"],
+   .order-table td[data-label="Ship To"] { font-size: 0.9em; color: var(--text-light); }
+
+
+   /* Total Cell Styling on Mobile */
+   .order-table td[data-label="Total"] {
+      text-align: right; /* Value to the right for Total */
+      font-size: 1.15em;
+      font-weight: bold;
+   }
+} /* End of @media (max-width: 768px) */
+
+/* ***** NEW: Rule to hide elements on desktop ***** */
+@media (min-width: 769px) {
+  .hide-on-desktop {
+    display: none !important;
+  }
+}
+
+
+/* Style for loading/error messages */
+.loading-message, .error-message {
+  padding: 12px 15px;
+  margin-top: 15px;
+  margin-bottom: 15px;
+  border-radius: 4px;
+  text-align: center;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+.loading-message {
+  background-color: #e9ecef;
+  color: #333;
+  border-color: #ced4da;
+}
+.error-message {
+  background-color: #f8d7da;
+  color: #721c24;
+  border-color: #f5c6cb;
+}
+
+.dashboard-controls-bar {
+  display: flex;
+  justify-content: space-between; /* Aligns filter to left, ingest to right */
+  align-items: center;
+  flex-wrap: wrap; /* Allow wrapping on smaller screens */
+  gap: 15px; /* Space between items if they wrap */
+  margin-bottom: 20px;
+}
+
+.dashboard-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ingest-controls-sticky-wrapper {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: var(--bg-card);
+  padding: 15px 20px;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+  z-index: 1000;
+  box-sizing: border-box;
+  display: flex; 
+  justify-content: center; 
+  align-items: center; 
+}
+
+.ingest-controls {
+  display: flex; 
+  flex-direction: column; 
+  align-items: center; 
+  text-align: center; 
+}
+
+.ingest-button {
+  background-color: var(--primary-accent);
+  color: var(--text-on-primary);
+  border: none;
+  padding: 10px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+}
+
+.ingest-button:hover:not(:disabled) {
+  background-color: var(--primary-accent-dark);
+}
+
+.ingest-button:disabled {
+  background-color: var(--bg-disabled);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.ingestion-message {
+  font-size: 0.9em; 
+  margin-bottom: 8px; 
+  font-weight: 500;
+}

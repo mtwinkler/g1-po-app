@@ -1,0 +1,223 @@
+/* ProductMappingList.css */
+
+/* Uses global CSS variables defined in App.css or index.css */
+/* :root variables are NOT redefined here if App.css is loaded globally */
+
+/* --- Main Container --- */
+.list-view-container {
+  max-width: 1200px;
+  margin: 20px auto;
+  padding: 20px;
+  color: var(--text-main);
+}
+
+.list-view-container h2 {
+  color: var(--text-main);
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 10px;
+  text-align: center;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* --- Controls & Add Button --- */
+.controls-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.add-new-button {
+  background-color: var(--primary-accent);
+  color: var(--text-on-primary);
+  padding: 10px 20px;
+  text-decoration: none;
+  border-radius: 5px;
+  font-weight: 500;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.add-new-button:hover {
+  background-color: var(--primary-accent-dark);
+  transform: translateY(-1px);
+}
+
+/* --- Responsive Table Container --- */
+.table-responsive-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* --- Table Styling --- */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+  /* The table itself can have the card background, or be transparent if rows are cards */
+  /* background-color: var(--bg-card); /* Option 1: Table itself is a card */
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px 15px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: top;
+}
+
+.data-table thead th {
+  /* Use a slightly different background for headers, or the same as cards */
+  background-color: color-mix(in srgb, var(--bg-card) 95%, var(--bg-page) 5%);
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-medium);
+  white-space: nowrap;
+}
+
+.data-table tbody tr {
+    background-color: var(--bg-card); /* Ensure rows get the card background */
+}
+
+.data-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--primary-accent) 10%, var(--bg-card) 90%) !important; /* Ensure hover is visible */
+}
+
+.data-table tbody tr.clickable-row:hover {
+  cursor: pointer;
+  background-color: color-mix(in srgb, var(--primary-accent) 15%, var(--bg-card) 85%) !important;
+}
+
+/* --- Link Styling within table --- */
+.data-table td a.action-link {
+  color: var(--primary-accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.data-table td a.action-link:hover {
+  text-decoration: underline;
+  color: var(--primary-accent-dark);
+}
+
+/* --- Loading/Error/Empty Messages --- */
+.loading-message, .error-message, .empty-list-message {
+  padding: 12px 15px;
+  margin: 20px auto; /* Centered with some margin */
+  max-width: 600px; /* Max width for messages */
+  border-radius: 4px;
+  text-align: center;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.loading-message {
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  border-color: var(--border-medium);
+}
+
+.error-message {
+  /* Uses global error variables which should be defined in App.css */
+  background-color: var(--error-bg, #f8d7da); 
+  color: var(--error-text, #721c24);
+  border-color: var(--error-border, #f5c6cb);
+}
+
+.empty-list-message {
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  border-color: var(--border-medium);
+  font-style: italic;
+}
+
+
+/* === MOBILE CARD STYLES for ProductMappingList (Uniform Background & Specific Labeling) === */
+@media (max-width: 768px) {
+  .table-responsive-container {
+    border: none;
+    background-color: transparent; /* Page background will show through */
+    box-shadow: none;
+    overflow-x: visible;
+  }
+  .data-table {
+    border: 0; /* No border for the table itself */
+    background-color: transparent;
+    box-shadow: none;
+  }
+  .data-table thead {
+    /* Hide table headers on mobile */
+    border: none;
+    clip: rect(0 0 0 0);
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    width: 1px;
+  }
+
+  .data-table tr {
+    /* Each row becomes a card */
+    display: block;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-medium); /* Card border */
+    border-radius: 6px;
+    background-color: var(--bg-card);   /* ALL CARDS USE THE MAIN CARD BACKGROUND */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.07);
+    padding: 0.75rem; /* Padding inside the card */
+    color: var(--text-main);
+  }
+
+  .data-table tr.clickable-row:hover {
+      /* Optional: slightly change background on hover for mobile cards too */
+      background-color: color-mix(in srgb, var(--primary-accent) 5%, var(--bg-card) 95%);
+  }
+
+  /* General styling for all cells when they become card rows */
+  .data-table td {
+    display: block; /* Each td will take its own line or flow as block */
+    text-align: left;
+    padding: 0.3rem 0.25rem; /* Small padding for each "field" */
+    border-bottom: none; /* Remove internal cell borders from table view */
+    position: relative; /* For ::before pseudo-elements if used elsewhere */
+  }
+  
+  .data-table td:not(:last-child) {
+      margin-bottom: 0.25rem; /* Small space between distinct data points in the card */
+  }
+
+  /* SKU: [VALUE] */
+  .data-table td[data-label="SKU"]::before {
+    content: attr(data-label) ": "; /* Adds "SKU: " */
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding-right: 5px; /* Space after the label text */
+    /* display: inline; /* Default, so the value flows after */
+  }
+  /* The SKU value itself is the text content of the td */
+
+  /* [DESCRIPTION_VALUE] - No "Description:" label */
+  .data-table td[data-label="Description"] {
+    /* Style the description value if needed, e.g., font-style, margin */
+    padding-top: 0.1rem; /* A little space above if needed */
+    font-style: italic; /* Optional: make description italic */
+    color: var(--text-secondary); /* Optional: slightly different color for description */
+  }
+  .data-table td[data-label="Description"]::before {
+    display: none; /* Explicitly hide the "Description:" pseudo-label */
+  }
+
+  /* Actions */
+  .data-table td[data-label="Actions"] {
+    text-align: right; /* Push "Edit" link to the right */
+    padding-top: 0.75rem; /* Space above actions */
+    margin-top: 0.5rem; /* More space above actions */
+    border-top: 1px dotted var(--border-light); /* Separator before actions */
+  }
+  .data-table td[data-label="Actions"]::before {
+    display: none; /* Hide "Actions:" pseudo-label */
+  }
+}

@@ -1,0 +1,539 @@
+/* OrderDetail.css */
+
+/* === Base & Foundational Styles === */
+:root {
+  /* Light Mode Defaults (based on your existing) */
+  --primary-accent-lm: #0056b3;      /* Blue for links/accents in light mode */
+  --primary-accent-dark-lm: #004085; /* Darker blue for hover/headings in light mode */
+  
+  --text-main-lm: #333;             /* Main text color for light backgrounds */
+  --text-secondary-lm: #555;        /* Lighter/secondary text for light backgrounds */
+  --text-on-primary-lm: #ffffff;    /* Text color for on dark blue backgrounds (like buttons) */
+  
+  --bg-page-lm: #f9f9f9;            /* Light page background */
+  --bg-card-lm: #ffffff;            /* White card background */
+  --bg-input-lm: #ffffff;           /* Input background */
+  --bg-disabled-lm: #f1f3f5;        /* Disabled input background */
+
+  --border-strong-lm: #dee2e6;      /* Standard border color */
+  --border-medium-lm: #e9ecef;     /* Lighter border for less emphasis */
+  --border-light-lm: #f1f1f1;       /* Very light border, or for dividers inside cards */
+  --border-input-lm: #ced4da;       /* Border for inputs */
+  
+  --success-bg-lm: #d4edda;
+  --success-text-lm: #155724;
+  --success-border-lm: #c3e6cb;
+  --error-bg-lm: #f8d7da;
+  --error-text-lm: #721c24;
+  --error-border-lm: #f5c6cb;
+  
+  --status-new-bg-lm: #dc3545;       /* Red */
+  --status-processed-bg-lm: #28a745; /* Green */
+  --status-pending-bg-lm: #ffc107;   /* Yellow */
+  --status-pending-text-lm: #333;    /* Dark text on yellow */
+  --status-international-bg-lm: #fd7e14; /* Orange */
+  --status-rfqsent-bg-lm: #17a2b8;    /* Teal/Info */
+  --status-unknown-bg-lm: #6c757d;   /* Gray */
+  --status-text-lm: #ffffff;         /* Default text for status badges */
+
+  /* Universal Semantic Variables - Default to Light Mode */
+  --primary-accent: var(--primary-accent-lm);
+  --primary-accent-dark: var(--primary-accent-dark-lm);
+  --text-main: var(--text-main-lm);
+  --text-secondary: var(--text-secondary-lm);
+  --text-on-primary: var(--text-on-primary-lm);
+  --bg-page: var(--bg-page-lm);
+  --bg-card: var(--bg-card-lm);
+  --bg-input: var(--bg-input-lm);
+  --bg-disabled: var(--bg-disabled-lm);
+  --border-strong: var(--border-strong-lm);
+  --border-medium: var(--border-medium-lm);
+  --border-light: var(--border-light-lm);
+  --border-input: var(--border-input-lm);
+  --success-bg: var(--success-bg-lm);
+  --success-text: var(--success-text-lm);
+  --success-border: var(--success-border-lm);
+  --error-bg: var(--error-bg-lm);
+  --error-text: var(--error-text-lm);
+  --error-border: var(--error-border-lm);
+  --status-new-bg: var(--status-new-bg-lm);
+  --status-processed-bg: var(--status-processed-bg-lm);
+  --status-pending-bg: var(--status-pending-bg-lm);
+  --status-pending-text: var(--status-pending-text-lm);
+  --status-international-bg: var(--status-international-bg-lm);
+  --status-rfqsent-bg: var(--status-rfqsent-bg-lm);
+  --status-unknown-bg: var(--status-unknown-bg-lm);
+  --status-text: var(--status-text-lm);
+
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+}
+
+/* Dark Mode Overrides */
+@media (prefers-color-scheme: dark) {
+  :root { /* Or body.dark-mode if using a class toggle */
+    --primary-accent-dm: #64b5f6;      /* Lighter blue for dark mode links/accents */
+    --primary-accent-dark-dm: #90caf9; /* Even lighter for hover/headings */
+    
+    --text-main-dm: #e0e0e0;           /* Light gray/off-white for main text */
+    --text-secondary-dm: #b0bec5;      /* Lighter gray for secondary text */
+    --text-on-primary-dm: #121212;  /* Dark text for on light blue backgrounds */
+
+    --bg-page-dm: #121212;             /* Very dark gray/black for page background */
+    --bg-card-dm: #1e1e1e;             /* Dark gray for card backgrounds */
+    --bg-input-dm: #2c2c2c;            /* Darker input background */
+    --bg-disabled-dm: #383838;         /* Disabled input background */
+
+    --border-strong-dm: #545454;       /* Medium-dark gray border */
+    --border-medium-dm: #424242;      /* Dark gray border */
+    --border-light-dm: #303030;        /* Very dark gray for subtle dividers */
+    --border-input-dm: #545454;        /* Border for inputs */
+
+    --success-bg-dm: #1e4620;
+    --success-text-dm: #a7d7a9;
+    --success-border-dm: #2a682e;
+    --error-bg-dm: #58151c;
+    --error-text-dm: #f5c6cb;
+    --error-border-dm: #8c1c24;
+
+    --status-new-bg-dm: #cf6679;       /* Darker red, but still distinct */
+    --status-processed-bg-dm: #66bb6a; /* Darker green */
+    --status-pending-bg-dm: #ffee58;   /* Yellow, text might need to be dark */
+    --status-pending-text-dm: #121212; /* Dark text on yellow for dark mode */
+    --status-international-bg-dm: #ffa726; /* Darker orange */
+    --status-rfqsent-bg-dm: #4dd0e1;    /* Lighter teal */
+    --status-unknown-bg-dm: #78909c;   /* Lighter gray */
+    --status-text-dm: #ffffff;         /* Default white text still okay for most dark badges */
+
+    /* Update Semantic Variables for Dark Mode */
+    --primary-accent: var(--primary-accent-dm);
+    --primary-accent-dark: var(--primary-accent-dark-dm);
+    --text-main: var(--text-main-dm);
+    --text-secondary: var(--text-secondary-dm);
+    --text-on-primary: var(--text-on-primary-dm);
+    --bg-page: var(--bg-page-dm);
+    --bg-card: var(--bg-card-dm);
+    --bg-input: var(--bg-input-dm);
+    --bg-disabled: var(--bg-disabled-dm);
+    --border-strong: var(--border-strong-dm);
+    --border-medium: var(--border-medium-dm);
+    --border-light: var(--border-light-dm);
+    --border-input: var(--border-input-dm);
+    --success-bg: var(--success-bg-dm);
+    --success-text: var(--success-text-dm);
+    --success-border: var(--success-border-dm);
+    --error-bg: var(--error-bg-dm);
+    --error-text: var(--error-text-dm);
+    --error-border: var(--error-border-dm);
+    --status-new-bg: var(--status-new-bg-dm);
+    --status-processed-bg: var(--status-processed-bg-dm);
+    --status-pending-bg: var(--status-pending-bg-dm);
+    --status-pending-text: var(--status-pending-text-dm);
+    --status-international-bg: var(--status-international-bg-dm);
+    --status-rfqsent-bg: var(--status-rfqsent-bg-dm);
+    --status-unknown-bg: var(--status-unknown-bg-dm);
+    --status-text: var(--status-text-dm);
+  }
+}
+
+/* Apply base font to body - If this CSS file is loaded globally or OrderDetail is the main view */
+/* It's better in index.css or App.css if possible */
+body { /* Example if this was global */
+  font-family: var(--font-sans);
+  color: var(--text-main);
+  line-height: 1.6;
+  background-color: var(--bg-page);
+  margin: 0;
+}
+
+/* Basic Link Styling */
+a {
+  color: var(--primary-accent); /* Use adaptive primary accent */
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+a:hover {
+  color: var(--primary-accent-dark); /* Use adaptive darker accent */
+  text-decoration: underline;
+}
+
+
+/* === OrderDetail Specific Styles === */
+
+.order-detail-container {
+  /* Assuming #root handles max-width and centering */
+  padding: 0; 
+  /* background-color: var(--bg-page); /* Set overall page background */
+}
+
+.card {
+    background-color: var(--bg-card); /* Use adaptive card background */
+    border: 1px solid var(--border-medium); /* Use adaptive medium border */
+    border-radius: 6px;
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* This shadow might need adjustment for dark mode */
+    padding-top: 10px;
+    color: var(--text-main); /* Ensure text inside card uses adaptive main text color */
+}
+
+h2, h3, h4 {
+  color: var(--primary-accent-dark); /* Use adaptive header color */
+  margin-top: 0;
+  margin-bottom: var(--spacing-md);
+  font-weight: 500;
+}
+h2 { font-size: 1.8em; }
+h3 { font-size: 1.6em; border-bottom: 1px solid var(--border-light); padding-bottom: var(--spacing-sm); }
+h4 { font-size: 1.1em; color: var(--text-secondary); font-weight: 500; } /* Adaptive secondary text */
+
+h3 { letter-spacing: 0.5px; }
+
+.order-title-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-lg);
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}
+.order-title-section h2 {
+    margin-bottom: 0;
+}
+.order-title-section h2 span[style*="color: white"] { /* Target your white span */
+    color: var(--text-main) !important; /* Override inline style with adaptive text color */
+}
+
+
+.order-status-badge {
+    font-weight: 600;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: 16px;
+    color: var(--status-text); /* Use adaptive status text color */
+    font-size: 0.85em;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Status Colors Using Variables */
+.status-new { background-color: var(--status-new-bg); }
+.status-processed { background-color: var(--status-processed-bg); }
+.status-pending { background-color: var(--status-pending-bg); color: var(--status-pending-text); } /* Uses specific text color */
+.status-international_manual { background-color: var(--status-international-bg); }
+.status-unknown { background-color: var(--status-unknown-bg); }
+.status-rfq-sent { background-color: var(--status-rfqsent-bg); }
+
+/* Order Info Section */
+.order-info {
+    line-height: 1.7;
+    color: var(--text-main); /* Ensure general text in this section is adaptive */
+}
+.order-info div {
+  margin-bottom: var(--spacing-xs);
+}
+.order-info strong {
+    color: var(--text-secondary); /* Use adaptive secondary text for labels */
+    min-width: 80px;
+    display: inline-block;
+}
+
+.order-info-item {
+    margin-bottom: var(--spacing-sm);
+    font-size: 1em;
+    line-height: 1.5;
+    text-align: left;
+    padding-left: var(--spacing-md);
+    position: relative;
+    color: var(--text-main); /* Ensure adaptive text */
+}
+.order-info-item::before {
+    content: '•';
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--primary-accent); /* Use adaptive accent */
+}
+
+.order-info-item span {
+    margin-right: var(--spacing-sm);
+}
+
+/* Form Styling */
+.processing-form {
+  margin-top: var(--spacing-xl);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--border-light); /* Use adaptive light border */
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: var(--spacing-sm) var(--spacing-md);
+    align-items: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.form-grid label {
+  font-weight: 500;
+  text-align: right;
+  color: var(--text-secondary); /* Adaptive secondary text */
+  font-size: 0.95em;
+}
+
+.form-grid select,
+.form-grid input[type="text"],
+.form-grid input[type="number"],
+.form-grid textarea {
+  padding: var(--spacing-sm) 10px;
+  border: 1px solid var(--border-input); /* Adaptive input border */
+  border-radius: 4px;
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 1em; /* Restored for readability */
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background-color: var(--bg-input); /* Adaptive input background */
+  color: var(--text-main); /* Adaptive input text color */
+}
+.form-grid select:focus,
+.form-grid input:focus,
+.form-grid textarea:focus {
+    outline: none;
+    border-color: var(--primary-accent); /* Adaptive accent for focus */
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-accent) 20%, transparent); /* Adjusted shadow */
+}
+
+.form-grid textarea {
+    resize: vertical;
+    min-height: 140px;
+    line-height: 1.5;
+    font-size: 0.9em; /* Adjusted from 0.86em */
+}
+
+/* Purchase Items Grid Styling */
+.purchase-items-grid {
+    margin-top: var(--spacing-lg);
+}
+.purchase-items-grid h4 {
+    margin-bottom: var(--spacing-sm);
+}
+.item-header-row {
+    display: grid;
+    grid-template-columns: 1.5fr 3fr 80px 100px;
+    gap: var(--spacing-sm);
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 2px solid var(--border-strong); /* Adaptive strong border */
+    font-size: 0.9em;
+    color: var(--text-secondary); /* Adaptive secondary text */
+    text-align: left;
+    padding-left: 15px;
+    padding-right: 15px;
+}
+.item-header-row span:nth-child(3),
+.item-header-row span:nth-child(4) {
+    text-align: right;
+    padding-right: 5px;
+}
+
+.item-row {
+  display: grid;
+  grid-template-columns: 1.5fr 3fr 80px 100px;
+  gap: var(--spacing-sm) var(--spacing-md);
+  align-items: start;
+  background-color: color-mix(in srgb, var(--bg-card) 95%, var(--bg-page) 5%); /* Slightly different from card */
+  border: 1px solid var(--border-medium); /* Use adaptive medium border */
+  border-radius: 5px;
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+.item-row:last-child {
+    margin-bottom: 0;
+}
+
+.item-row input, .item-row textarea {
+    padding: var(--spacing-sm);
+    font-size: 1em;
+    border: 1px solid var(--border-input); /* Use adaptive input border */
+    border-radius: 4px;
+    background-color: var(--bg-input); /* Use adaptive input background */
+    color: var(--text-main); /* Use adaptive input text color */
+}
+.sku-input { width: 100%; box-sizing: border-box; }
+.description-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 120px;
+    font-family: inherit;
+    padding: var(--spacing-sm);
+    line-height: 1.5;
+    font-size: 0.9em !important; /* Adjusted from 0.86em */
+}
+.qty-input { width: 70px; text-align: center; }
+.price-input { width: 90px; text-align: right; }
+
+
+/* Click to Copy & Link Buttons */
+.copy-button {
+    background: none; border: none; cursor: pointer; font-size: 1em;
+    padding: 0 var(--spacing-xs); vertical-align: middle; color: var(--text-secondary); /* Adaptive */
+    opacity: 0.7; transition: opacity 0.2s ease;
+}
+.copy-button:hover { opacity: 1; }
+
+.link-button {
+    background: none; border: none; cursor: pointer; padding: 0;
+    color: var(--primary-accent-dark); text-decoration: underline; font-size: inherit; /* Adaptive */
+}
+.link-button:hover { color: var(--primary-accent-dark); } /* Already adaptive */
+.link-button:disabled { color: var(--text-secondary); text-decoration: none; cursor: not-allowed; opacity: 0.6; }
+
+.clipboard-status { margin-left: var(--spacing-sm); font-size: 0.8em; color: var(--success-text); font-style: italic; } /* Adaptive */
+
+/* Action Button */
+.action-section { margin-top: var(--spacing-xl); text-align: center; }
+
+.process-button {
+  background-color: var(--primary-accent-dark); /* Adaptive */
+  color: var(--text-on-primary); /* Adaptive text on primary */
+  padding: 10px var(--spacing-lg);
+  border: none;
+  border-radius: 5px;
+  font-size: 1.1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  letter-spacing: 0.5px;
+}
+
+.process-button:hover:not(:disabled) {
+  background-color: var(--primary-accent); /* Lighter adaptive accent on hover */
+  box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+}
+
+.process-button:disabled { 
+  background-color: color-mix(in srgb, var(--text-secondary) 30%, transparent); /* Adaptive disabled */
+  color: color-mix(in srgb, var(--text-main) 50%, transparent);
+  cursor: not-allowed; 
+}
+
+/* Disable form elements visually */
+.form-disabled select,
+.form-disabled input,
+.form-disabled textarea {
+    background-color: var(--bg-disabled); /* Adaptive disabled background */
+    cursor: not-allowed;
+    opacity: 0.7;
+    border-color: var(--border-medium); /* Adaptive medium border */
+    color: var(--text-secondary); /* Adaptive disabled text */
+}
+
+
+/* Messages */
+.loading-message, .error-message, .success-message {
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin-top: var(--spacing-lg);
+    border-radius: 4px;
+    text-align: center;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+.loading-message { background-color: var(--border-medium); color: var(--text-main); border-color: var(--border-strong);} /* Adaptive */
+.error-message { background-color: var(--error-bg); color: var(--error-text); border-color: var(--error-border); } /* Adaptive */
+.success-message { background-color: var(--success-bg); color: var(--success-text); border-color: var(--success-border); } /* Adaptive */
+
+
+/* --- Responsive Adjustments --- */
+
+.mobile-label { display: none; margin-bottom: var(--spacing-xs); font-size: 0.85em; color: var(--text-secondary); font-weight: 600; } /* Adaptive */
+
+@media (max-width: 768px) {
+  .item-header-row { display: none; }
+  .mobile-label { display: block; }
+
+  .item-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--spacing-md);
+    border-bottom: none;
+  }
+
+  .item-row input[type="text"],
+  .item-row textarea,
+  .item-row input[type="number"] {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .qty-cost-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    align-items: start;
+  }
+  .qty-cost-row .qty-input,
+  .qty-cost-row .price-input {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: left;
+  }
+
+   .form-grid {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-xs) 0;
+    }
+    .form-grid label {
+        text-align: left;
+        margin-bottom: var(--spacing-xs);
+    }
+    .order-title-section { align-items: flex-start; }
+    .order-title-section h2 { margin-bottom: var(--spacing-xs); font-size: 1.6em; }
+    .order-status-badge { margin-left: 0; margin-top: var(--spacing-xs); }
+}
+
+@media (max-width: 480px) {
+    .order-title-section h2 { font-size: 1.4em; }
+    .qty-cost-row { gap: var(--spacing-sm); }
+    .item-row { gap: var(--spacing-sm); }
+    h3 { font-size: 1.25em; }
+    .form-grid { grid-template-columns: 1fr; }
+    .form-grid label { text-align: left; }
+
+    /* Updated Process Button for Mobile - Dark Mode Friendly */
+    .process-button {
+      font-size: 1.3em; /* Keep or adjust */
+      font-weight: 500; /* Keep or adjust */
+      letter-spacing: 1px; /* Keep or adjust */
+      padding: 10px 20px; /* Keep or adjust */
+      color: var(--text-on-primary); /* Uses dark mode variable for text on button */
+      background: linear-gradient(to bottom, color-mix(in srgb, var(--primary-accent) 90%, black), color-mix(in srgb, var(--primary-accent) 70%, black)); /* Adaptive gradient */
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      outline: none;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+      transition:
+        background 0.3s ease,
+        transform 0.2s ease,
+        box-shadow 0.3s ease,
+        text-shadow 0.3s ease;
+    }
+
+    .process-button:hover:not(:disabled) {
+      background: linear-gradient(to bottom, var(--primary-accent), color-mix(in srgb, var(--primary-accent) 80%, black)); /* Adaptive gradient hover */
+      transform: translateY(-2px);
+      box-shadow: 0 0 12px color-mix(in srgb, var(--primary-accent) 50%, transparent); /* Adaptive glow */
+      text-shadow: 0 0 5px color-mix(in srgb, var(--text-on-primary) 25%, transparent); /* Adaptive text shadow */
+    }
+
+    .process-button:active:not(:disabled) { /* Added :not(:disabled) */
+      transform: scale(0.98);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    }
+}

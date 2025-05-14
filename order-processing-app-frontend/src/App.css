@@ -1,0 +1,256 @@
+/* App.css */
+
+/* === Font Definitions === */
+@font-face {
+  font-family: 'Eloquia';
+  src: url('/fonts/eloquia-extra-light.woff2') format('woff2'); /* Note leading / */
+  font-weight: 300;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Eloquia';
+  src: url('/fonts/eloquia-semibold.woff2') format('woff2'); /* Note leading / */
+  font-weight: 600;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Eloquia';
+  src: url('/fonts/eloquia-extra-bold.woff2') format('woff2'); /* Note leading / */
+  font-weight: 800;
+  font-style: normal;
+}
+
+/* === GLOBAL CSS VARIABLES === */
+:root {
+
+  --font-sans: 'Eloquia', Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+
+  /* --- Light Mode Defaults --- */
+  --primary-accent-lm: #007bff;      /* A standard, accessible blue */
+  --primary-accent-dark-lm: #0056b3; /* Darker blue for hover/headings */
+  
+  --text-main-lm: #212529;           /* Dark text for light backgrounds */
+  --text-secondary-lm: #495057;      /* Lighter/secondary text */
+  --text-on-primary-lm: #ffffff;    /* White text for on dark blue backgrounds */
+  --text-nav-link-lm: #0056b3;       /* Link color for nav */
+
+  --bg-page-lm: #f8f9fa;            /* Light page background */
+  --bg-card-lm: #ffffff;            /* White card background */
+  --bg-card-alt-lm: #f1f3f5;      /* Slightly off-white for alternating cards in dark mode */ 
+  --bg-nav-lm: #f0f0f0;             /* Light background for nav */
+  --bg-input-lm: #ffffff;
+  --bg-disabled-lm: #e9ecef;
+
+  --border-strong-lm: #ced4da;      /* Standard border color */
+  --border-medium-lm: #dee2e6;     /* Lighter border */
+  --border-light-lm: #e9ecef;       /* Very light border, for dividers */
+  --border-nav-lm: #dee2e6;         /* Nav border */
+  --border-input-lm: #ced4da;
+
+  /* --- Dark Mode Defaults --- */
+  --primary-accent-dm: #4dabf7;      /* Lighter blue for dark mode links/accents */
+  --primary-accent-dark-dm: #1c7ed6; 
+  
+  --text-main-dm: #e9ecef;           /* Light gray/off-white for main text */
+  --text-secondary-dm: #adb5bd;      /* Lighter gray for secondary text */
+  --text-on-primary-dm: #ffffff;    /* White text still works on blue backgrounds */
+  --text-nav-link-dm: #90caf9;       /* Lighter blue for nav links in dark mode */
+
+  --bg-page-dm: #121212;             /* Very dark gray/black for page background */
+  --bg-card-dm: #1e1e1e;             /* Dark gray for card backgrounds */
+  --bg-card-alt-dm: #2c2c2c;       /* Slightly different dark for alternating cards in dark mode */
+  --bg-nav-dm: #1a1a1a;             /* Dark background for nav */
+  --bg-input-dm: #2c2c2c;
+  --bg-disabled-dm: #383838;
+
+  --border-strong-dm: #495057;       /* Medium-dark gray border */
+  --border-medium-dm: #343a40;      /* Dark gray border */
+  --border-light-dm: #2c3034;        /* Very dark gray for subtle dividers */
+  --border-nav-dm: #343a40;          /* Nav border in dark mode */
+  --border-input-dm: #495057;
+
+  /* --- Universal Semantic Variables (Default to Light Mode) --- */
+  --primary-accent: var(--primary-accent-lm);
+  --primary-accent-dark: var(--primary-accent-dark-lm);
+  --text-main: var(--text-main-lm);
+  --text-secondary: var(--text-secondary-lm);
+  --text-on-primary: var(--text-on-primary-lm);
+  --text-nav-link: var(--text-nav-link-lm);
+  --bg-page: var(--bg-page-lm);
+  --bg-card: var(--bg-card-lm);
+  --bg-card-alt: var(--bg-card-alt-lm); /* New alternating card background */
+  --bg-nav: var(--bg-nav-lm);
+  --bg-input: var(--bg-input-lm);
+  --bg-disabled: var(--bg-disabled-lm);
+  --border-strong: var(--border-strong-lm);
+  --border-medium: var(--border-medium-lm);
+  --border-light: var(--border-light-lm);
+  --border-nav: var(--border-nav-lm);
+  --border-input: var(--border-input-lm);
+
+  /* Other variables from OrderDetail.css can also be moved here if they are truly global */
+  --status-new-bg: #dc3545; 
+  /* ... etc. for all status, success, error variables ... */
+}
+
+/* --- Dark Mode Overrides --- */
+@media (prefers-color-scheme: dark) {
+  :root { /* Or body.dark-mode if using a class toggle */
+    --primary-accent: var(--primary-accent-dm);
+    --primary-accent-dark: var(--primary-accent-dark-dm);
+    --text-main: var(--text-main-dm);
+    --text-secondary: var(--text-secondary-dm);
+    --text-on-primary: var(--text-on-primary-dm);
+    --text-nav-link: var(--text-nav-link-dm);
+    --bg-page: var(--bg-page-dm);
+    --bg-card: var(--bg-card-dm);
+    --bg-card-alt: var(--bg-card-alt-dm); /* New alternating card background for dark mode */
+    --bg-nav: var(--bg-nav-dm);
+    --bg-input: var(--bg-input-dm);
+    --bg-disabled: var(--bg-disabled-dm);
+    --border-strong: var(--border-strong-dm);
+    --border-medium: var(--border-medium-dm);
+    --border-light: var(--border-light-dm);
+    --border-nav: var(--border-nav-dm);
+    --border-input: var(--border-input-dm);
+
+    /* Override status, success, error variables if needed for dark mode */
+    /* Example:
+    --status-pending-bg: #AD8C00; 
+    --status-pending-text: #121212; 
+    */
+  }
+}
+
+/* === Global Element Styles === */
+body {
+  font-family: 'Eloquia', var(--font-sans);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  align-items: flex-start; /* Align #root to the top */
+  background-color: var(--bg-page); /* Use CSS variable for background */
+  color: var(--text-main);       /* Use CSS variable for default text color */
+}
+
+#root {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: left;
+  box-sizing: border-box; /* Good practice */
+}
+
+/* Links globally */
+a {
+  color: var(--primary-accent);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--primary-accent-dark);
+  text-decoration: underline;
+}
+
+/* Input and select elements globally (if you want consistent base styling) */
+input, button, textarea, select {
+  font-family: inherit; /* Inherit Eloquia font */
+  font-size: 1em;
+  color: var(--text-main);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: 4px;
+  padding: 0.5em 0.75em; /* Example padding */
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--primary-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-accent) 20%, transparent);
+}
+
+/* === Main Navigation === */
+.main-navigation {
+  width: 100%; /* Make nav take full width of its container (#root) */
+  text-align: center;
+  padding: 1rem 0;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border-nav); /* Use CSS variable */
+  background-color: var(--bg-nav);        /* Use CSS variable */
+  box-sizing: border-box;
+}
+
+.main-navigation a {
+  margin: 0 10px;
+  font-weight: 600; /* Slightly bolder for nav links */
+  color: var(--text-nav-link); /* Use CSS variable */
+}
+
+/* === Responsive styles for mobile === */
+@media (max-width: 768px) {
+  #root {
+    /* max-width: none; /* Already set */
+    /* width: 100%; /* Already set */
+    /* margin: 0; /* Already set */
+    padding: 1rem; /* Adjusted padding for mobile #root */
+    /* text-align: left; /* Already set */
+  }
+
+  .main-navigation {
+    padding: 0.75rem 0;
+  }
+  .main-navigation a {
+    margin: 0 8px;
+    font-size: 0.95em;
+  }
+}
+
+/* === Default Vite/React Logo Styles (Keep or remove if not using) === */
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+/* === Default Vite Card Style === */
+/*
+  It's better to define .card styles here globally if it's a common component style.
+  The OrderDetail.css also defines .card. Consolidate them here or ensure
+  OrderDetail.css overrides are intentional.
+  Using the --bg-card and --border-strong variables is a good start.
+*/
+.card {
+  padding: 2em; /* Default Vite padding - adjust as needed */
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px; /* Example */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); /* This shadow might need dark mode adjustment */
+  margin-bottom: 1rem;
+  color: var(--text-main); /* Ensure text inside cards is adaptive */
+}
+
+/* === Default Vite Docs Link Style === */
+.read-the-docs {
+  color: var(--text-secondary); /* Use adaptive secondary text */
+}

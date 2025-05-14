@@ -1,0 +1,73 @@
+# .dockerignore
+
+# Python virtual environments
+venv/
+
+# Python cache files
+__pycache__/
+
+# Custom backups folder
+backups/
+
+# --- Include other common ignores from the previous example ---
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# More Python cache variations (good to have)
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# IDE / Editor specific
+.vscode/
+.idea/
+*.swp
+*~
+*.sublime-project
+*.sublime-workspace
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local SQLite databases (if any used for dev)
+*.db
+*.sqlite
+*.sqlite3
+
+# Test outputOkay, to
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nos ignore the `venv`, `__pycache__`, and `backups` folders (etests.xml
+coverage.xml
+*.cover
+*.hypothesis/
+.pytest_cache/
