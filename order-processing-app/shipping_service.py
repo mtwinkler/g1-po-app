@@ -149,10 +149,27 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
          print(f"DEBUG UPS_LABEL_RAW: Shipping method '{customer_shipping_method_name}' did not map. Skipping label.")
          return None, None
 
-    # State code mapping logic from backup (simplified for brevity, assuming it works or is handled)
     ship_to_state_full = order_data.get('customer_shipping_state', '')
-    # Basic mapping, can be expanded or made more robust if needed
-    ship_to_state_code = ship_to_state_full if len(ship_to_state_full) == 2 else ship_to_state_full # Placeholder, needs proper mapping
+    state_mapping = {
+        "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA", 
+        "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC", 
+        "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL", 
+        "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA", 
+        "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI", 
+        "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT", 
+        "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ", 
+        "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", 
+        "ohio": "OH", "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA", 
+        "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", "tennessee": "TN", 
+        "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA", 
+        "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY", "puerto rico": "PR",
+    }
+    ship_to_state_code = state_mapping.get(ship_to_state_full.lower().strip(), "")
+    if not ship_to_state_code and order_data.get('customer_shipping_country', 'US').upper() == 'US':
+         print(f"ERROR UPS Payload: US State '{ship_to_state_full}' could not be mapped to a 2-letter code.")
+         return None, None
+    elif not ship_to_state_code: ship_to_state_code = ship_to_state_full 
+    print(f"DEBUG UPS Payload Prep: Ship To State Code: '{ship_to_state_code}'")
 
     payload = {
         "ShipmentRequest": {

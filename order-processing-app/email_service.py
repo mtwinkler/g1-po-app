@@ -104,19 +104,19 @@ def send_po_email(supplier_email, po_number, attachments):
 
         subject = f"New Purchase Order #{po_number} from {COMPANY_NAME_FOR_EMAIL}"
         html_body = f"""
-        <p>Hello,</p>
-        <p><br></p>
-        <p>Attached are the purchase order, packing slip, and shipping paperwork for our PO# referenced above. Kindly process at your earliest convenience.</p>
-        <p><br></p>
-        <p>Thanks!</p>
-        <p><br></p>
-        <p><strong>Mark T. Winkler</strong></p>
-        <p><em>HP Enterprise Purchasing and Fulfillment</em></p>
-        <p><strong>Global One Technology</strong></p>
-        <p>
-            <img src="https://fonts.gstatic.com/s/e/notoemoji/16.0/2709_fe0f/72.png" alt="✉️" height="17" width="17">&nbsp;
-            <a href="mailto:sales@globalonetechnology.com" target="_blank" style="color: rgb(31, 162, 221);">sales@globalonetechnology.com</a>
-        </p>
+         Hello, 
+         <br><br> 
+         Attached are the purchase order, packing slip, and shipping paperwork for our PO# referenced above. Kindly process at your earliest convenience. 
+         <br><br> 
+         Thanks! 
+         <br> 
+         <strong>Mark T. Winkler</strong>
+
+         <em>HP Enterprise Purchasing and Fulfillment</em>
+         <strong>Global One Technology</strong>
+	 <br> 
+         <img src="https://fonts.gstatic.com/s/e/notoemoji/16.0/2709_fe0f/72.png" alt="✉️" height="16" width="1">&nbsp;
+         <a href="mailto:sales@globalonetechnology.com" target="_blank" style="color: rgb(31, 162, 221);">sales@globalonetechnology.com</a>
         """
 
         print(f"DEBUG EMAIL_SERVICE (PO): Sending Postmark email to {supplier_email} for PO {po_number} with {len(email_attachments_for_postmark)} attachments.")
