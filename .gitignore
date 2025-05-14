@@ -48,3 +48,6 @@ cloud_sql_proxy.exe
 
 # Log files
 *.log
+
+# Temporary / Cache Folders
+.tmp.driveupload/
