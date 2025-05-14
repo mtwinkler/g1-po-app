@@ -537,3 +537,36 @@ h3 { letter-spacing: 0.5px; }
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     }
 }
+
+.manual-actions-section {
+  margin-top: 20px;
+  margin-bottom: 20px;
+  text-align: center;
+  display: flex;
+  justify-content: center; /* Center buttons if they don't fill the space */
+  gap: 10px; /* Space between buttons */
+  flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+}
+
+.manual-action-button {
+  /* Inherits from .process-button if used together, or define specific styles here */
+  padding: 10px 15px; /* Adjust if needed */
+  font-size: 0.95em;  /* Slightly smaller if desired */
+}
+
+/* Example specific styles if not using inline */
+.button-mark-completed {
+  background-color: var(--status-processed-bg, #28a745); /* Use variable from root or fallback */
+  color: var(--status-text, #ffffff);
+}
+.button-mark-completed:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--status-processed-bg, #28a745) 85%, black);
+}
+
+.button-process-manually {
+  background-color: var(--status-pending-bg, #ffc107);
+  color: var(--status-pending-text, #333); /* Ensure text is readable on yellow */
+}
+.button-process-manually:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--status-pending-bg, #ffc107) 85%, black);
+}

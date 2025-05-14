@@ -491,7 +491,15 @@ def update_order_status(order_id):
         return jsonify({"error": "Missing 'status' in request body"}), 400
 
     # Optional: Validate the new_status against allowed values
-    allowed_statuses = ['new', 'Processed', 'RFQ Sent', 'international_manual', 'pending', 'other_status'] # Add all valid ones
+    allowed_statuses = [
+        'new',
+        'Processed',
+        'RFQ Sent',
+        'international_manual',
+        'pending',
+        'Completed Offline', # <-- ADD THIS NEW STATUS
+        'other_status' # Keep if used, or remove if not
+    ]
     if new_status not in allowed_statuses:
         return jsonify({"error": f"Invalid status value: {new_status}"}), 400
 
@@ -652,42 +660,58 @@ def ingest_orders():
                     current_time_utc = datetime.now(timezone.utc)
 
                     if existing_order_row:
-                        # --- Handle Existing Order (Update if necessary) ---
-                        print(f"DEBUG INGEST: Order {order_id_from_bc} exists (App ID: {existing_order_row.id}). DB status: '{existing_order_row.status}'.")
                         db_status = existing_order_row.status
+                        print(f"DEBUG INGEST: Order {order_id_from_bc} exists (App ID: {existing_order_row.id}). DB status: '{db_status}'.")
+
+                        # Define statuses that mean "don't touch this order further during routine ingest"
+                        finalized_or_manual_statuses = ['Processed', 'Completed Offline', 'Pending', 'RFQ Sent', 'international_manual']
+                        # Add any other status that signifies the order is beyond the 'new' automated ingest stage.
+
+                        if db_status in finalized_or_manual_statuses:
+                            print(f"DEBUG INGEST: Skipping further processing for BC Order {order_id_from_bc} as its local status is '{db_status}'.")
+                            # You might still want to update minor fields if necessary, like payment_method or tax,
+                            # but not the status or re-evaluate it as 'new'.
+                            # The existing logic for updating payment_method, is_international, bigcommerce_order_tax
+                            # can remain, but the status part should be skipped as handled by the `statuses_to_preserve`
+                            # logic below (or ensure this `continue` is placed strategically).
+
+                            # For a strict "ingest once and don't touch status again" policy for these statuses:
+                            # continue # This would skip ALL updates below for this order if its status is in finalized_or_manual_statuses
+
+                        # --- Handle Existing Order (Update if necessary) ---
                         db_is_international = existing_order_row.is_international
                         db_payment_method = existing_order_row.payment_method
-                        db_tax_amount = existing_order_row.bigcommerce_order_tax # Get existing tax
+                        db_tax_amount = existing_order_row.bigcommerce_order_tax
 
                         bc_payment_method = bc_order_summary.get('payment_method')
 
                         update_fields = {}
-                        # Check for changes that require an update
                         if db_is_international != is_international: update_fields['is_international'] = is_international
                         if db_payment_method != bc_payment_method: update_fields['payment_method'] = bc_payment_method
-                        # ** NEW: Update tax amount if it changed **
                         if db_tax_amount != bc_total_tax: update_fields['bigcommerce_order_tax'] = bc_total_tax
 
-                        # Update status logic (preserve 'RFQ Sent', set 'international_manual' or 'new')
-                        if db_status == 'RFQ Sent':
-                            print(f"DEBUG INGEST: Preserving 'RFQ Sent' status for order {order_id_from_bc}.")
+                        # Status update logic (this will respect statuses_to_preserve)
+                        statuses_to_preserve = ['RFQ Sent', 'Pending', 'Processed', 'Completed Offline', 'international_manual']
+                        if db_status in statuses_to_preserve:
+                            print(f"DEBUG INGEST: Preserving current status '{db_status}' for order {order_id_from_bc}.")
                         else:
-                            new_app_status = 'international_manual' if is_international else 'new'
-                            if db_status != new_app_status: update_fields['status'] = new_app_status
+                            new_app_status_by_ingest = 'international_manual' if is_international else 'new'
+                            if db_status != new_app_status_by_ingest:
+                                print(f"DEBUG INGEST: Current status '{db_status}' for order {order_id_from_bc} is not preserved. Setting to '{new_app_status_by_ingest}'.")
+                                update_fields['status'] = new_app_status_by_ingest
+                            # else: (no status change needed by ingest)
 
-                        # Perform update only if there are changes
                         if update_fields:
-                            update_fields['updated_at'] = current_time_utc # Always update timestamp
+                            update_fields['updated_at'] = current_time_utc
                             set_clauses = [f"{key} = :{key}" for key in update_fields.keys()]
                             update_stmt_str = f"UPDATE orders SET {', '.join(set_clauses)} WHERE id = :id"
                             conn.execute(text(update_stmt_str), {"id": existing_order_row.id, **update_fields})
                             print(f"DEBUG INGEST: Updated Order {order_id_from_bc} (App ID: {existing_order_row.id}). Fields: {list(update_fields.keys())}")
                             updated_count_this_run += 1
                         else:
-                            print(f"DEBUG INGEST: No updates needed for existing order {order_id_from_bc}.")
+                            print(f"DEBUG INGEST: No updates needed for existing order {order_id_from_bc} beyond preserving status.")
                         # --- End Handle Existing Order ---
-                    else:
-                        # --- Handle New Order (Insert) ---
+                    else:                        # --- Handle New Order (Insert) ---
                         target_app_status = 'international_manual' if is_international else 'new'
 
                         # Prepare values for the new order row
