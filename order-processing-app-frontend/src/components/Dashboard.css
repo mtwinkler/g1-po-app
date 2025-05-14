@@ -381,3 +381,55 @@
   margin-bottom: 8px; 
   font-weight: 500;
 }
+
+/* ... (your existing Dashboard.css styles) ... */
+
+/* New styles for status links */
+.dashboard-status-links {
+  display: flex;
+  align-items: center; /* Vertically align "View:" text with links */
+  gap: 10px; /* Space between "View:" text and first link, and between links */
+  flex-wrap: wrap; /* Allow links to wrap on smaller screens */
+}
+
+.status-link, .active-status-link {
+  text-decoration: none;
+  padding: 6px 10px; /* Adjust padding as needed */
+  border-radius: 4px;
+  color: var(--primary-accent); /* Using your existing variable */
+  font-weight: 500;
+  border: 1px solid transparent; /* For consistent height with active */
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease; /* Smooth transitions */
+}
+
+.status-link:hover {
+  text-decoration: none; /* Keep no underline on hover if preferred */
+  background-color: #e9ecef; /* Light grey hover, adjust as needed */
+  color: var(--primary-accent-dark);
+}
+
+.active-status-link {
+  font-weight: 700; /* Bolder for active link */
+  background-color: var(--primary-accent-light, #e7f1fc); /* Using existing or a fallback */
+  color: var(--primary-accent-dark, #004085); /* Using existing or a fallback */
+  border: 1px solid var(--primary-accent-dark, #004085); /* Optional: border for active */
+}
+
+/* Adjust the dashboard-controls-bar if needed, for example, to center the new links if ingest button is removed or relocated */
+.dashboard-controls-bar {
+  display: flex;
+  /* justify-content: space-between; */ /* Original: this might push links left if ingest button is on right */
+  justify-content: flex-start; /* Or center, depending on layout */
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+/* If you want the "Filter by Status:" label gone, remove it from JSX.
+   If you want to keep a general label for the links area: */
+.dashboard-filters-label { /* Example if you add a span with this class */
+  font-weight: 500;
+  color: var(--text-main);
+  margin-right: 10px;
+}

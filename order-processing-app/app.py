@@ -431,6 +431,54 @@ def get_order_details(order_id):
         # ... (other logging for db_conn state if needed)
 print("DEBUG APP_SETUP: Defined /api/orders/<id> GET route.") # Added log 
 
+# ***** NEW: Endpoint to get order counts by status *****
+@app.route('/api/orders/status-counts', methods=['GET'])
+def get_order_status_counts():
+    print("DEBUG GET_STATUS_COUNTS: Received request")
+    db_conn = None
+    try:
+        if engine is None:
+            print("ERROR GET_STATUS_COUNTS: Database engine not available.")
+            return jsonify({"error": "Database engine not available."}), 500
+
+        db_conn = engine.connect()
+        print("DEBUG GET_STATUS_COUNTS: DB connection established.")
+
+        sql_query = text("""
+            SELECT status, COUNT(id) AS order_count
+            FROM orders
+            GROUP BY status;
+        """)
+
+        records = db_conn.execute(sql_query).fetchall()
+
+        status_counts_dict = {}
+        for row in records:
+            row_dict = convert_row_to_dict(row) # Use your existing helper
+            if row_dict and row_dict.get('status') is not None:
+                status_counts_dict[row_dict['status']] = row_dict.get('order_count', 0)
+
+        print(f"DEBUG GET_STATUS_COUNTS: Fetched counts: {status_counts_dict}")
+        # Ensure all desired statuses are present, even if count is 0
+        # (This is optional, frontend can handle missing keys, but good for consistency)
+        defined_statuses = ['new', 'RFQ Sent', 'Processed', 'international_manual', 'pending'] # Match frontend's expectations
+        for s in defined_statuses:
+            if s not in status_counts_dict:
+                status_counts_dict[s] = 0
+
+        return jsonify(make_json_safe(status_counts_dict)), 200 # Use your existing helper
+
+    except Exception as e:
+        print(f"ERROR GET_STATUS_COUNTS: {e}")
+        # print(traceback.format_exc()) # Uncomment for detailed errors during development
+        return jsonify({"error": "Failed to fetch order status counts", "details": str(e)}), 500
+    finally:
+        if db_conn and not db_conn.closed:
+            db_conn.close()
+            print("DEBUG GET_STATUS_COUNTS: DB connection closed.")
+print("DEBUG APP_SETUP: Defined /api/orders/status-counts GET route.") # Add a log for this new route
+# ***** END NEW Endpoint *****
+
 # --- NEW: Endpoint to update order status ---
 @app.route('/api/orders/<int:order_id>/status', methods=['POST'])
 def update_order_status(order_id):
