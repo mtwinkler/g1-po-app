@@ -18,10 +18,12 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
-// Helper function for Brokerbin links
+// MODIFIED: Helper function for Brokerbin links to trim the part number
 const createBrokerbinLink = (partNumber) => {
   if (!partNumber) return '#';
-  const encodedPartNumber = encodeURIComponent(partNumber);
+  const trimmedPartNumber = String(partNumber).trim(); 
+  if (!trimmedPartNumber) return '#';
+  const encodedPartNumber = encodeURIComponent(trimmedPartNumber);
   return `https://members.brokerbin.com/partkey?login=g1tech&parts=${encodedPartNumber}`;
 };
 
@@ -37,9 +39,9 @@ const formatShippingMethod = (methodString) => {
   }
   const match = methodString.match(/\(([^)]+)\)/);
   if (match && match[1]) {
-    return match[1];
+    return match[1].trim(); // Also trim here
   }
-  return methodString;
+  return String(methodString).trim(); // Trim the original string too
 };
 
 
@@ -65,6 +67,10 @@ function OrderDetail() {
   const [purchaseItems, setPurchaseItems] = useState([]);
   const [shipmentMethod, setShipmentMethod] = useState('');
   const [shipmentWeight, setShipmentWeight] = useState('');
+
+  // NEW STATE for storing looked-up spare parts
+  const [lineItemSpares, setLineItemSpares] = useState({}); // { original_line_item_id: "SPARE_SKU" }
+  const [loadingSpares, setLoadingSpares] = useState(false);
 
   const setPurchaseItemsRef = useRef(setPurchaseItems);
   useEffect(() => { setPurchaseItemsRef.current = setPurchaseItems; }, []);
@@ -118,6 +124,7 @@ function OrderDetail() {
 
         setOrderData(fetchedOrderData);
         setSuppliers(fetchedSuppliers || []);
+        setLineItemSpares({}); // Reset spares when main order data is fetched
 
         if (fetchedOrderData?.order) {
             let defaultMethodForForm = 'UPS Ground';
@@ -140,6 +147,7 @@ function OrderDetail() {
                 else if (!initialDescription) initialDescription = cleanPullSuffix.trim();
                 return {
                     original_order_line_item_id: item.line_item_id, sku: initialSku, description: initialDescription, skuInputValue: initialSku, quantity: item.quantity || 1, unit_cost: '', condition: 'New', original_sku: item.original_sku, hpe_option_pn: item.hpe_option_pn, original_name: item.line_item_name, hpe_po_description: item.hpe_po_description,
+                    hpe_pn_type: item.hpe_pn_type, // Assuming backend now sends this for original_sku
                 };
             });
             setPurchaseItemsRef.current(initialItems);
@@ -171,6 +179,50 @@ function OrderDetail() {
     return () => abortController.abort();
   }, [orderId, currentUser, authLoading, fetchOrderAndSuppliers]);
 
+  // useEffect to fetch spare parts when originalLineItems (from orderData) are loaded
+  useEffect(() => {
+    if (!currentUser || !orderData?.line_items || orderData.line_items.length === 0) {
+        return;
+    }
+
+    const fetchAllSpares = async () => {
+        setLoadingSpares(true);
+        const sparesMap = {};
+        const token = await currentUser.getIdToken(true);
+
+        for (const item of orderData.line_items) {
+            // Check if item.original_sku is an 'option' type. 
+            // This relies on 'hpe_pn_type' being returned for the item's original_sku
+            // in your main order details API response.
+            if (item.original_sku && item.hpe_pn_type === 'option') { 
+                try {
+                    const trimmedOriginalSku = String(item.original_sku).trim();
+                    if (!trimmedOriginalSku) continue;
+
+                    const spareApiUrl = `${VITE_API_BASE_URL}/lookup/spare_part/${encodeURIComponent(trimmedOriginalSku)}`;
+                    const response = await fetch(spareApiUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+                    if (response.ok) {
+                        const spareData = await response.json();
+                        if (spareData.spare_sku) {
+                            sparesMap[item.line_item_id] = String(spareData.spare_sku).trim();
+                        }
+                    } else if (response.status !== 404) { 
+                        console.error(`Error fetching spare for ${trimmedOriginalSku}: ${response.status}`);
+                    }
+                } catch (err) {
+                    console.error(`Exception fetching spare for ${item.original_sku}:`, err);
+                }
+            }
+        }
+        setLineItemSpares(sparesMap);
+        setLoadingSpares(false);
+    };
+
+    fetchAllSpares();
+
+  }, [orderData?.line_items, currentUser, VITE_API_BASE_URL]);
+
+
   const [skuToLookup, setSkuToLookup] = useState({ index: -1, sku: '' });
   const debouncedSku = useDebounce(skuToLookup.sku, 500);
 
@@ -180,7 +232,7 @@ function OrderDetail() {
     const fetchDescription = async () => {
       try {
         const token = await currentUser.getIdToken(true);
-        const lookupApiUrl = `${VITE_API_BASE_URL}/lookup/description/${encodeURIComponent(debouncedSku)}`;
+        const lookupApiUrl = `${VITE_API_BASE_URL}/lookup/description/${encodeURIComponent(String(debouncedSku).trim())}`; // Trim here
         const response = await fetch(lookupApiUrl, { signal: abortController.signal, headers: { 'Authorization': `Bearer ${token}` } });
         
         if (abortController.signal.aborted) return;
@@ -213,14 +265,17 @@ function OrderDetail() {
 
   const handleSupplierChange = (e) => { setSelectedSupplierId(e.target.value); const sId = parseInt(e.target.value,10); const s = suppliers.find(sup=>sup.id===sId); setPoNotes(s?.defaultponotes || ''); };
   const handlePoNotesChange = (e) => setPoNotes(e.target.value);
-  const handlePurchaseItemChange = (index, field, value) => { const items = [...purchaseItemsRef.current]; items[index]={...items[index], [field]:value}; if(field==='sku')setSkuToLookup({index,sku:value}); setPurchaseItemsRef.current(items);};
+  const handlePurchaseItemChange = (index, field, value) => { const items = [...purchaseItemsRef.current]; items[index]={...items[index], [field]:value}; if(field==='sku'){ const trimmedSku = String(value).trim(); items[index].sku = trimmedSku; setSkuToLookup({index,sku:trimmedSku});} else {items[index][field] = value;} setPurchaseItemsRef.current(items);};
   const handleShipmentMethodChange = (e) => setShipmentMethod(e.target.value);
   const handleShipmentWeightChange = (e) => setShipmentWeight(e.target.value);
-  const handleCopyToClipboard = async (textToCopy) => { if(!textToCopy)return; try{await navigator.clipboard.writeText(String(textToCopy)); setClipboardStatus(`Copied: ${textToCopy}`); setTimeout(()=>setClipboardStatus(''),1500);}catch(err){setClipboardStatus('Failed to copy!');setTimeout(()=>setClipboardStatus(''),1500);}};
+  const handleCopyToClipboard = async (textToCopy) => { if(!textToCopy)return; try{await navigator.clipboard.writeText(String(textToCopy).trim()); setClipboardStatus(`Copied: ${String(textToCopy).trim()}`); setTimeout(()=>setClipboardStatus(''),1500);}catch(err){setClipboardStatus('Failed to copy!');setTimeout(()=>setClipboardStatus(''),1500);}};
 
   const handleBrokerbinLinkClick = async (e, partNumber) => {
     if (!currentUser) { setStatusUpdateMessage("Please log in to perform this action."); e.preventDefault(); return; }
     setStatusUpdateMessage('');
+    const trimmedPartNumber = String(partNumber || '').trim();
+    if (!trimmedPartNumber) return;
+
     if (orderData?.order?.status?.toLowerCase() === 'new') {
       try {
         const token = await currentUser.getIdToken(true);
@@ -229,10 +284,10 @@ function OrderDetail() {
         const responseData = await response.json().catch(() => null);
         if (!response.ok) { let err = responseData?.details || responseData?.error || `HTTP error ${response.status}`; if(response.status===401||response.status===403) {err="Unauthorized. Please log in again."; navigate('/login');} throw new Error(err); }
         const ac = new AbortController(); await fetchOrderAndSuppliers(ac.signal); 
-        setStatusUpdateMessage(`Status updated to RFQ Sent for part: ${partNumber}`);
+        setStatusUpdateMessage(`Status updated to RFQ Sent for part: ${trimmedPartNumber}`);
       } catch (err) { setStatusUpdateMessage(`Error updating status: ${err.message}`); }
     } else if (orderData?.order?.status && !['rfq sent', 'processed'].includes(orderData.order.status.toLowerCase())) {
-      setStatusUpdateMessage(`Order status is not 'new'. Cannot update to RFQ Sent.`);
+      setStatusUpdateMessage(`Order status is not 'new'. Cannot update to RFQ Sent for status ${orderData?.order?.status}.`);
     }
   };
 
@@ -264,9 +319,9 @@ function OrderDetail() {
         const quantityInt = parseInt(item.quantity,10); const costFloat = parseFloat(item.unit_cost);
         if(isNaN(quantityInt)||quantityInt<=0){itemValidationError=`Item #${index+1} (SKU: ${item.sku||'N/A'}): Quantity must be > 0.`; return null;}
         if(item.unit_cost===''||isNaN(costFloat)||costFloat<0){itemValidationError=`Item #${index+1} (SKU: ${item.sku||'N/A'}): Unit cost is invalid.`; return null;}
-        if(!item.sku){itemValidationError=`Item #${index+1}: Purchase SKU is required.`; return null;}
-        if(!item.description){itemValidationError=`Item #${index+1} (SKU: ${item.sku}): Description is required.`; return null;}
-        return {original_order_line_item_id:item.original_order_line_item_id, sku:item.sku, description:item.description, quantity:quantityInt, unit_cost:costFloat.toFixed(2), condition:item.condition||'New'};
+        if(!String(item.sku).trim()){itemValidationError=`Item #${index+1}: Purchase SKU is required.`; return null;} // Also trim SKU for validation
+        if(!String(item.description).trim()){itemValidationError=`Item #${index+1} (SKU: ${item.sku}): Description is required.`; return null;}
+        return {original_order_line_item_id:item.original_order_line_item_id, sku:String(item.sku).trim(), description:String(item.description).trim(), quantity:quantityInt, unit_cost:costFloat.toFixed(2), condition:item.condition||'New'};
     }).filter(Boolean); 
     if(itemValidationError){setProcessError(itemValidationError); setProcessing(false); return;}
     if(finalPurchaseItems.length === 0){setProcessError("No valid line items for PO."); setProcessing(false); return;}
@@ -351,21 +406,68 @@ function OrderDetail() {
         <div><strong>Ship:</strong> {displayCustomerShippingMethod} to {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
         {order.customer_notes && ( <div style={{marginTop: '5px'}}><strong>Comments:</strong> {order.customer_notes}</div> )}
         <hr style={{margin: '10px 0'}}/>
-        {originalLineItems.map((item, index) => (
-            <div key={`orig-item-${item.line_item_id || index}`} className="order-info-item">
-                <span>({item.quantity || 0})</span>
-                <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Brokerbin: ${item.original_sku || ''}`} onClick={(e) => handleBrokerbinLinkClick(e, item.original_sku)}> {item.original_sku || 'N/A'} </a>
-                {item.hpe_option_pn && item.hpe_option_pn !== item.original_sku && ( <span> {' ('} <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Brokerbin: ${item.hpe_option_pn || ''}`} onClick={(e) => handleBrokerbinLinkClick(e, item.hpe_option_pn)}> {item.hpe_option_pn} </a> {')'} </span> )}
-                 <span> @ ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
-            </div>
-        ))}
+        {originalLineItems.map((item, index) => {
+            const spareSkuForItem = lineItemSpares[item.line_item_id];
+            const originalSkuDisplay = String(item.original_sku || 'N/A').trim();
+            const hpeOptionPnDisplay = item.hpe_option_pn ? String(item.hpe_option_pn).trim() : null;
+            // spareSkuForItem is already trimmed when set in state from API response
+
+            return (
+                // MODIFIED: Changed div to p for semantic list item, removed order-info-item class to remove bullet
+                <p key={`orig-item-${item.line_item_id || index}`} className="order-info-sku-line"> 
+                    <span>({item.quantity || 0}) </span>
+                    <a 
+                        href={createBrokerbinLink(originalSkuDisplay)} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="link-button" 
+                        title={`Brokerbin: ${originalSkuDisplay}`} 
+                        onClick={(e) => handleBrokerbinLinkClick(e, originalSkuDisplay)}
+                    >
+                        {originalSkuDisplay}{/* MODIFIED: Removed spaces */}
+                    </a>
+                    {spareSkuForItem && (
+                        <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>
+                             ({/* MODIFIED: Removed "Spare: " text */}
+                            <a 
+                                href={createBrokerbinLink(spareSkuForItem)} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="link-button" 
+                                title={`Brokerbin: ${spareSkuForItem}`}
+                                onClick={(e) => handleBrokerbinLinkClick(e, spareSkuForItem)}
+                            >
+                                {spareSkuForItem}
+                            </a>
+                            )
+                        </span>
+                    )}
+                    {hpeOptionPnDisplay && hpeOptionPnDisplay !== originalSkuDisplay && hpeOptionPnDisplay !== spareSkuForItem && ( 
+                        <span> 
+                            {' ('} 
+                            <a 
+                                href={createBrokerbinLink(hpeOptionPnDisplay)} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="link-button" 
+                                title={`Brokerbin: ${hpeOptionPnDisplay}`} 
+                                onClick={(e) => handleBrokerbinLinkClick(e, hpeOptionPnDisplay)}
+                            >
+                                {hpeOptionPnDisplay} {/* MODIFIED: Removed spaces */}
+                            </a> 
+                            {')'} 
+                        </span> 
+                    )}
+                    <span> @ ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
+                </p>
+            );
+        })}
       </section>
 
-      <div className="manual-actions-section"> {/* Removed inline styles, will be handled by CSS class if needed */}
+      <div className="manual-actions-section"> 
           {order.status && (order.status.toLowerCase() === 'international_manual' || order.status.toLowerCase() === 'pending') && !isActuallyProcessed && !isActuallyCompletedOffline && (
               <button 
                 onClick={() => handleManualStatusUpdate('Completed Offline')} 
-                // MODIFIED: Apply global button classes
                 className="btn btn-gradient btn-shadow-lift btn-success manual-action-button-specifics" 
                 disabled={disableAllActions} 
               >
@@ -374,6 +476,14 @@ function OrderDetail() {
           )}
       </div>
       
+      {/* DEBUGGING LINE - Comment out or remove for production 
+      {order && ( 
+          <p style={{ marginTop: '10px', padding: '10px', backgroundColor: '#eee', border: '1px solid #ccc', color: '#000', fontSize: '12px', fontFamily: 'monospace' }}>
+              DEBUG: Order Status from state: "{order.status}" (Type: {typeof order.status}) | isActuallyProcessed: {isActuallyProcessed.toString()} | canDisplayProcessOrderButton: {canDisplayProcessOrderButton.toString()}
+          </p>
+      )}
+      */}
+
       {canDisplayProcessOrderButton && (
           <form onSubmit={handleProcessOrder} className={`processing-form ${disableFormFields ? 'form-disabled' : ''}`}>
               <section className="purchase-info card">
@@ -413,7 +523,6 @@ function OrderDetail() {
                   <button
                       type="submit" 
                       disabled={disableAllActions || processing} 
-                      // MODIFIED: Apply global button classes + a specific class for overrides
                       className="btn btn-gradient btn-shadow-lift btn-success process-order-button-specifics"
                   >
                       {processing ? 'Processing...' : 'PROCESS ORDER'}
@@ -449,7 +558,6 @@ function OrderDetail() {
               <button
                   type="button" 
                   onClick={() => navigate('/')}
-                  // MODIFIED: Apply global button classes + a specific class for overrides if needed
                   className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics"
                   disabled={disableAllActions} 
               >

@@ -189,7 +189,7 @@ h2, h3, h4 {
   color: var(--primary-accent-dark); /* Use adaptive header color */
   margin-top: 0;
   margin-bottom: var(--spacing-md);
-  font-weight: 500;
+  font-weight: 600;
 }
 h2 { font-size: 1.8em; }
 h3 { font-size: 1.6em; border-bottom: 1px solid var(--border-light); padding-bottom: var(--spacing-sm); }
@@ -400,7 +400,7 @@ h3 { letter-spacing: 0.5px; }
     padding: 0;
     color: var(--primary-accent); /* Use adaptive primary accent color */
     text-decoration: underline;
-    font-size: 0.9em; /* As per inline style in JSX */
+    font-size: 1em; /* As per inline style in JSX */
     transition: color 0.2s ease;
 }
 .link-button:hover {

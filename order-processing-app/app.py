@@ -14,6 +14,7 @@ from datetime import datetime, timezone # For po_date
 from sqlalchemy.dialects.postgresql import insert
 from decimal import Decimal # If you need to handle decimal conversion for total_amount explicitly
 import inspect # For checking function arguments if needed
+import re
 
 # --- Firebase Admin SDK Imports ---
 import firebase_admin
@@ -506,6 +507,80 @@ def get_order_details(order_id):
         # ... (other logging for db_conn state if needed)
 print("DEBUG APP_SETUP: Defined /api/orders/<id> GET route.") # Added log 
 
+@app.route('/api/lookup/spare_part/<path:option_sku>', methods=['GET'])
+@verify_firebase_token # Assuming this lookup also needs to be authenticated
+def get_spare_part_for_option(option_sku):
+    if not option_sku:
+        return jsonify({"error": "Option SKU is required"}), 400
+    
+    db_conn = None
+    print(f"DEBUG LOOKUP_SPARE: Received request for option SKU: {option_sku}")
+    try:
+        if engine is None:
+            return jsonify({"error": "Database engine not available."}), 500
+        db_conn = engine.connect()
+
+        # Step 1: Verify the input SKU is an 'option' type
+        check_option_type_query = text("""
+            SELECT pn_type 
+            FROM hpe_part_mappings 
+            WHERE sku = :option_sku OR option_pn = :option_sku 
+        """) # Check in both sku and option_pn columns as 'option' SKUs might be listed as option_pn too.
+             # Be more specific if 'option' type SKUs are *only* ever in the 'option_pn' column for other records,
+             # or if 'sku' column is the primary key for an 'option' type part.
+             # Assuming item.original_sku could be either 'sku' or 'option_pn' from hpe_part_mappings table itself.
+             # For clarity, let's assume item.original_sku is indeed an option_pn that we are looking up.
+        
+        # More precise check if item.original_sku is always the 'option_pn' value for 'option' types
+        check_option_type_query_precise = text("""
+            SELECT pn_type
+            FROM hpe_part_mappings
+            WHERE option_pn = :option_sku AND pn_type = 'option' 
+            LIMIT 1 
+        """) # If an option part is identified by its option_pn field and pn_type='option'
+        
+        # Simpler assumption: If we find it as an option_pn, that's good enough to proceed to find its spare.
+        # The most direct interpretation: item.original_sku *is* an option_pn.
+        # So we need to find a spare whose option_pn is item.original_sku.
+
+        find_spare_query = text("""
+            SELECT sku 
+            FROM hpe_part_mappings
+            WHERE option_pn = :option_sku AND pn_type = 'spare'
+        """)
+        
+        spare_part_sku_record = db_conn.execute(find_spare_query, {"option_sku": option_sku}).fetchone()
+
+        if spare_part_sku_record and spare_part_sku_record.sku:
+            spare_sku = spare_part_sku_record.sku
+            print(f"DEBUG LOOKUP_SPARE: Found spare part SKU '{spare_sku}' for option SKU '{option_sku}'.")
+            return jsonify({"spare_sku": spare_sku}), 200
+        else:
+            # Before returning not found, let's check if the original_sku was even a valid 'option' type.
+            # This check can be based on how 'option' parts are stored. If item.original_sku is THE option_pn itself:
+            is_option_query = text("SELECT 1 FROM hpe_part_mappings WHERE option_pn = :option_sku AND pn_type = 'option' LIMIT 1")
+            # Or if item.original_sku is a generic SKU that *maps* to an option_pn which is also an 'option' type:
+            # is_option_query = text("SELECT 1 FROM hpe_part_mappings WHERE sku = :option_sku AND pn_type = 'option' LIMIT 1")
+
+            is_valid_option = db_conn.execute(is_option_query, {"option_sku": option_sku}).fetchone()
+            
+            if not is_valid_option:
+                print(f"DEBUG LOOKUP_SPARE: Input SKU '{option_sku}' is not registered as an 'option' type or not found as an option_pn for an option type part.")
+                # Return a specific response or just proceed to "spare not found"
+                # Depending on requirements, you might not need this explicit check if the spare lookup failing is sufficient.
+            
+            print(f"DEBUG LOOKUP_SPARE: No spare part SKU found for option SKU '{option_sku}'.")
+            return jsonify({"spare_sku": None, "message": "No corresponding spare part found or input SKU is not a valid option."}), 404
+
+    except Exception as e:
+        print(f"ERROR LOOKUP_SPARE: Error looking up spare part for option SKU {option_sku}: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "Failed to lookup spare part", "details": str(e)}), 500
+    finally:
+        if db_conn and not db_conn.closed:
+            db_conn.close()
+            print(f"DEBUG LOOKUP_SPARE: DB connection closed for option SKU {option_sku}.")
+
 # ***** NEW: Endpoint to get order counts by status *****
 @app.route('/api/orders/status-counts', methods=['GET'])
 @verify_firebase_token # Apply decorator
@@ -721,7 +796,7 @@ def ingest_orders():
                     # --- Check if order exists locally ---
                     existing_order_row = conn.execute(
                         text("""
-                            SELECT id, status, is_international, payment_method, bigcommerce_order_tax
+                            SELECT id, status, is_international, payment_method, bigcommerce_order_tax, customer_notes
                             FROM orders
                             WHERE bigcommerce_order_id = :bc_order_id
                         """),
@@ -736,6 +811,14 @@ def ingest_orders():
                     # --- End Extract ---
 
                     current_time_utc = datetime.now(timezone.utc)
+
+                    raw_customer_message = bc_order_summary.get('customer_message', '')
+                    cleaned_customer_message = raw_customer_message
+                    if raw_customer_message:
+                        pattern = re.compile(r'\*{10}.*?\*{10}', re.DOTALL) 
+                        cleaned_customer_message = pattern.sub('', raw_customer_message).strip()
+                        if raw_customer_message != cleaned_customer_message:
+                            print(f"DEBUG INGEST: Cleaned customer notes for BC Order {order_id_from_bc}. Original: '{raw_customer_message[:100]}...', Cleaned: '{cleaned_customer_message[:100]}...'")
 
                     if existing_order_row:
                         db_status = existing_order_row.status
@@ -760,6 +843,7 @@ def ingest_orders():
                         db_is_international = existing_order_row.is_international
                         db_payment_method = existing_order_row.payment_method
                         db_tax_amount = existing_order_row.bigcommerce_order_tax
+                        db_customer_notes = existing_order_row.customer_notes # Now available
 
                         bc_payment_method = bc_order_summary.get('payment_method')
 
@@ -768,16 +852,19 @@ def ingest_orders():
                         if db_payment_method != bc_payment_method: update_fields['payment_method'] = bc_payment_method
                         if db_tax_amount != bc_total_tax: update_fields['bigcommerce_order_tax'] = bc_total_tax
 
-                        # Status update logic (this will respect statuses_to_preserve)
-                        statuses_to_preserve = ['rfq sent', 'pending', 'processed', 'completed offline', 'international_manual']
-                        if db_status in statuses_to_preserve:
-                            print(f"DEBUG INGEST: Preserving current status '{db_status}' for order {order_id_from_bc}.")
-                        else:
+                        if db_customer_notes != cleaned_customer_message: # Always update notes if they differ
+                            update_fields['customer_notes'] = cleaned_customer_message
+                        
+                        # Only update status if it's not a finalized/manual one AND it's different from what ingest would set
+                        if db_status not in finalized_or_manual_statuses:
                             new_app_status_by_ingest = 'international_manual' if is_international else 'new'
                             if db_status != new_app_status_by_ingest:
-                                print(f"DEBUG INGEST: Current status '{db_status}' for order {order_id_from_bc} is not preserved. Setting to '{new_app_status_by_ingest}'.")
+                                print(f"DEBUG INGEST: Current status '{db_status}' for order {order_id_from_bc} is not preserved by rule and differs. Setting to '{new_app_status_by_ingest}'.")
                                 update_fields['status'] = new_app_status_by_ingest
-                            # else: (no status change needed by ingest)
+                            else:
+                                print(f"DEBUG INGEST: Status '{db_status}' for order {order_id_from_bc} matches what ingest would set or is preserved. No status change by ingest logic.")
+                        else:
+                             print(f"DEBUG INGEST: Preserving current finalized/manual status '{db_status}' for order {order_id_from_bc}.")
 
                         if update_fields:
                             update_fields['updated_at'] = current_time_utc
@@ -805,7 +892,7 @@ def ingest_orders():
                             "customer_phone": customer_shipping_address.get('phone'),
                             "customer_email": bc_order_summary.get('billing_address', {}).get('email', customer_shipping_address.get('email')), # Fallback email
                             "customer_shipping_method": calculated_shipping_method_name,
-                            "customer_notes": bc_order_summary.get('customer_message'),
+                            "customer_notes": cleaned_customer_message, 
                             "order_date": datetime.strptime(bc_order_summary['date_created'], '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=timezone.utc) if bc_order_summary.get('date_created') else current_time_utc,
                             "total_sale_price": bc_total_inc_tax, # Store total including tax here
                             "bigcommerce_order_tax": bc_total_tax, # ** NEW: Store the separate tax amount **
