@@ -825,7 +825,7 @@ def ingest_orders():
                         print(f"DEBUG INGEST: Order {order_id_from_bc} exists (App ID: {existing_order_row.id}). DB status: '{db_status}'.")
 
                         # Define statuses that mean "don't touch this order further during routine ingest"
-                        finalized_or_manual_statuses = ['processed', 'completed offline', 'pending', 'rfq sent', 'international_manual']
+                        finalized_or_manual_statuses = ['Processed', 'Completed Offline', 'pending', 'RFQ Sent', 'international_manual']
                         # Add any other status that signifies the order is beyond the 'new' automated ingest stage.
 
                         if db_status in finalized_or_manual_statuses:
@@ -837,7 +837,7 @@ def ingest_orders():
                             # logic below (or ensure this `continue` is placed strategically).
 
                             # For a strict "ingest once and don't touch status again" policy for these statuses:
-                            # continue # This would skip ALL updates below for this order if its status is in finalized_or_manual_statuses
+                            continue # This would skip ALL updates below for this order if its status is in finalized_or_manual_statuses
 
                         # --- Handle Existing Order (Update if necessary) ---
                         db_is_international = existing_order_row.is_international
@@ -856,15 +856,15 @@ def ingest_orders():
                             update_fields['customer_notes'] = cleaned_customer_message
                         
                         # Only update status if it's not a finalized/manual one AND it's different from what ingest would set
-                        if db_status not in finalized_or_manual_statuses:
+                        if db_status not in finalized_or_manual_statuses: # This condition is now mainly for non-finalized statuses
                             new_app_status_by_ingest = 'international_manual' if is_international else 'new'
                             if db_status != new_app_status_by_ingest:
-                                print(f"DEBUG INGEST: Current status '{db_status}' for order {order_id_from_bc} is not preserved by rule and differs. Setting to '{new_app_status_by_ingest}'.")
+                                print(f"DEBUG INGEST: Current status '{db_status}' for order {order_id_from_bc} is not a finalized/manual one and differs. Setting to '{new_app_status_by_ingest}'.")
                                 update_fields['status'] = new_app_status_by_ingest
-                            else:
-                                print(f"DEBUG INGEST: Status '{db_status}' for order {order_id_from_bc} matches what ingest would set or is preserved. No status change by ingest logic.")
+                        # The 'else' part of this specific block is no longer strictly necessary if the `continue` above is active,
+                        # but leaving it doesn't harm (it just won't be reached for finalized_or_manual_statuses).
                         else:
-                             print(f"DEBUG INGEST: Preserving current finalized/manual status '{db_status}' for order {order_id_from_bc}.")
+                            print(f"DEBUG INGEST: Preserving current finalized/manual status '{db_status}' for order {order_id_from_bc} (this log might not be hit if 'continue' is active).")
 
                         if update_fields:
                             update_fields['updated_at'] = current_time_utc
@@ -882,6 +882,7 @@ def ingest_orders():
                         # Prepare values for the new order row
                         order_values = {
                             "bigcommerce_order_id": order_id_from_bc,
+                            "customer_company": customer_shipping_address.get('company'),
                             "customer_name": f"{customer_shipping_address.get('first_name', '')} {customer_shipping_address.get('last_name', '')}".strip(),
                             "customer_shipping_address_line1": customer_shipping_address.get('street_1'),
                             "customer_shipping_address_line2": customer_shipping_address.get('street_2'),
@@ -1510,373 +1511,427 @@ def get_description_for_sku(sku_value):
             print(f"DEBUG LOOKUP_DESC: DB connection closed for SKU {sku_value}.")
 print("DEBUG APP_SETUP: Defined /api/lookup/description/<sku> GET route.")
 
-# === PROCESS ORDER ROUTE ===
+# app.py
+
+# Ensure these imports are at the top of your app.py if not already present
+from flask import Flask, jsonify, request, g # Existing
+from sqlalchemy import text # Existing
+from decimal import Decimal # Existing
+from datetime import datetime, timezone # Existing
+import traceback # Existing
+import os # Existing
+
+# Assuming these are your existing service module imports
+import document_generator
+import shipping_service
+import email_service
+# and other necessary imports like sqlalchemy, GcpSqlConnector, requests, firebase_admin, storage, etc.
+
+# Assuming 'engine', 'COMPANY_LOGO_GCS_URI', 'SHIP_FROM_...' variables,
+# 'bc_api_base_url_v2', 'bc_shipped_status_id', 'bc_processing_status_id' (and potentially a BC_PARTIALLY_SHIPPED_STATUS_ID),
+# 'storage_client', 'GCS_BUCKET_NAME' are defined globally or accessible.
+# Also, helper functions like convert_row_to_dict, make_json_safe,
+# _get_bc_shipping_address_id, get_hpe_mapping_with_fallback are defined.
+# And the verify_firebase_token decorator.
+
+
+# === PROCESS ORDER ROUTE (Comprehensive Update for Multi-Supplier, Packing Slip, BC Status, and SQL Fix) ===
 @app.route('/api/orders/<int:order_id>/process', methods=['POST'])
-@verify_firebase_token # Apply decorator
+@verify_firebase_token
 def process_order(order_id):
-    print(f"DEBUG PROCESS_ORDER: Received request to process order ID: {order_id}")
+    print(f"DEBUG PROCESS_ORDER_MULTI: Received request to process order ID: {order_id}")
     db_conn = None
     transaction = None
-    generated_po_number = None
-    new_purchase_order_id = None 
-    po_pdf_gcs_uri, packing_slip_gcs_uri, label_gcs_uri = None, None, None
-    po_pdf_bytes, packing_slip_pdf_bytes, label_pdf_bytes, tracking_number = None, None, None, None
+    processed_pos_info = []
 
     try:
-        data = request.get_json()
-        if not data: return jsonify({"error": "Invalid or missing JSON payload"}), 400
-        supplier_id = data.get('supplier_id')
-        po_line_items_input = data.get('po_line_items') 
-        total_shipment_weight_lbs = data.get('total_shipment_weight_lbs')
-        payment_instructions_from_frontend = data.get('payment_instructions', "") 
+        payload = request.get_json()
+        if not payload or 'assignments' not in payload or not isinstance(payload['assignments'], list):
+            return jsonify({"error": "Invalid or missing 'assignments' array in payload"}), 400
 
-        if not all([supplier_id, po_line_items_input, total_shipment_weight_lbs is not None]):
-            return jsonify({"error": "Missing required fields (supplier_id, po_line_items, total_shipment_weight_lbs)"}), 400
-        try:
-            total_shipment_weight_lbs = float(total_shipment_weight_lbs)
-            if total_shipment_weight_lbs <= 0: raise ValueError("Weight must be positive.")
-        except ValueError as e:
-            return jsonify({"error": f"Invalid total_shipment_weight_lbs: {e}"}), 400
+        assignments = payload['assignments']
+        if not assignments:
+            return jsonify({"error": "Assignments array cannot be empty if processing is intended."}), 400
 
-        if engine is None: return jsonify({"error": "Database engine not available."}), 500
+        if engine is None:
+            print("ERROR PROCESS_ORDER_MULTI: Database engine not available.")
+            return jsonify({"error": "Database engine not available."}), 500
+
         db_conn = engine.connect()
         transaction = db_conn.begin()
-        print("DEBUG PROCESS_ORDER: DB connection and transaction started.")
+        print("DEBUG PROCESS_ORDER_MULTI: DB connection and transaction started for all assignments.")
 
         order_record = db_conn.execute(text("SELECT * FROM orders WHERE id = :id"), {"id": order_id}).fetchone()
         if not order_record:
-            transaction.rollback()
+            if transaction and transaction.is_active: transaction.rollback()
             return jsonify({"error": f"Order with ID {order_id} not found"}), 404
         order_data_dict = convert_row_to_dict(order_record)
 
-        base_line_items_sql = """
-            SELECT id AS line_item_id, sku AS original_sku, name AS line_item_name, quantity, bigcommerce_line_item_id
-            FROM order_line_items WHERE order_id = :order_id_param ORDER BY id
-        """
-        local_order_line_items_records = db_conn.execute(text(base_line_items_sql), {"order_id_param": order_id}).fetchall()
+        order_status_from_db = order_data_dict.get('status')
+        terminal_statuses = ['processed', 'completed offline']
+        if order_status_from_db and order_status_from_db.lower() in terminal_statuses:
+            if transaction and transaction.is_active: transaction.rollback()
+            return jsonify({"error": f"Order {order_id} status is '{order_status_from_db}' and cannot be reprocessed."}), 400
+
+        local_order_line_items_records = db_conn.execute(
+            text("""
+                SELECT id AS line_item_id, bigcommerce_line_item_id, sku AS original_sku,
+                       name AS line_item_name, quantity
+                FROM order_line_items WHERE order_id = :order_id_param ORDER BY id
+            """),
+            {"order_id_param": order_id}
+        ).fetchall()
         local_order_line_items_list = [convert_row_to_dict(row) for row in local_order_line_items_records]
+        all_original_order_line_item_db_ids = {item['line_item_id'] for item in local_order_line_items_list}
+        processed_original_order_line_item_db_ids_this_batch = set()
+        is_multi_po_scenario_for_po_pdf = len(assignments) > 1
 
-        supplier_record = db_conn.execute(text("SELECT * FROM suppliers WHERE id = :id"), {"id": supplier_id}).fetchone()
-        if not supplier_record:
-            transaction.rollback()
-            return jsonify({"error": f"Supplier with ID {supplier_id} not found"}), 404
-        supplier_data_dict = convert_row_to_dict(supplier_record)
-        
-        if order_data_dict.get('is_international'):
-             transaction.rollback()
-             return jsonify({"error": f"Order {order_id} is international and requires manual processing."}), 400
-        
-        if order_data_dict.get('status') == 'Processed':
-            transaction.rollback()
-            return jsonify({"error": f"Order {order_id} has already been processed."}), 400
 
-        starting_po_sequence = 200001 
-        max_po_value_from_db = db_conn.execute(text("SELECT MAX(po_number) FROM purchase_orders")).scalar_one_or_none()
+        starting_po_sequence = 200001
+        max_po_query = text("""
+            SELECT MAX(CAST(numeric_po_number AS INTEGER))
+            FROM (
+                SELECT po_number AS numeric_po_number
+                FROM purchase_orders
+                WHERE CAST(po_number AS TEXT) ~ '^[0-9]+$'
+            ) AS numeric_pos
+        """)
+        max_po_value_from_db = db_conn.execute(max_po_query).scalar_one_or_none()
         next_sequence_num = starting_po_sequence
         if max_po_value_from_db is not None:
             try:
                 current_max_po = int(max_po_value_from_db)
                 next_sequence_num = max(starting_po_sequence, current_max_po + 1)
-            except ValueError: 
-                print(f"WARN PROCESS_ORDER: Could not parse max PO number '{max_po_value_from_db}'.")
-        generated_po_number = str(next_sequence_num)
-        print(f"DEBUG PROCESS_ORDER: Generated PO Number: {generated_po_number}")
+            except ValueError:
+                print(f"WARN PROCESS_ORDER_MULTI: Could not parse max PO number '{max_po_value_from_db}'. Defaulting.")
 
-        current_utc_datetime = datetime.now(timezone.utc)
-        po_total_amount = sum(Decimal(str(item.get('quantity', 0))) * Decimal(str(item.get('unit_cost', '0'))) for item in po_line_items_input)
-
-        insert_po_sql = text("""
-            INSERT INTO purchase_orders
-            (po_number, order_id, supplier_id, po_date, payment_instructions, status, total_amount, created_at, updated_at)
-            VALUES (:po_number, :order_id, :supplier_id, :po_date, :payment_instructions, :status, :total_amount, :now, :now)
-            RETURNING id
-        """)
-        po_params = {
-            "po_number": generated_po_number, "order_id": order_id, "supplier_id": supplier_id,
-            "po_date": current_utc_datetime, 
-            "payment_instructions": payment_instructions_from_frontend, 
-            "status": "New",  
-            "total_amount": po_total_amount,
-            "now": current_utc_datetime
-        }
-        new_purchase_order_id = db_conn.execute(insert_po_sql, po_params).scalar_one()
-        print(f"DEBUG PROCESS_ORDER: Inserted purchase_orders record. DB ID: {new_purchase_order_id}")
-
-        # ***** CORRECTED SQL for po_line_items insert *****
-        insert_po_item_sql = text("""
-            INSERT INTO po_line_items
-            (purchase_order_id, original_order_line_item_id, sku, description, quantity, unit_cost, condition, created_at, updated_at)
-            VALUES (:po_id, :orig_id, :actual_sku_for_db, :desc, :qty, :cost, :cond, :now, :now)
-        """)
-        po_items_for_pdf_and_qb = [] 
-
-        for item_input in po_line_items_input: 
-            orig_line_item_id = item_input.get("original_order_line_item_id") 
-            if orig_line_item_id is None:
-                print("WARN PROCESS_ORDER: Skipping item_input due to missing 'original_order_line_item_id'.")
-                continue
-            
-            original_item_detail_from_db = next((oli for oli in local_order_line_items_list if oli.get('line_item_id') == orig_line_item_id), None)
-            if not original_item_detail_from_db:
-                print(f"ERROR PROCESS_ORDER: Could not find original details in DB for line_item_id {orig_line_item_id}. Skipping item.")
-                continue
-            original_sku_from_db = original_item_detail_from_db.get('original_sku')
-
-            sku_for_po = item_input.get('sku', '') 
-            description_for_po = item_input.get('description', '') 
-
-            if not sku_for_po:
-                hpe_option_pn, _, _ = get_hpe_mapping_with_fallback(original_sku_from_db, db_conn)
-                sku_for_po = hpe_option_pn if hpe_option_pn else original_sku_from_db
-            
-            if not description_for_po and sku_for_po: 
-                desc_query = text("SELECT po_description FROM hpe_description_mappings WHERE option_pn = :option_pn")
-                custom_desc_result = db_conn.execute(desc_query, {"option_pn": sku_for_po}).scalar_one_or_none()
-                if custom_desc_result:
-                    description_for_po = custom_desc_result
-                else: 
-                    description_for_po = original_item_detail_from_db.get('line_item_name', 'N/A')
-            
-            # ***** CORRECTED PARAMS for po_line_items insert *****
-            po_item_params = {
-                "po_id": new_purchase_order_id,
-                "orig_id": orig_line_item_id,
-                "actual_sku_for_db": sku_for_po, # Use 'actual_sku_for_db' to match SQL placeholder
-                "desc": description_for_po,
-                "qty": item_input.get("quantity"),
-                "cost": Decimal(str(item_input.get("unit_cost", '0'))),
-                "cond": item_input.get("condition", "New"), 
-                "now": current_utc_datetime
-            }
-            # ***** DIAGNOSTIC PRINT STATEMENT *****
-            print(f"DEBUG PROCESS_ORDER: DIAGNOSTIC CHECK - Revision 00051_Expected_Fix. About to insert into po_line_items.")
-            print(f"DEBUG PROCESS_ORDER: SQL for insert_po_item_sql: {str(insert_po_item_sql)}") # Print the compiled SQL
-            print(f"DEBUG PROCESS_ORDER: Params for insert: {po_item_params}")
-            # ***** END DIAGNOSTIC PRINT STATEMENT *****
-            db_conn.execute(insert_po_item_sql, po_item_params)
-            
-            po_items_for_pdf_and_qb.append({
-                "sku": sku_for_po, "description": description_for_po,
-                "quantity": item_input.get("quantity"),
-                "unit_cost": Decimal(str(item_input.get("unit_cost", '0'))),
-                "condition": item_input.get("condition", "New")
-            })
-        print(f"DEBUG PROCESS_ORDER: Inserted {len(po_items_for_pdf_and_qb)} po_line_items records.")
-
-        # --- Document Generation ---
-        if document_generator is None: raise ModuleNotFoundError("document_generator module not loaded.")
-        po_pdf_data_args = {
-            "supplier_data": supplier_data_dict, "po_number": generated_po_number,
-            "po_date": current_utc_datetime, "po_items": po_items_for_pdf_and_qb,
-            "payment_terms": supplier_data_dict.get('payment_terms'),
-            "payment_instructions": payment_instructions_from_frontend, 
-            "order_data": order_data_dict, "logo_gcs_uri": COMPANY_LOGO_GCS_URI
-        }
-        po_pdf_bytes = document_generator.generate_purchase_order_pdf(**po_pdf_data_args)
-
-        packing_slip_items_prepared = []
-        for item_from_db_order in local_order_line_items_list:
-            ps_item_sku = item_from_db_order.get('original_sku') 
-            ps_item_description = item_from_db_order.get('line_item_name', 'N/A') 
-
-            hpe_option_pn_for_ps, _, _ = get_hpe_mapping_with_fallback(ps_item_sku, db_conn)
-            if hpe_option_pn_for_ps: 
-                desc_query_ps = text("SELECT po_description FROM hpe_description_mappings WHERE option_pn = :option_pn")
-                custom_desc_ps = db_conn.execute(desc_query_ps, {"option_pn": hpe_option_pn_for_ps}).scalar_one_or_none()
-                if custom_desc_ps: ps_item_description = custom_desc_ps
-                ps_item_sku = hpe_option_pn_for_ps
-            
-            packing_slip_items_prepared.append({
-                'sku': ps_item_sku, 
-                'name': ps_item_description, 
-                'quantity': item_from_db_order.get('quantity')
-            })
-        packing_slip_data_args = {
-            "order_data": order_data_dict, "packing_slip_items": packing_slip_items_prepared,
-            "logo_gcs_uri": COMPANY_LOGO_GCS_URI
-        }
-        packing_slip_pdf_bytes = document_generator.generate_packing_slip_pdf(**packing_slip_data_args)
-        
-        # --- UPS Label Generation ---
-        if shipping_service is None: raise ModuleNotFoundError("shipping_service module not loaded.")
-        ship_from_address = {
+        ship_from_address = { # Define ship_from_address once if it's constant
             'name': SHIP_FROM_NAME, 'contact_person': SHIP_FROM_CONTACT,
             'street_1': SHIP_FROM_STREET1, 'street_2': SHIP_FROM_STREET2,
             'city': SHIP_FROM_CITY, 'state': SHIP_FROM_STATE, 'zip': SHIP_FROM_ZIP,
             'country': SHIP_FROM_COUNTRY, 'phone': SHIP_FROM_PHONE
         }
         if not all([SHIP_FROM_STREET1, SHIP_FROM_CITY, SHIP_FROM_STATE, SHIP_FROM_ZIP, SHIP_FROM_PHONE]):
-            raise ValueError("Missing critical SHIP_FROM address details in environment configuration.")
-        customer_shipping_method_name = order_data_dict.get('customer_shipping_method', "UPS Ground") 
-        label_pdf_bytes, tracking_number = shipping_service.generate_ups_label(
-            order_data=order_data_dict, ship_from_address=ship_from_address,
-            total_weight_lbs=total_shipment_weight_lbs,
-            customer_shipping_method_name=customer_shipping_method_name
-        )
-        if not (label_pdf_bytes and tracking_number):
-            raise Exception("UPS label generation failed or returned no data.")
-        print(f"DEBUG PROCESS_ORDER: UPS Label generated. Tracking: {tracking_number}")
-        
-        # Insert into shipments table
-        insert_shipment_sql = text("""
-            INSERT INTO shipments (purchase_order_id, tracking_number, shipping_method_name, weight_lbs, created_at, updated_at)
-            VALUES (:po_id, :track_num, :method, :weight, :now, :now) RETURNING id
-        """)
-        shipment_params = {
-            "po_id": new_purchase_order_id, "track_num": tracking_number,
-            "method": customer_shipping_method_name, "weight": total_shipment_weight_lbs,
-            "now": current_utc_datetime
-        }
-        new_shipment_id = db_conn.execute(insert_shipment_sql, shipment_params).scalar_one()
-        print(f"DEBUG PROCESS_ORDER: Inserted shipments record. DB ID: {new_shipment_id}")
+            # This is a critical setup issue, should probably raise an error or return 500
+            # For now, it will skip label generation within the loop.
+            print(f"CRITICAL WARN PROCESS_ORDER_MULTI: Global SHIP_FROM address details incomplete. Label generation will be skipped for all POs.")
 
-        # --- GCS Upload ---
-        if storage_client and GCS_BUCKET_NAME:
-            ts_suffix = current_utc_datetime.strftime("%Y%m%d%H%M%S")
-            bucket = storage_client.bucket(GCS_BUCKET_NAME)
-            common_prefix = f"processed_orders/order_{order_data_dict['bigcommerce_order_id']}_PO_{generated_po_number}"
 
-            if po_pdf_bytes:
-                po_blob_name = f"{common_prefix}/po_{generated_po_number}_{ts_suffix}.pdf"
-                bucket.blob(po_blob_name).upload_from_string(po_pdf_bytes, content_type='application/pdf')
-                po_pdf_gcs_uri = f"gs://{GCS_BUCKET_NAME}/{po_blob_name}"
-                db_conn.execute(text("UPDATE purchase_orders SET po_pdf_gcs_path = :path, updated_at = :now WHERE id = :id"),
-                                {"path": po_pdf_gcs_uri, "now": current_utc_datetime, "id": new_purchase_order_id})
-            if packing_slip_pdf_bytes:
-                ps_blob_name = f"{common_prefix}/ps_{generated_po_number}_{ts_suffix}.pdf"
-                bucket.blob(ps_blob_name).upload_from_string(packing_slip_pdf_bytes, content_type='application/pdf')
-                packing_slip_gcs_uri = f"gs://{GCS_BUCKET_NAME}/{ps_blob_name}"
-            if label_pdf_bytes:
-                label_blob_name = f"{common_prefix}/label_{tracking_number}_{ts_suffix}.pdf"
-                bucket.blob(label_blob_name).upload_from_string(label_pdf_bytes, content_type='application/pdf')
-                label_gcs_uri = f"gs://{GCS_BUCKET_NAME}/{label_blob_name}"
+        for assignment_data in assignments:
+            supplier_id = assignment_data.get('supplier_id')
+            po_line_items_input = assignment_data.get('po_line_items')
+            payment_instructions_from_frontend = assignment_data.get('payment_instructions', "")
+            total_shipment_weight_lbs_str = assignment_data.get('total_shipment_weight_lbs')
+            shipment_method_for_po = assignment_data.get('shipment_method')
 
-            update_shipment_paths = {}
-            if label_gcs_uri: update_shipment_paths['label_gcs_path'] = label_gcs_uri
-            if packing_slip_gcs_uri: update_shipment_paths['packing_slip_gcs_path'] = packing_slip_gcs_uri
-            if update_shipment_paths:
-                set_clauses_ship = ", ".join([f"{key} = :{key}" for key in update_shipment_paths.keys()])
-                db_conn.execute(text(f"UPDATE shipments SET {set_clauses_ship}, updated_at = :now WHERE id = :shipment_id"),
-                                {**update_shipment_paths, "now": current_utc_datetime, "shipment_id": new_shipment_id})
-        else:
-            print("WARN PROCESS_ORDER: GCS client/bucket not configured. Skipping document uploads.")
-        
-        # --- Email Sending to Supplier ---
-        attachments_for_email = []
-        if po_pdf_bytes: attachments_for_email.append({"filename": f"PO_{generated_po_number}.pdf", "content": po_pdf_bytes, "content_type": "application/pdf"})
-        if packing_slip_pdf_bytes: attachments_for_email.append({"filename": f"PackingSlip_{generated_po_number}.pdf", "content": packing_slip_pdf_bytes, "content_type": "application/pdf"})
-        if label_pdf_bytes: attachments_for_email.append({"filename": f"ShippingLabel_{tracking_number}.pdf", "content": label_pdf_bytes, "content_type": "application/pdf"})
+            if not supplier_id or po_line_items_input is None:
+                raise ValueError(f"Missing supplier_id or po_line_items in an assignment: {assignment_data}")
+            if not isinstance(po_line_items_input, list):
+                 raise ValueError(f"po_line_items for supplier {supplier_id} is not a list.")
+            if not po_line_items_input: # Empty list
+                 print(f"WARN PROCESS_ORDER_MULTI: PO for supplier {supplier_id} has no line items. Creating PO without items.")
 
-        if email_service and supplier_data_dict.get('email') and attachments_for_email:
-            supplier_email_success = email_service.send_po_email(
-                supplier_email=supplier_data_dict['email'],
-                po_number=generated_po_number,
-                attachments=attachments_for_email
-            )
-            if not supplier_email_success:
-                print(f"ERROR PROCESS_ORDER: Email to supplier failed for PO {generated_po_number}.")
-            else:
-                print(f"DEBUG PROCESS_ORDER: Email sent to supplier for PO {generated_po_number}.")
-                if new_purchase_order_id:
-                    try:
-                        db_conn.execute(
-                            text("UPDATE purchase_orders SET status = :status, updated_at = :now WHERE id = :po_id"),
-                            {
-                                "status": "SENT_TO_SUPPLIER", 
-                                "now": datetime.now(timezone.utc), # Use current time for this specific update
-                                "po_id": new_purchase_order_id
-                            }
-                        )
-                        print(f"DEBUG PROCESS_ORDER: Updated purchase_orders status to 'SENT_TO_SUPPLIER' for PO ID {new_purchase_order_id}.")
-                    except Exception as e_po_status_update:
-                        print(f"ERROR PROCESS_ORDER: Failed to update purchase_orders status for PO ID {new_purchase_order_id}: {e_po_status_update}")
-        elif not attachments_for_email: 
-            print(f"WARN PROCESS_ORDER: No attachments generated for PO {generated_po_number}. Skipping supplier email.")
-        else: 
-            print(f"WARN PROCESS_ORDER: Skipping supplier email (service/email missing). PO: {generated_po_number}")
-        
-        # --- QuickBooks Data Email ---
-        if email_service:
-            qb_po_data = {
-                "supplier_name": supplier_data_dict.get('name'), "po_number": generated_po_number,
-                "po_date": current_utc_datetime, "shipping_method": customer_shipping_method_name,
-                "payment_instructions_for_po": payment_instructions_from_frontend,
-                "fulfillment_order_id": order_data_dict.get('bigcommerce_order_id'),
-                "po_line_items": po_items_for_pdf_and_qb, 
-                "expected_delivery_date": None 
+
+            supplier_record = db_conn.execute(text("SELECT * FROM suppliers WHERE id = :id"), {"id": supplier_id}).fetchone()
+            if not supplier_record:
+                raise ValueError(f"Supplier with ID {supplier_id} not found.")
+            supplier_data_dict = convert_row_to_dict(supplier_record)
+
+            generated_po_number = str(next_sequence_num)
+            next_sequence_num += 1
+            print(f"DEBUG PROCESS_ORDER_MULTI: PO {generated_po_number} for supplier {supplier_id}")
+
+            current_utc_datetime = datetime.now(timezone.utc)
+            po_total_amount = sum(Decimal(str(item.get('quantity', 0))) * Decimal(str(item.get('unit_cost', '0'))) for item in po_line_items_input)
+
+            insert_po_sql = text("""
+                INSERT INTO purchase_orders (po_number, order_id, supplier_id, po_date, payment_instructions, status, total_amount, created_at, updated_at)
+                VALUES (:po_number, :order_id, :supplier_id, :po_date, :payment_instructions, :status, :total_amount, :now, :now) RETURNING id
+            """)
+            po_params = {
+                "po_number": generated_po_number, "order_id": order_id, "supplier_id": supplier_id,
+                "po_date": current_utc_datetime, "payment_instructions": payment_instructions_from_frontend,
+                "status": "New", "total_amount": po_total_amount, "now": current_utc_datetime
             }
-            qb_email_success = email_service.send_quickbooks_data_email(qb_po_data)
-            if not qb_email_success: print(f"ERROR PROCESS_ORDER: QuickBooks email failed for PO {generated_po_number}.")
-            else: print(f"DEBUG PROCESS_ORDER: QuickBooks email sent for PO {generated_po_number}.")
-        else: print("WARN PROCESS_ORDER: Skipping QuickBooks email (missing email_service).")
-        
-        # --- BigCommerce Update ---
-        if shipping_service and bc_api_base_url_v2 and bc_shipped_status_id:
-            bc_order_id_to_update = order_data_dict.get('bigcommerce_order_id')
-            bc_order_address_id = _get_bc_shipping_address_id(bc_order_id_to_update)
-            if bc_order_id_to_update and bc_order_address_id:
-                bc_line_items_shipped_for_bc_api = []
-                for item_db in local_order_line_items_list: 
-                    if item_db.get('bigcommerce_line_item_id') and item_db.get('quantity'):
-                        bc_line_items_shipped_for_bc_api.append({
-                            "order_product_id": item_db.get('bigcommerce_line_item_id'),
-                            "quantity": item_db.get('quantity')
+            new_purchase_order_id = db_conn.execute(insert_po_sql, po_params).scalar_one()
+            print(f"DEBUG PROCESS_ORDER_MULTI: Inserted PO DB ID: {new_purchase_order_id}")
+
+            insert_po_item_sql = text("""
+                INSERT INTO po_line_items (purchase_order_id, original_order_line_item_id, sku, description, quantity, unit_cost, condition, created_at, updated_at)
+                VALUES (:po_id, :orig_id, :actual_sku_for_db, :desc, :qty, :cost, :cond, :now, :now)
+            """)
+            po_items_for_pdf_and_qb_this_po = []
+            ids_in_this_po = set()
+
+            for item_input in po_line_items_input:
+                original_oli_id = item_input.get("original_order_line_item_id")
+                if original_oli_id is None:
+                    raise ValueError(f"Missing 'original_order_line_item_id' in po_line_items for PO {generated_po_number}")
+                ids_in_this_po.add(original_oli_id)
+                processed_original_order_line_item_db_ids_this_batch.add(original_oli_id)
+                po_item_params = {
+                    "po_id": new_purchase_order_id, "orig_id": original_oli_id,
+                    "actual_sku_for_db": item_input.get('sku'), "desc": item_input.get('description'),
+                    "qty": int(item_input.get("quantity", 0)), "cost": Decimal(str(item_input.get("unit_cost", '0'))),
+                    "cond": item_input.get("condition", "New"), "now": current_utc_datetime
+                }
+                db_conn.execute(insert_po_item_sql, po_item_params)
+                po_items_for_pdf_and_qb_this_po.append({
+                    "sku": item_input.get('sku'), "description": item_input.get('description'),
+                    "quantity": int(item_input.get("quantity",0)),
+                    "unit_cost": Decimal(str(item_input.get("unit_cost", '0'))),
+                    "condition": item_input.get("condition", "New")
+                })
+            print(f"DEBUG PROCESS_ORDER_MULTI: Inserted {len(po_items_for_pdf_and_qb_this_po)} lines for PO {generated_po_number}.")
+
+            po_pdf_bytes, packing_slip_pdf_bytes, label_pdf_bytes, tracking_number_this_po = None, None, None, None
+            po_pdf_gcs_uri_this_po, packing_slip_gcs_uri_this_po, label_gcs_uri_this_po = None, None, None
+
+            if document_generator:
+                po_pdf_data_args = {
+                    "supplier_data": supplier_data_dict, "po_number": generated_po_number,
+                    "po_date": current_utc_datetime, "po_items": po_items_for_pdf_and_qb_this_po,
+                    "payment_terms": supplier_data_dict.get('payment_terms'),
+                    "payment_instructions": payment_instructions_from_frontend,
+                    "order_data": order_data_dict, "logo_gcs_uri": COMPANY_LOGO_GCS_URI,
+                    "is_partial_fulfillment": is_multi_po_scenario_for_po_pdf
+                }
+                po_pdf_bytes = document_generator.generate_purchase_order_pdf(**po_pdf_data_args)
+
+                prepared_items_in_this_shipment = []
+                for po_item_detail in po_items_for_pdf_and_qb_this_po:
+                    prepared_items_in_this_shipment.append({
+                        'sku': po_item_detail.get('sku'), 'name': po_item_detail.get('description'),
+                        'quantity': po_item_detail.get('quantity')
+                    })
+                prepared_items_shipping_separately = []
+                for orig_item_from_bc_order in local_order_line_items_list:
+                    if orig_item_from_bc_order.get('line_item_id') not in ids_in_this_po:
+                        sep_sku_display = orig_item_from_bc_order.get('original_sku')
+                        sep_desc_display = orig_item_from_bc_order.get('line_item_name', 'N/A')
+                        hpe_option_pn_sep, _, _ = get_hpe_mapping_with_fallback(sep_sku_display, db_conn)
+                        if hpe_option_pn_sep:
+                            desc_query_sep = text("SELECT po_description FROM hpe_description_mappings WHERE option_pn = :option_pn")
+                            custom_desc_sep = db_conn.execute(desc_query_sep, {"option_pn": hpe_option_pn_sep}).scalar_one_or_none()
+                            if custom_desc_sep: sep_desc_display = custom_desc_sep
+                            sep_sku_display = hpe_option_pn_sep
+                        prepared_items_shipping_separately.append({
+                            'sku': sep_sku_display, 'name': sep_desc_display,
+                            'quantity': orig_item_from_bc_order.get('quantity')
                         })
-                if bc_line_items_shipped_for_bc_api:
-                    bc_update_success = shipping_service.update_bigcommerce_order(
+                if po_pdf_bytes: # Only generate packing slip if PO PDF was made
+                     packing_slip_data_args = {
+                        "order_data": order_data_dict, # This contains customer address details including company
+                        "items_in_this_shipment": prepared_items_in_this_shipment,
+                        "items_shipping_separately": prepared_items_shipping_separately,
+                        "logo_gcs_uri": COMPANY_LOGO_GCS_URI,
+                        # "po_number_for_slip": generated_po_number # <--- REMOVE THIS LINE
+                     }
+                     packing_slip_pdf_bytes = document_generator.generate_packing_slip_pdf(**packing_slip_data_args)
+
+            print(f"DEBUG PROCESS_ORDER_MULTI: PO {generated_po_number} - Evaluating label generation. Weight Str: '{total_shipment_weight_lbs_str}', Method: '{shipment_method_for_po}', Ship Service: {bool(shipping_service)}")
+            if shipping_service and total_shipment_weight_lbs_str and shipment_method_for_po:
+                try:
+                    current_po_weight = float(total_shipment_weight_lbs_str)
+                    if current_po_weight <= 0:
+                        print(f"WARN PROCESS_ORDER_MULTI: PO {generated_po_number} - Invalid weight ({current_po_weight}). Skipping label.")
+                    elif not all([SHIP_FROM_STREET1, SHIP_FROM_CITY, SHIP_FROM_STATE, SHIP_FROM_ZIP, SHIP_FROM_PHONE]): # Check critical ship_from fields
+                         print(f"WARN PROCESS_ORDER_MULTI: PO {generated_po_number} - Critical SHIP_FROM address details missing. Skipping label generation.")
+                    else:
+                        print(f"DEBUG PROCESS_ORDER_MULTI: PO {generated_po_number} - CALLING generate_ups_label with weight: {current_po_weight}, method: {shipment_method_for_po}")
+                        label_pdf_bytes, tracking_number_this_po = shipping_service.generate_ups_label(
+                            order_data=order_data_dict, ship_from_address=ship_from_address,
+                            total_weight_lbs=current_po_weight, customer_shipping_method_name=shipment_method_for_po
+                        )
+                        if not (label_pdf_bytes and tracking_number_this_po):
+                            print(f"WARN PROCESS_ORDER_MULTI: UPS label gen failed or no data for PO {generated_po_number}. Tracking: {tracking_number_this_po}, Label Bytes Present: {bool(label_pdf_bytes)}")
+                        else:
+                            print(f"DEBUG PROCESS_ORDER_MULTI: UPS Label for PO {generated_po_number}. Tracking: {tracking_number_this_po}, Label Bytes: {len(label_pdf_bytes) if label_pdf_bytes else 0}")
+                            insert_shipment_sql = text("""
+                                INSERT INTO shipments (purchase_order_id, tracking_number, shipping_method_name, weight_lbs, created_at, updated_at)
+                                VALUES (:po_id, :track_num, :method, :weight, :now, :now) RETURNING id
+                            """)
+                            shipment_params = {
+                                "po_id": new_purchase_order_id, "track_num": tracking_number_this_po,
+                                "method": shipment_method_for_po, "weight": current_po_weight, "now": current_utc_datetime
+                            }
+                            db_conn.execute(insert_shipment_sql, shipment_params).scalar_one()
+                except ValueError as ve: # Handles float conversion error for weight
+                     print(f"WARN PROCESS_ORDER_MULTI: Invalid weight format for PO {generated_po_number}: '{total_shipment_weight_lbs_str}'. Error: {ve}. Skipping label.")
+                except Exception as label_e: # Catch other errors from label generation
+                    print(f"ERROR PROCESS_ORDER_MULTI: UPS Label gen error for PO {generated_po_number}: {label_e}")
+                    traceback.print_exc()
+            else:
+                print(f"DEBUG PROCESS_ORDER_MULTI: PO {generated_po_number} - SKIPPING label generation. Weight: '{total_shipment_weight_lbs_str}', Method: '{shipment_method_for_po}', Ship Service OK: {bool(shipping_service)}")
+
+
+            if storage_client and GCS_BUCKET_NAME:
+                ts_suffix = current_utc_datetime.strftime("%Y%m%d%H%M%S")
+                common_prefix = f"processed_orders/order_{order_data_dict['bigcommerce_order_id']}_PO_{generated_po_number}"
+                bucket = storage_client.bucket(GCS_BUCKET_NAME)
+                if po_pdf_bytes:
+                    po_blob_name = f"{common_prefix}/po_{generated_po_number}_{ts_suffix}.pdf"
+                    bucket.blob(po_blob_name).upload_from_string(po_pdf_bytes, content_type='application/pdf')
+                    po_pdf_gcs_uri_this_po = f"gs://{GCS_BUCKET_NAME}/{po_blob_name}"
+                    db_conn.execute(text("UPDATE purchase_orders SET po_pdf_gcs_path = :path, updated_at = :now WHERE id = :id"),
+                                    {"path": po_pdf_gcs_uri_this_po, "now": current_utc_datetime, "id": new_purchase_order_id})
+                if packing_slip_pdf_bytes:
+                    ps_blob_name = f"{common_prefix}/ps_{generated_po_number}_{ts_suffix}.pdf"
+                    bucket.blob(ps_blob_name).upload_from_string(packing_slip_pdf_bytes, content_type='application/pdf')
+                    packing_slip_gcs_uri_this_po = f"gs://{GCS_BUCKET_NAME}/{ps_blob_name}"
+                    if tracking_number_this_po:
+                         db_conn.execute(text("UPDATE shipments SET packing_slip_gcs_path = :path, updated_at = :now WHERE purchase_order_id = :po_id AND tracking_number = :track_num"),
+                                {"path": packing_slip_gcs_uri_this_po, "now": current_utc_datetime, "po_id": new_purchase_order_id, "track_num": tracking_number_this_po})
+                if label_pdf_bytes and tracking_number_this_po:
+                    label_blob_name = f"{common_prefix}/label_{tracking_number_this_po}_{ts_suffix}.pdf"
+                    bucket.blob(label_blob_name).upload_from_string(label_pdf_bytes, content_type='application/pdf')
+                    label_gcs_uri_this_po = f"gs://{GCS_BUCKET_NAME}/{label_blob_name}"
+                    db_conn.execute(text("UPDATE shipments SET label_gcs_path = :path, updated_at = :now WHERE purchase_order_id = :po_id AND tracking_number = :track_num"),
+                                {"path": label_gcs_uri_this_po, "now": current_utc_datetime, "po_id": new_purchase_order_id, "track_num": tracking_number_this_po})
+
+            attachments_for_this_email = []
+            if po_pdf_bytes: attachments_for_this_email.append({"filename": f"PO_{generated_po_number}.pdf", "content": po_pdf_bytes, "content_type": "application/pdf"})
+            if packing_slip_pdf_bytes: attachments_for_this_email.append({"filename": f"PackingSlip_{generated_po_number}.pdf", "content": packing_slip_pdf_bytes, "content_type": "application/pdf"})
+            if label_pdf_bytes: attachments_for_this_email.append({"filename": f"ShippingLabel_{tracking_number_this_po}.pdf", "content": label_pdf_bytes, "content_type": "application/pdf"})
+            else: print(f"DEBUG PROCESS_ORDER_MULTI: PO {generated_po_number} - No label_pdf_bytes to attach for email.")
+
+
+            if email_service and supplier_data_dict.get('email') and attachments_for_this_email:
+                supplier_email_success = email_service.send_po_email(
+                    supplier_email=supplier_data_dict['email'], po_number=generated_po_number, attachments=attachments_for_this_email
+                )
+                if supplier_email_success:
+                    print(f"DEBUG PROCESS_ORDER_MULTI: Email sent to supplier for PO {generated_po_number}.")
+                    db_conn.execute(text("UPDATE purchase_orders SET status = :status, updated_at = :now WHERE id = :po_id"),
+                                    {"status": "SENT_TO_SUPPLIER", "now": datetime.now(timezone.utc), "po_id": new_purchase_order_id})
+                else: print(f"ERROR PROCESS_ORDER_MULTI: Email to supplier failed for PO {generated_po_number}.")
+            elif not attachments_for_this_email:
+                 print(f"WARN PROCESS_ORDER_MULTI: No attachments (PO, PS, Label) available for PO {generated_po_number}, skipping supplier email.")
+            else: print(f"WARN PROCESS_ORDER_MULTI: Skipping supplier email for PO {generated_po_number}.")
+
+            if email_service:
+                 qb_po_data = {
+                    "supplier_name": supplier_data_dict.get('name'), "po_number": generated_po_number,
+                    "po_date": current_utc_datetime,
+                    "shipping_method": shipment_method_for_po or order_data_dict.get('customer_shipping_method', "N/A"),
+                    "payment_instructions_for_po": payment_instructions_from_frontend,
+                    "fulfillment_order_id": order_data_dict.get('bigcommerce_order_id'),
+                    "po_line_items": po_items_for_pdf_and_qb_this_po, "expected_delivery_date": None }
+                 email_service.send_quickbooks_data_email(qb_po_data)
+
+            # --- Create Shipment in BigCommerce (does NOT set final order status) ---
+            if shipping_service and bc_api_base_url_v2 and tracking_number_this_po: # Only if tracking was generated
+                bc_order_id_to_update = order_data_dict.get('bigcommerce_order_id')
+                bc_order_address_id = _get_bc_shipping_address_id(bc_order_id_to_update)
+                bc_line_items_for_this_shipment_api = []
+                # ids_in_this_po contains original_order_line_item_id (DB ID) for items in current PO
+                for orig_item_detail in local_order_line_items_list:
+                    if orig_item_detail.get('line_item_id') in ids_in_this_po:
+                        current_po_item_input_for_bc_qty = next(
+                            (pi for pi in po_line_items_input if pi.get("original_order_line_item_id") == orig_item_detail.get('line_item_id')), None )
+                        if current_po_item_input_for_bc_qty and orig_item_detail.get('bigcommerce_line_item_id'):
+                             bc_line_items_for_this_shipment_api.append({
+                                "order_product_id": orig_item_detail.get('bigcommerce_line_item_id'),
+                                "quantity": current_po_item_input_for_bc_qty.get('quantity')
+                             })
+                if bc_order_id_to_update and bc_order_address_id is not None and bc_line_items_for_this_shipment_api:
+                    print(f"DEBUG PROCESS_ORDER_MULTI: Creating BC Shipment for PO {generated_po_number}, Tracking: {tracking_number_this_po}")
+                    shipment_created_successfully = shipping_service.create_bigcommerce_shipment(
                         bigcommerce_order_id=bc_order_id_to_update,
-                        tracking_number=tracking_number,
-                        shipping_method_name=customer_shipping_method_name, 
-                        line_items_shipped=bc_line_items_shipped_for_bc_api,
-                        order_address_id=bc_order_address_id,
-                        shipped_status_id=bc_shipped_status_id 
+                        tracking_number=tracking_number_this_po,
+                        shipping_method_name=shipment_method_for_po or order_data_dict.get('customer_shipping_method'),
+                        line_items_in_shipment=bc_line_items_for_this_shipment_api,
+                        order_address_id=bc_order_address_id
                     )
-                    if not bc_update_success: print(f"ERROR PROCESS_ORDER: BC update failed for order {bc_order_id_to_update}.")
-                    else: print(f"DEBUG PROCESS_ORDER: BC order {bc_order_id_to_update} updated to shipped status.")
-                else: print(f"WARN PROCESS_ORDER: No valid line items for BC update for order {bc_order_id_to_update}.")
-            else: print(f"WARN PROCESS_ORDER: Missing BC order ID or address ID for BC update. Order: {bc_order_id_to_update}, Address ID: {bc_order_address_id}")
-        else: print("WARN PROCESS_ORDER: Skipping BigCommerce update (service, API, or shipped_status_id not configured).")
-        
-        # --- Update Local 'orders' table status ---
+                    if not shipment_created_successfully:
+                        print(f"ERROR PROCESS_ORDER_MULTI: Failed to create shipment in BigCommerce for PO {generated_po_number}")
+                else:
+                    print(f"WARN PROCESS_ORDER_MULTI: Missing data for BC shipment for PO {generated_po_number}. BC Order ID: {bc_order_id_to_update}, BC Address ID: {bc_order_address_id}, Items for BC API: {len(bc_line_items_for_this_shipment_api)}")
+            elif tracking_number_this_po: # If tracking exists but service not configured
+                print(f"WARN PROCESS_ORDER_MULTI: Skipping BC shipment creation for PO {generated_po_number} (shipping_service or config missing, but tracking exists).")
+
+            processed_pos_info.append({
+                "po_number": generated_po_number, "supplier_id": supplier_id,
+                "tracking_number": tracking_number_this_po,
+                "po_pdf_gcs_uri": po_pdf_gcs_uri_this_po,
+                "packing_slip_gcs_uri": packing_slip_gcs_uri_this_po,
+                "label_gcs_uri": label_gcs_uri_this_po
+            })
+        # --- End of loop through assignments ---
+
+        is_last_shipment_for_order = False
+        if all_original_order_line_item_db_ids.issubset(processed_original_order_line_item_db_ids_this_batch):
+            is_last_shipment_for_order = True
+            print(f"DEBUG PROCESS_ORDER_MULTI: All original items for order {order_id} covered by this processing batch.")
+        else:
+            remaining_items = all_original_order_line_item_db_ids - processed_original_order_line_item_db_ids_this_batch
+            print(f"DEBUG PROCESS_ORDER_MULTI: Order {order_id} has {len(remaining_items)} original item ID(s) not in this batch: {remaining_items}. Not setting final BC 'Shipped' status yet.")
+
+        if is_last_shipment_for_order:
+            # Only set final "Shipped" status in BigCommerce if all items are covered.
+            # Requires bc_shipped_status_id to be your final "Shipped" or "Completed" status ID.
+            if shipping_service and bc_api_base_url_v2 and bc_shipped_status_id:
+                bc_order_id_to_update = order_data_dict.get('bigcommerce_order_id')
+                print(f"DEBUG PROCESS_ORDER_MULTI: Attempting to set final 'Shipped' status ({bc_shipped_status_id}) for BC Order {bc_order_id_to_update}.")
+                status_updated = shipping_service.set_bigcommerce_order_status(
+                    bigcommerce_order_id=bc_order_id_to_update,
+                    status_id=int(bc_shipped_status_id)
+                )
+                if status_updated: print(f"INFO PROCESS_ORDER_MULTI: BC Order {bc_order_id_to_update} final status updated to {bc_shipped_status_id}.")
+                else: print(f"ERROR PROCESS_ORDER_MULTI: Failed to set final 'Shipped' status for BC Order {bc_order_id_to_update}.")
+            else:
+                print(f"WARN PROCESS_ORDER_MULTI: Cannot set final BC 'Shipped' status for order {order_id} due to missing service or config.")
+        else:
+            # Optionally, if not the last shipment and you want to explicitly set "Partially Shipped"
+            # and have a BC_PARTIALLY_SHIPPED_STATUS_ID defined:
+            # if shipping_service and bc_api_base_url_v2 and os.getenv("BC_PARTIALLY_SHIPPED_STATUS_ID"):
+            #     partially_shipped_id = int(os.getenv("BC_PARTIALLY_SHIPPED_STATUS_ID"))
+            #     bc_order_id_to_update = order_data_dict.get('bigcommerce_order_id')
+            #     print(f"DEBUG PROCESS_ORDER_MULTI: Attempting to set 'Partially Shipped' status ({partially_shipped_id}) for BC Order {bc_order_id_to_update}.")
+            #     shipping_service.set_bigcommerce_order_status(
+            #         bigcommerce_order_id=bc_order_id_to_update,
+            #         status_id=partially_shipped_id
+            #     ) # Error handling for this call can be added
+            pass
+
+
         final_local_status_for_order_table = "Processed"
         db_conn.execute(text("UPDATE orders SET status = :status, updated_at = :now WHERE id = :order_id"),
                         {"status": final_local_status_for_order_table, "now": datetime.now(timezone.utc), "order_id": order_id})
-        print(f"DEBUG PROCESS_ORDER: Updated local 'orders' table (original customer order) {order_id} status to '{final_local_status_for_order_table}'.")
-        
-        transaction.commit()
-        print(f"DEBUG PROCESS_ORDER: Transaction committed for order {order_id}.")
-        response_payload = {
-            "message": f"Order {order_id} (BC Order {order_data_dict.get('bigcommerce_order_id')}) processed successfully. PO: {generated_po_number}, Tracking: {tracking_number}.",
-            "order_id": order_id, "purchase_order_number": generated_po_number, "tracking_number": tracking_number,
-            "po_pdf_gcs_uri": po_pdf_gcs_uri, "packing_slip_gcs_uri": packing_slip_gcs_uri, "label_gcs_uri": label_gcs_uri
-        }
-        return jsonify(make_json_safe(response_payload)), 201
+        print(f"DEBUG PROCESS_ORDER_MULTI: Updated local 'orders' table {order_id} status to '{final_local_status_for_order_table}'.")
 
-    except ValueError as ve: 
+        transaction.commit()
+        print(f"DEBUG PROCESS_ORDER_MULTI: Transaction committed for ALL assignments for order {order_id}.")
+        
+        return jsonify({
+            "message": f"Order {order_id} (BC Order {order_data_dict.get('bigcommerce_order_id')}) processed. Generated {len(processed_pos_info)} PO(s).",
+            "order_id": order_id,
+            "processed_purchase_orders": make_json_safe(processed_pos_info)
+        }), 201
+
+    except ValueError as ve:
         if transaction and transaction.is_active: transaction.rollback()
-        print(f"ERROR PROCESS_ORDER: Validation Error: {ve}"); traceback.print_exc()
+        print(f"ERROR PROCESS_ORDER_MULTI: Validation Error: {ve}"); traceback.print_exc()
         return jsonify({"error": "Processing failed due to invalid data or state.", "details": str(ve)}), 400
     except ModuleNotFoundError as me: 
          if transaction and transaction.is_active: transaction.rollback()
-         print(f"ERROR PROCESS_ORDER: Missing Module Error: {me}"); traceback.print_exc()
+         print(f"ERROR PROCESS_ORDER_MULTI: Missing Module Error: {me}"); traceback.print_exc()
          return jsonify({"error": "Processing failed due to missing internal module.", "details": str(me)}), 500
     except sqlalchemy.exc.SQLAlchemyError as db_e: 
         if transaction and transaction.is_active: transaction.rollback()
-        print(f"ERROR PROCESS_ORDER: Database Error: {db_e}"); traceback.print_exc()
+        print(f"ERROR PROCESS_ORDER_MULTI: Database Error: {db_e}"); traceback.print_exc()
         return jsonify({"error": "Processing failed due to a database error.", "details": str(db_e)}), 500
     except Exception as e: 
         if transaction and transaction.is_active:
              try: transaction.rollback()
-             except Exception as rb_e: print(f"ERROR PROCESS_ORDER: Error during transaction rollback: {rb_e}")
-        else: print(f"DEBUG PROCESS_ORDER: Transaction was not active or already rolled back. Error: {e}")
-        original_error_traceback = traceback.format_exc()
-        print(f"ERROR PROCESS_ORDER: Unhandled Exception: {e}")
-        print("--- ORIGINAL ERROR TRACEBACK ---"); print(original_error_traceback); print("--- END ---")
+             except Exception as rb_e: print(f"ERROR PROCESS_ORDER_MULTI: Error during transaction rollback: {rb_e}")
+        print(f"ERROR PROCESS_ORDER_MULTI: Unhandled Exception: {e}"); traceback.print_exc()
         return jsonify({"error": "An unexpected error occurred during order processing.", "details": str(e)}), 500
     finally:
         if db_conn and not db_conn.closed:
             db_conn.close()
-            print(f"DEBUG PROCESS_ORDER: Database connection closed for order {order_id}.")
+            print(f"DEBUG PROCESS_ORDER_MULTI: Database connection closed for order {order_id}.")
+
           
 # === Entry point for running the Flask app ===
 if __name__ == '__main__':
@@ -1884,16 +1939,15 @@ if __name__ == '__main__':
     if engine is None:
         print("CRITICAL MAIN: Database engine not initialized. Flask app might not work correctly with DB operations.")
     else:
-        run_host = os.getenv("FLASK_RUN_HOST", "127.0.0.1") # Listen on localhost by default
-        run_port = int(os.getenv("FLASK_RUN_PORT", 8080)) # Use 8080 if FLASK_RUN_PORT not set
+        run_host = os.getenv("FLASK_RUN_HOST", "127.0.0.1") 
+        run_port = int(os.getenv("FLASK_RUN_PORT", 8080)) 
         print(f"--> Running Flask development server on http://{run_host}:{run_port} with debug={app.debug}")
         app.run(host=run_host, port=run_port, debug=app.debug)
 else:
-    # This block executes when the script is imported by Gunicorn
     print("DEBUG APP_SETUP: Script imported by WSGI server (like Gunicorn).")
     if engine is None:
         print("CRITICAL GUNICORN: Database engine not initialized during import. DB operations will fail.")
     else:
         print("DEBUG GUNICORN: Database engine appears initialized during import.")
 
-print("DEBUG APP_SETUP: Reached end of app.py top-level execution.") # Added log
+print("DEBUG APP_SETUP: Reached end of app.py top-level execution.")

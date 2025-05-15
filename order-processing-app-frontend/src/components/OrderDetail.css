@@ -641,3 +641,55 @@ h3 { letter-spacing: 0.5px; }
   text-decoration: underline;
   color: var(--primary-accent-dark);
 }
+
+.purchase-items-grid.multi-supplier-items .item-row-multi {
+  display: flex;
+  flex-direction: column; /* Stack elements vertically */
+  gap: 8px; /* Space between SKU line, description, and cost */
+  padding: 10px;
+  border: 1px solid #444; /* Light border for each item block */
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.item-info-multi {
+  font-weight: 600;
+  margin-bottom: 5px; /* Space below "Qty X of SKU" */
+}
+
+.item-description-multi .description-textarea-multi {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 140px; /* Adjust as needed */
+}
+
+.item-cost-multi {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* Space between label and input if both are visible */
+}
+
+.item-cost-multi .price-input {
+  flex-grow: 1; /* Allow input to take available space */
+  max-width: 100px; /* Or adjust as needed */
+}
+
+/* Adjust labels for better alignment if needed */
+.item-description-multi label,
+.item-cost-multi .desktop-label { /* Style for explicit desktop label */
+  margin-right: 5px;
+  font-size: 0.9em;
+  color: #ccc;
+}
+
+/* Responsive adjustments if your item-row was previously a grid */
+@media (min-width: 600px) { /* Example breakpoint */
+  .purchase-items-grid.multi-supplier-items .item-row-multi {
+    /* You might want a more complex grid/flex setup here for wider screens */
+    /* For example, SKU | Description Textarea | Cost Input side-by-side */
+  }
+  .item-cost-multi {
+    /* Example: make it not take full width if side by side */
+    /* justify-content: flex-start; */
+  }
+}
