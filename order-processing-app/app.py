@@ -968,7 +968,6 @@ def ingest_orders():
 # --- End ingest_orders ---
 
 @app.route('/api/tasks/trigger-daily-iif', methods=['POST'])
-@verify_firebase_token # Apply decorator
 def trigger_daily_iif_generation():
     """
     Triggers the generation and emailing of the daily IIF batch file.
