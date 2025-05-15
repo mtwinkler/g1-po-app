@@ -48,9 +48,9 @@ function Login() {
   }
 
   return (
-    <div className="login-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', padding: '20px' }}>
+    <div className="login-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', padding: '20px' }}>
       <h2>G1 PO App Login</h2>
-      <p style={{ marginBottom: '30px' }}>Please sign in with your Google account to continue.</p>
+      <p style={{ marginBottom: '30px', fontSize: '0.7em', textAlign: 'center' }}>Please sign in with your Google account to continue.</p>
       
       {error && <p style={{ color: 'red', marginBottom: '15px' }}>{error}</p>}
 

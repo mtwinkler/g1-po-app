@@ -3,7 +3,7 @@
 import os
 import time # For PO Number generation
 import traceback # For detailed error logging in development
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, g
 from flask_cors import CORS # <--- IMPORT CORS
 import sqlalchemy
 from sqlalchemy import text # For sqlalchemy.text for raw SQL / transaction control
@@ -14,6 +14,10 @@ from datetime import datetime, timezone # For po_date
 from sqlalchemy.dialects.postgresql import insert
 from decimal import Decimal # If you need to handle decimal conversion for total_amount explicitly
 import inspect # For checking function arguments if needed
+
+# --- Firebase Admin SDK Imports ---
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth # Alias to avoid conflict
 
 
 # --- GCS Import ---
@@ -74,6 +78,32 @@ CORS(app,
 print("DEBUG APP_SETUP: CORS configured.")
 
 app.debug = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+
+# --- Firebase Admin SDK Initialization ---
+try:
+    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    firebase_project_id = "g1-po-app-77790" # Explicitly set your Firebase Project ID
+
+    if cred_path:
+        # Local development or specific service account usage
+        # Ensure the service account key in cred_path BELONGS to firebase_project_id
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred, {
+            'projectId': firebase_project_id,
+        })
+        print(f"DEBUG APP_SETUP: Firebase Admin SDK initialized using service account key from: {cred_path} for project {firebase_project_id}")
+    else:
+        # Cloud Run or other GCP environments where GOOGLE_APPLICATION_CREDENTIALS is not set
+        # The runtime service account of Cloud Run MUST have permissions on firebase_project_id
+        firebase_admin.initialize_app(options={
+            'projectId': firebase_project_id,
+        })
+        print(f"DEBUG APP_SETUP: Firebase Admin SDK initialized using default environment credentials, explicitly targeting project {firebase_project_id}.")
+
+except Exception as e_firebase_admin:
+    print(f"ERROR APP_SETUP: Firebase Admin SDK initialization failed: {e_firebase_admin}")
+    traceback.print_exc()
+# --- End Firebase Admin SDK Init ---
 
 # --- Configuration ---
 db_connection_name = os.getenv("DB_CONNECTION_NAME")
@@ -291,6 +321,49 @@ def get_hpe_mapping_with_fallback(original_sku_from_order, db_conn):
     return None, None, original_sku_from_order # No mapping found, return original SKU as sku_actually_mapped
 print("DEBUG APP_SETUP: Helper functions defined.") # Added log
 
+# === AUTHENTICATION DECORATOR ===
+from functools import wraps
+
+def verify_firebase_token(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        id_token = None
+
+        if auth_header and auth_header.startswith('Bearer '):
+            id_token = auth_header.split('Bearer ')[1]
+        
+        if not id_token:
+            print("WARN AUTH: Missing Authorization Bearer token.")
+            return jsonify({"error": "Unauthorized", "message": "Authorization token is missing or not Bearer type."}), 401
+
+        try:
+            decoded_token = firebase_auth.verify_id_token(id_token)
+            g.user_uid = decoded_token.get('uid') # Store UID in Flask's g context
+            g.user_email = decoded_token.get('email')
+            
+            # ***** MODIFIED: Check for Custom Claim 'isApproved' *****
+            if not decoded_token.get('isApproved') == True:
+                print(f"WARN AUTH: User {g.user_email} (UID: {g.user_uid}) is authenticated but NOT AUTHORIZED (missing or false 'isApproved' claim).")
+                return jsonify({"error": "Forbidden", "message": "You are not authorized to access this application."}), 403
+            
+            print(f"DEBUG AUTH: Token verified for user UID: {g.user_uid}, Email: {g.user_email}. User IS APPROVED.")
+
+        except firebase_auth.ExpiredIdTokenError:
+            print("WARN AUTH: Expired ID token.")
+            return jsonify({"error": "Unauthorized", "message": "Token has expired. Please log in again."}), 401
+        except firebase_auth.InvalidIdTokenError as e:
+            print(f"ERROR AUTH: Invalid ID token: {e}")
+            return jsonify({"error": "Unauthorized", "message": "Invalid ID token."}), 401
+        except Exception as e:
+            print(f"ERROR AUTH: Unexpected error during token verification: {e}")
+            traceback.print_exc()
+            return jsonify({"error": "Unauthorized", "message": "Could not verify authentication token."}), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 # === BASIC ROUTES ===
 @app.route('/')
 def hello(): return 'G1 PO App Backend is Running!'
@@ -315,6 +388,7 @@ print("DEBUG APP_SETUP: Defined /test_db route.") # Added log
 # === ORDER ROUTES ===
 # --- GET List Orders ---
 @app.route('/api/orders', methods=['GET'])
+@verify_firebase_token # Apply decorator
 def get_orders():
     print("DEBUG GET_ORDERS: Received request")
     # --- NEW: Get status filter from query parameter ---
@@ -357,6 +431,7 @@ print("DEBUG APP_SETUP: Defined /api/orders GET route.") # Added log
 
 # --- GET Single Order Details ---
 @app.route('/api/orders/<int:order_id>', methods=['GET'])
+@verify_firebase_token # Apply decorator
 def get_order_details(order_id):
     print(f"DEBUG GET_ORDER: Received request for order ID: {order_id}")
     db_conn = None
@@ -433,6 +508,7 @@ print("DEBUG APP_SETUP: Defined /api/orders/<id> GET route.") # Added log
 
 # ***** NEW: Endpoint to get order counts by status *****
 @app.route('/api/orders/status-counts', methods=['GET'])
+@verify_firebase_token # Apply decorator
 def get_order_status_counts():
     print("DEBUG GET_STATUS_COUNTS: Received request")
     db_conn = None
@@ -481,6 +557,7 @@ print("DEBUG APP_SETUP: Defined /api/orders/status-counts GET route.") # Add a l
 
 # --- NEW: Endpoint to update order status ---
 @app.route('/api/orders/<int:order_id>/status', methods=['POST'])
+@verify_firebase_token # Apply decorator
 def update_order_status(order_id):
     """Updates the status of a specific order."""
     print(f"DEBUG UPDATE_STATUS: Received request for order ID: {order_id}")
@@ -544,6 +621,7 @@ print("DEBUG APP_SETUP: Defined /api/orders/<id>/status POST route.") # Added lo
 
 # --- Route to Ingest Orders from BigCommerce using requests ---
 @app.route('/api/ingest_orders', methods=['POST'])
+@verify_firebase_token # Apply decorator
 def ingest_orders():
     """
     Ingests orders from BigCommerce based on status ID.
@@ -664,7 +742,7 @@ def ingest_orders():
                         print(f"DEBUG INGEST: Order {order_id_from_bc} exists (App ID: {existing_order_row.id}). DB status: '{db_status}'.")
 
                         # Define statuses that mean "don't touch this order further during routine ingest"
-                        finalized_or_manual_statuses = ['Processed', 'Completed Offline', 'Pending', 'RFQ Sent', 'international_manual']
+                        finalized_or_manual_statuses = ['processed', 'completed offline', 'pending', 'rfq sent', 'international_manual']
                         # Add any other status that signifies the order is beyond the 'new' automated ingest stage.
 
                         if db_status in finalized_or_manual_statuses:
@@ -691,7 +769,7 @@ def ingest_orders():
                         if db_tax_amount != bc_total_tax: update_fields['bigcommerce_order_tax'] = bc_total_tax
 
                         # Status update logic (this will respect statuses_to_preserve)
-                        statuses_to_preserve = ['RFQ Sent', 'Pending', 'Processed', 'Completed Offline', 'international_manual']
+                        statuses_to_preserve = ['rfq sent', 'pending', 'processed', 'completed offline', 'international_manual']
                         if db_status in statuses_to_preserve:
                             print(f"DEBUG INGEST: Preserving current status '{db_status}' for order {order_id_from_bc}.")
                         else:
@@ -803,6 +881,7 @@ def ingest_orders():
 # --- End ingest_orders ---
 
 @app.route('/api/tasks/trigger-daily-iif', methods=['POST'])
+@verify_firebase_token # Apply decorator
 def trigger_daily_iif_generation():
     """
     Triggers the generation and emailing of the daily IIF batch file.
@@ -835,6 +914,7 @@ def trigger_daily_iif_generation():
 
 # === SUPPLIER CRUD ROUTES ===
 @app.route('/api/suppliers', methods=['POST'])
+@verify_firebase_token # Apply decorator
 def create_supplier():
     try:
         print("Received request for POST /api/suppliers")
@@ -929,6 +1009,7 @@ def create_supplier():
 print("DEBUG APP_SETUP: Defined /api/suppliers POST route.")
 
 @app.route('/api/suppliers', methods=['GET'])
+@verify_firebase_token # Apply decorator
 def list_suppliers():
     print("Received request for GET /api/suppliers")
     if engine is None:
@@ -957,6 +1038,7 @@ def list_suppliers():
 print("DEBUG APP_SETUP: Defined /api/suppliers GET route.")
 
 @app.route('/api/suppliers/<int:supplier_id>', methods=['GET'])
+@verify_firebase_token # Apply decorator
 def get_supplier(supplier_id):
     print(f"Received request for GET /api/suppliers/{supplier_id}")
     if engine is None:
@@ -987,6 +1069,7 @@ def get_supplier(supplier_id):
 print("DEBUG APP_SETUP: Defined /api/suppliers/<id> GET route.")
 
 @app.route('/api/suppliers/<int:supplier_id>', methods=['PUT'])
+@verify_firebase_token # Apply decorator
 def update_supplier(supplier_id):
     print(f"Received request for PUT /api/suppliers/{supplier_id}")
     if engine is None:
@@ -1045,6 +1128,7 @@ def update_supplier(supplier_id):
 print("DEBUG APP_SETUP: Defined /api/suppliers/<id> PUT route.")
 
 @app.route('/api/suppliers/<int:supplier_id>', methods=['DELETE'])
+@verify_firebase_token # Apply decorator
 def delete_supplier(supplier_id):
     print(f"Received request for DELETE /api/suppliers/{supplier_id}")
     if engine is None:
@@ -1076,6 +1160,7 @@ print("DEBUG APP_SETUP: Defined /api/suppliers/<id> DELETE route.")
 
 # === PRODUCT MAPPING CRUD ROUTES ===
 @app.route('/api/products', methods=['POST'])
+@verify_firebase_token # Apply decorator
 def create_product_mapping():
     print("Received request for POST /api/products")
     if engine is None:
@@ -1139,6 +1224,7 @@ def create_product_mapping():
 print("DEBUG APP_SETUP: Defined /api/products POST route.")
 
 @app.route('/api/products', methods=['GET'])
+@verify_firebase_token # Apply decorator
 def list_product_mappings():
     print("Received request for GET /api/products")
     if engine is None:
@@ -1167,6 +1253,7 @@ def list_product_mappings():
 print("DEBUG APP_SETUP: Defined /api/products GET route.")
 
 @app.route('/api/products/<int:product_id>', methods=['GET'])
+@verify_firebase_token # Apply decorator
 def get_product_mapping(product_id):
     print(f"Received request for GET /api/products/{product_id}")
     if engine is None:
@@ -1195,6 +1282,7 @@ def get_product_mapping(product_id):
 print("DEBUG APP_SETUP: Defined /api/products/<id> GET route.")
 
 @app.route('/api/products/<int:product_id>', methods=['PUT'])
+@verify_firebase_token # Apply decorator
 def update_product_mapping(product_id):
     print(f"Received request for PUT /api/products/{product_id}")
     if engine is None:
@@ -1258,6 +1346,7 @@ def update_product_mapping(product_id):
 print("DEBUG APP_SETUP: Defined /api/products/<id> PUT route.")
 
 @app.route('/api/products/<int:product_id>', methods=['DELETE'])
+@verify_firebase_token # Apply decorator
 def delete_product_mapping(product_id):
     print(f"Received request for DELETE /api/products/{product_id}")
     if engine is None:
@@ -1292,6 +1381,7 @@ def delete_product_mapping(product_id):
 print("DEBUG APP_SETUP: Defined /api/products/<id> DELETE route.")
 
 @app.route('/api/lookup/description/<path:sku_value>', methods=['GET'])
+@verify_firebase_token # Apply decorator
 def get_description_for_sku(sku_value):
     """Looks up the best description for a given SKU/OptionPN."""
     if not sku_value:
@@ -1336,6 +1426,7 @@ print("DEBUG APP_SETUP: Defined /api/lookup/description/<sku> GET route.")
 
 # === PROCESS ORDER ROUTE ===
 @app.route('/api/orders/<int:order_id>/process', methods=['POST'])
+@verify_firebase_token # Apply decorator
 def process_order(order_id):
     print(f"DEBUG PROCESS_ORDER: Received request to process order ID: {order_id}")
     db_conn = None

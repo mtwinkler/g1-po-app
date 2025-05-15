@@ -17,7 +17,7 @@ greenlet==3.2.1 # Often a dependency for DB drivers or SQLAlchemy async
 # Google Cloud
 google-cloud-storage==3.1.0
 google-cloud-core==2.4.3
-google-api-core==2.25.0rc1
+google-api-core==2.24.2
 google-auth==2.39.0
 googleapis-common-protos==1.70.0
 proto-plus==1.26.1
@@ -90,3 +90,4 @@ scramp==1.4.5 # For PostgreSQL SCRAM authentication if used
 
 # Misc
 postmarker==1.0.0
+firebase-admin==6.8.0

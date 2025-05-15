@@ -1,12 +1,11 @@
-// --- START OF FILE Dashboard.jsx ---
-
+// Dashboard.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import './Dashboard.css';
 import { useAuth } from '../contexts/AuthContext'; // Make sure path is correct
 
 function Dashboard() {
-    const { currentUser } = useAuth(); // Get currentUser from AuthContext
+    const { currentUser, loading: authLoading } = useAuth(); // Get currentUser and authLoading state
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true); // For main order list
     const [error, setError] = useState(null);
@@ -31,35 +30,33 @@ function Dashboard() {
     };
 
     const fetchOrders = useCallback(async (signal) => {
-        if (!currentUser) { // <<<< MODIFIED: Don't fetch if no user
+        if (!currentUser) {
             setOrders([]);
             setLoading(false);
-            setError(null); // Clear error if user logs out
+            setError(null);
             return;
         }
         setLoading(true);
-        setError(null); // Clear previous errors
+        setError(null);
         if (!VITE_API_BASE_URL) {
             setError("API URL not configured.");
             setLoading(false);
             return;
         }
         try {
-            const token = await currentUser.getIdToken(true); // <<<< MODIFIED: Get token
+            const token = await currentUser.getIdToken(true);
             const statusParam = filterStatus ? `?status=${encodeURIComponent(filterStatus)}` : '';
             const displayOrdersApiUrl = `${VITE_API_BASE_URL}/orders${statusParam}`;
             const response = await fetch(displayOrdersApiUrl, {
                 signal,
-                headers: { // <<<< MODIFIED: Add Authorization header
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
             if (signal && signal.aborted) return;
             if (!response.ok) {
                 let errorMsg = `Failed to load orders. Status: ${response.status}`;
                 if (response.status === 401 || response.status === 403) {
-                    errorMsg = "Unauthorized to fetch orders. Please log in again.";
-                    // Consider navigating to login or showing a specific UI for re-authentication
+                    errorMsg = "Unauthorized to fetch orders. Your session might have expired. Please log in again.";
+                    // Consider navigating to login: navigate('/login');
                 } else {
                     try { const errorData = await response.json(); errorMsg = errorData.message || errorData.error || errorMsg; } catch (e) { /* ignore */ }
                 }
@@ -78,10 +75,10 @@ function Dashboard() {
         } finally {
             if (!signal || !signal.aborted) setLoading(false);
         }
-    }, [filterStatus, VITE_API_BASE_URL, currentUser]); // <<<< MODIFIED: Added currentUser
+    }, [filterStatus, VITE_API_BASE_URL, currentUser, navigate]); // Added navigate for potential redirect
 
     const fetchStatusCounts = useCallback(async (signal) => {
-        if (!currentUser) { // <<<< MODIFIED: Don't fetch if no user
+        if (!currentUser) {
             setStatusCounts({});
             setLoadingCounts(false);
             setHasPendingOrInternational(false);
@@ -93,17 +90,18 @@ function Dashboard() {
         }
         setLoadingCounts(true);
         try {
-            const token = await currentUser.getIdToken(true); // <<<< MODIFIED: Get token
+            const token = await currentUser.getIdToken(true);
             const countsApiUrl = `${VITE_API_BASE_URL}/orders/status-counts`;
             const response = await fetch(countsApiUrl, {
                 signal,
-                headers: { // <<<< MODIFIED: Add Authorization header
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
             if (signal && signal.aborted) return;
             if (!response.ok) {
-                 if(response.status === 401 || response.status === 403) console.error("Unauthorized to fetch status counts");
+                if(response.status === 401 || response.status === 403) {
+                    console.error("Unauthorized to fetch status counts.");
+                    setError(prevError => prevError ? prevError + " Additionally, failed to load status counts (unauthorized)." : "Failed to load status counts (unauthorized).");
+                }
                 throw new Error('Failed to fetch status counts');
             }
             const counts = await response.json();
@@ -116,32 +114,34 @@ function Dashboard() {
             }
         } catch (error) {
             console.error("Error fetching status counts:", error.message);
+            // Don't overwrite main error if it's already set from fetchOrders
+            if (!error) setError("Could not load status counts.");
             setStatusCounts({});
             setHasPendingOrInternational(false);
         } finally {
             if (!signal || !signal.aborted) setLoadingCounts(false);
         }
-    }, [VITE_API_BASE_URL, currentUser]); // <<<< MODIFIED: Added currentUser
+    }, [VITE_API_BASE_URL, currentUser, error, navigate]); // Added error and navigate
 
     const handleIngestOrders = useCallback(async () => {
         if (!VITE_API_BASE_URL) {
             setIngestionMessage("Error: API URL not configured.");
             return;
         }
-        if (!currentUser) { // <<<< MODIFIED: Check for user
+        if (!currentUser) {
             setIngestionMessage("Please log in to ingest orders.");
             return;
         }
         setIngesting(true);
         setIngestionMessage('Importing orders from BigCommerce...');
         try {
-            const token = await currentUser.getIdToken(true); // <<<< MODIFIED: Get token
+            const token = await currentUser.getIdToken(true);
             const ingestApiUrl = `${VITE_API_BASE_URL}/ingest_orders`;
             const response = await fetch(ingestApiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}` // <<<< MODIFIED: Add token
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({})
             });
@@ -152,14 +152,13 @@ function Dashboard() {
                 let errorMsg = `Error: ${result.message || result.error || `Failed with status ${response.status}`}`;
                  if (response.status === 401 || response.status === 403) {
                     errorMsg = "Unauthorized to ingest orders. Please log in again.";
+                    // navigate('/login'); // Optionally redirect
                 }
                 setIngestionMessage(errorMsg);
             } else {
                 setIngestionMessage(result.message || "Ingestion process completed successfully.");
-                // After successful ingestion, refresh the orders list and counts
-                // Pass a new AbortController signal if needed, or null if the functions handle it
                 const abortController = new AbortController();
-                fetchOrders(abortController.signal);
+                fetchOrders(abortController.signal); // Use a new signal for these fetches
                 fetchStatusCounts(abortController.signal);
             }
         } catch (err) {
@@ -168,25 +167,27 @@ function Dashboard() {
             setIngesting(false);
             setTimeout(() => setIngestionMessage(''), 7000);
         }
-    }, [VITE_API_BASE_URL, currentUser, fetchOrders, fetchStatusCounts]); // <<<< MODIFIED: Added dependencies
-
+    }, [VITE_API_BASE_URL, currentUser, fetchOrders, fetchStatusCounts, navigate]); // Added navigate
 
     useEffect(() => {
-        if (currentUser) { // <<<< MODIFIED: Only fetch if user exists
+        if (authLoading) { // If Firebase auth is still determining user state
+            setLoading(true); // Keep main dashboard loading
+            return;
+        }
+        if (currentUser) {
             const abortController = new AbortController();
             fetchOrders(abortController.signal);
             fetchStatusCounts(abortController.signal);
             return () => abortController.abort();
         } else {
-            // Clear data if user logs out or was never logged in
             setOrders([]);
             setStatusCounts({});
-            setLoading(false); // Stop main loading
-            setLoadingCounts(false); // Stop counts loading
-            setError(null); // Clear any errors
+            setLoading(false);
+            setLoadingCounts(false);
+            setError(null); // Clear errors when logged out
             setHasPendingOrInternational(false);
         }
-    }, [currentUser, fetchOrders, fetchStatusCounts]); // <<<< MODIFIED: Added currentUser
+    }, [currentUser, authLoading, fetchOrders, fetchStatusCounts]);
 
     const handleRowClick = (orderId) => navigate(`/orders/${orderId}`);
     const handleLinkClick = (e) => e.stopPropagation();
@@ -201,15 +202,23 @@ function Dashboard() {
         { value: 'Completed Offline', label: 'Completed Offline' }
     ];
 
-    // Show loading message if auth is still resolving AND no user yet, OR if fetching orders for the first time
-    // The loading state from useAuth() in AuthContext can also be used for a more global loading indicator.
-    if (loading && !currentUser && orders.length === 0) { // If initial auth is still happening or first load before user
-        return <div className="loading-message">Loading dashboard...</div>;
-    }
-    if (loading && currentUser && orders.length === 0 && !error){ // If user is present, but first fetch for orders
-        return <div className="loading-message">Loading orders...</div>;
+    if (authLoading) {
+        return <div className="loading-message">Loading session...</div>;
     }
 
+    if (!currentUser) { // If not loading auth, and no user, show login prompt
+        return (
+            <div className="dashboard-container" style={{ textAlign: 'center', marginTop: '50px' }}>
+                <h2>G1 PO App Dashboard</h2>
+                <p className="empty-list-message">Please <Link to="/login">log in</Link> to view orders.</p>
+            </div>
+        );
+    }
+
+    // If user is present, but data is still loading for the first time
+    if (loading && orders.length === 0 && !error){
+        return <div className="loading-message">Loading orders...</div>;
+    }
 
     return (
         <div className="dashboard-container">
@@ -222,47 +231,43 @@ function Dashboard() {
                 </span>
             </h2>
 
-            {/* Only show filters and error messages if a user is present or an error occurred */}
-            {currentUser && (
-                <div className="dashboard-controls-bar">
-                    <div className="dashboard-filters">
-                        <label htmlFor="statusFilter" style={{ fontWeight: '500', color: 'var(--text-main)'}}>
-                            Filter by Status:
-                            {hasPendingOrInternational && <span style={{ color: 'red', marginLeft: '2px', fontWeight: 'bold' }}>*</span>}
-                        </label>
-                        <select
-                            id="statusFilter"
-                            value={filterStatus}
-                            onChange={handleFilterChange}
-                            style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--border-input)' }}
-                            disabled={loadingCounts || !currentUser}
-                        >
-                            {orderedDropdownStatuses.map(statusObj => {
-                                const count = statusCounts[statusObj.value];
-                                const displayCount = (count !== undefined) ? ` (${count})` : ' (0)';
-                                const optionAsterisk = (
-                                    (statusObj.value === 'pending' && statusCounts.pending > 0) ||
-                                    (statusObj.value === 'international_manual' && statusCounts.international_manual > 0)
-                                ) ? '*' : '';
-                                return (
-                                    <option key={statusObj.value} value={statusObj.value}>
-                                        {statusObj.label}{displayCount}{optionAsterisk}
-                                    </option>
-                                );
-                            })}
-                        </select>
-                    </div>
+            <div className="dashboard-controls-bar">
+                <div className="dashboard-filters">
+                    <label htmlFor="statusFilter" style={{ fontWeight: '500', color: 'var(--text-main)'}}>
+                        Filter by Status:
+                        {hasPendingOrInternational && <span style={{ color: 'red', marginLeft: '2px', fontWeight: 'bold' }}>*</span>}
+                    </label>
+                    <select
+                        id="statusFilter"
+                        value={filterStatus}
+                        onChange={handleFilterChange}
+                        style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--border-input)' }}
+                        disabled={loadingCounts || ingesting} // Disable during count loading or ingestion
+                    >
+                        {orderedDropdownStatuses.map(statusObj => {
+                            const count = statusCounts[statusObj.value];
+                            const displayCount = (count !== undefined) ? ` (${count})` : ' (0)';
+                            const optionAsterisk = (
+                                (statusObj.value === 'pending' && statusCounts.pending > 0) ||
+                                (statusObj.value === 'international_manual' && statusCounts.international_manual > 0)
+                            ) ? '*' : '';
+                            return (
+                                <option key={statusObj.value} value={statusObj.value}>
+                                    {statusObj.label}{displayCount}{optionAsterisk}
+                                </option>
+                            );
+                        })}
+                    </select>
                 </div>
-            )}
+            </div>
 
             {error && <div className="error-message" style={{ marginBottom: '15px' }}>Error: {error}</div>}
-            {loading && orders.length > 0 && currentUser && <div className="loading-message" style={{marginTop: '10px', marginBottom: '10px'}}>Refreshing orders...</div>}
+            {/* Show refreshing message only if orders are already present and we are re-fetching */}
+            {loading && orders.length > 0 && <div className="loading-message" style={{marginTop: '10px', marginBottom: '10px'}}>Refreshing orders...</div>}
 
-            {!currentUser && !loading && <p className="empty-list-message">Please log in to view orders.</p>}
-
-            {currentUser && orders.length === 0 && !loading && !error ? (
+            {orders.length === 0 && !loading && !error ? (
                 <p className="empty-list-message">No orders found{filterStatus ? ` for status '${orderedDropdownStatuses.find(s => s.value === filterStatus)?.label || filterStatus}'` : ''}.</p>
-            ) : currentUser && !error && (
+            ) : !error && orders.length > 0 && ( // Ensure orders exist before rendering table
                 <div className="table-responsive-container">
                     <table className="order-table">
                         <thead>
@@ -311,27 +316,33 @@ function Dashboard() {
                 </div>
             )}
 
-            {currentUser && ( // Only show ingest controls if user is logged in
-                <div className="ingest-controls-sticky-wrapper">
-                    <div className="ingest-controls">
-                        {ingestionMessage &&
-                            <div
-                                className="ingestion-message"
-                                style={{
-                                    color: ingestionMessage.toLowerCase().includes('error') || ingestionMessage.toLowerCase().includes('failed') ? 'var(--error-text)' : 'var(--success-text)',
-                                    marginRight: '15px',
-                                    alignSelf: 'center',
-                                    fontWeight: 500
-                                }}>
-                                {ingestionMessage}
-                            </div>
-                        }
-                        <button onClick={handleIngestOrders} disabled={ingesting || loadingCounts || !currentUser} className="ingest-button">
-                            {ingesting ? 'Importing...' : (loadingCounts && currentUser ? 'Loading Filters...' : 'IMPORT NEW ORDERS')}
+            <div className="ingest-controls-sticky-wrapper">
+                <div className="ingest-controls">
+                    {ingestionMessage &&
+                        <div
+                            className="ingestion-message"
+                            style={{
+                                color: ingestionMessage.toLowerCase().includes('error') || ingestionMessage.toLowerCase().includes('failed') ? 'var(--error-text)' : 'var(--success-text)',
+                                marginRight: '15px', // Kept for spacing if needed
+                                alignSelf: 'center',
+                                fontWeight: 500,
+                                marginBottom: currentUser ? '8px' : '0' // Add margin only if button is also shown
+                            }}>
+                            {ingestionMessage}
+                        </div>
+                    }
+                    {currentUser && ( // Only show ingest button if user is logged in
+                        // MODIFIED: Apply new global button classes
+                        <button 
+                            onClick={handleIngestOrders} 
+                            disabled={ingesting || loadingCounts} 
+                            className="btn btn-gradient btn-shadow-lift btn-primary" // Using primary color scheme
+                        >
+                            {ingesting ? 'Importing...' : (loadingCounts ? 'Loading Filters...' : 'IMPORT NEW ORDERS')}
                         </button>
-                    </div>
+                    )}
                 </div>
-            )}
+            </div>
         </div>
     );
 }

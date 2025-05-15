@@ -1,10 +1,11 @@
-// --- START OF FILE ProductMappingForm.jsx ---
-
-import React, { useState } from 'react';
+// ProductMappingForm.jsx
+import React, { useState, useEffect } from 'react'; // Added useEffect for authLoading check
 import { useNavigate, Link } from 'react-router-dom';
-import './ProductMappingForm.css';
+import './ProductMappingForm.css'; // Assuming you have styles for this form
+import { useAuth } from '../contexts/AuthContext'; // Import useAuth
 
 function ProductMappingForm() {
+  const { currentUser, loading: authLoading } = useAuth(); // Get currentUser and auth loading state
   const [formData, setFormData] = useState({
     sku: '',
     standard_description: '',
@@ -13,6 +14,7 @@ function ProductMappingForm() {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const navigate = useNavigate();
+  const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -24,28 +26,39 @@ function ProductMappingForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!currentUser) {
+        setError("Please log in to add a product mapping.");
+        return;
+    }
     setSubmitting(true);
     setError(null);
     setSuccessMessage('');
 
-    // Construct the full absolute URL
     const relativePath = '/products';
-    const fullApiUrl = `${import.meta.env.VITE_API_BASE_URL}${relativePath}`;
+    const fullApiUrl = `${VITE_API_BASE_URL}${relativePath}`;
     console.log("ProductMappingForm.jsx: Submitting POST to:", fullApiUrl);
 
     try {
-      const response = await fetch(fullApiUrl, { // Use fullApiUrl
+      const token = await currentUser.getIdToken(true); // Get Firebase ID token
+      const response = await fetch(fullApiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // Add Authorization header
         },
         body: JSON.stringify(formData),
       });
-      const responseData = await response.json().catch(() => null);
+      const responseData = await response.json().catch(() => null); // Try to parse JSON even on error
       if (!response.ok) {
-        throw new Error(responseData?.message || `HTTP error! Status: ${response.status}`);
+        let errorMsg = responseData?.message || `HTTP error! Status: ${response.status}`;
+        if (response.status === 401 || response.status === 403) {
+            errorMsg = "Unauthorized to add mapping. Please log in again.";
+            // navigate('/login'); // Optional: redirect
+        }
+        throw new Error(errorMsg);
       }
       setSuccessMessage('Mapping added successfully! Redirecting...');
+      setFormData({ sku: '', standard_description: '' }); // Clear form on success
       setTimeout(() => {
         navigate('/products');
       }, 1500);
@@ -55,6 +68,29 @@ function ProductMappingForm() {
       setSubmitting(false);
     }
   };
+
+  // Effect to clear messages if user logs out while on this page
+  useEffect(() => {
+    if (!authLoading && !currentUser) {
+        setError("Please log in to access this page.");
+        setSuccessMessage(''); // Clear any previous success messages
+    }
+  }, [currentUser, authLoading]);
+
+
+  if (authLoading) {
+    return <div className="form-page-container"><div className="form-message loading">Loading session...</div></div>;
+  }
+
+  // This page should be protected by ProtectedRoute, but as an additional check:
+  if (!currentUser) {
+    return (
+        <div className="form-page-container">
+            <h2>Add New Product Mapping</h2>
+            <div className="form-message error">Please <Link to="/login">log in</Link> to add a new product mapping.</div>
+        </div>
+    );
+  }
 
   return (
     <div className="form-page-container">
@@ -75,7 +111,7 @@ function ProductMappingForm() {
             value={formData.sku}
             onChange={handleChange}
             required
-            disabled={submitting}
+            disabled={submitting || !currentUser} // Disable if no user or submitting
           />
         </div>
         <div className="form-group">
@@ -86,12 +122,12 @@ function ProductMappingForm() {
             value={formData.standard_description}
             onChange={handleChange}
             required
-            disabled={submitting}
+            disabled={submitting || !currentUser} // Disable if no user or submitting
             rows="6"
           />
         </div>
         <div className="form-actions">
-          <button type="submit" className="form-button primary" disabled={submitting}>
+          <button type="submit" className="form-button primary" disabled={submitting || !currentUser}>
             {submitting ? 'Creating...' : 'Create Mapping'}
           </button>
         </div>
@@ -101,4 +137,3 @@ function ProductMappingForm() {
 }
 
 export default ProductMappingForm;
-// --- END OF FILE ProductMappingForm.jsx ---

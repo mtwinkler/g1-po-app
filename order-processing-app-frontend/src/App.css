@@ -1,26 +1,7 @@
 /* App.css */
 
 /* === Font Definitions === */
-@font-face {
-  font-family: 'Eloquia';
-  src: url('/fonts/eloquia-extra-light.woff2') format('woff2'); /* Note leading / */
-  font-weight: 300;
-  font-style: normal;
-}
 
-@font-face {
-  font-family: 'Eloquia';
-  src: url('/fonts/eloquia-semibold.woff2') format('woff2'); /* Note leading / */
-  font-weight: 600;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: 'Eloquia';
-  src: url('/fonts/eloquia-extra-bold.woff2') format('woff2'); /* Note leading / */
-  font-weight: 800;
-  font-style: normal;
-}
 
 /* === GLOBAL CSS VARIABLES === */
 :root {
@@ -49,6 +30,26 @@
   --border-nav-lm: #dee2e6;         /* Nav border */
   --border-input-lm: #ced4da;
 
+  /* Status Colors */
+  --status-new-bg-lm: #dc3545;
+  --status-processed-bg-lm: #28a745;
+  --status-pending-bg-lm: #ffc107;
+  --status-pending-text-lm: #333;
+  --status-international-bg-lm: #fd7e14;
+  --status-rfqsent-bg-lm: #17a2b8; 
+  --status-completed-offline-bg-lm: #000000; 
+  --status-completed-offline-text-lm: #ffffff; 
+  --status-unknown-bg-lm: #6c757d;
+  --status-text-lm: #ffffff;
+
+  /* Button Gradient Variables - Light Mode */
+  --btn-primary-gradient-start-lm: var(--primary-accent-lm); /* #007bff */
+  --btn-primary-gradient-end-lm: color-mix(in srgb, var(--primary-accent-dark-lm) 80%, #000000 20%); /* Even darker blue */
+  --btn-success-gradient-start-lm: #66bb6a; /* Given green */
+  --btn-success-gradient-end-lm: #388e3c;  /* Darker solid green for gradient end */
+  --btn-text-lm: #ffffff;
+
+
   /* --- Dark Mode Defaults --- */
   --primary-accent-dm: #4dabf7;      /* Lighter blue for dark mode links/accents */
   --primary-accent-dark-dm: #1c7ed6; 
@@ -70,6 +71,26 @@
   --border-light-dm: #2c3034;        /* Very dark gray for subtle dividers */
   --border-nav-dm: #343a40;          /* Nav border in dark mode */
   --border-input-dm: #495057;
+  
+  /* Status Colors - Dark Mode */
+  --status-new-bg-dm: #cf6679;
+  --status-processed-bg-dm: #5cb85c; 
+  --status-pending-bg-dm: #ffee58;
+  --status-pending-text-dm: #121212;
+  --status-international-bg-dm: #ffa726;
+  --status-rfqsent-bg-dm: #4dd0e1; 
+  --status-completed-offline-bg-dm: #333333; 
+  --status-completed-offline-text-dm: #ffffff; 
+  --status-unknown-bg-dm: #78909c;
+  --status-text-dm: #ffffff;
+
+  /* Button Gradient Variables - Dark Mode */
+  --btn-primary-gradient-start-dm: var(--primary-accent-dm); /* #4dabf7 */
+  --btn-primary-gradient-end-dm: color-mix(in srgb, var(--primary-accent-dark-dm) 80%, #000000 20%); /* Darker version of the accent */
+  --btn-success-gradient-start-dm: #5cb85c; 
+  --btn-success-gradient-end-dm: #388e3c; /* Darker green for dark mode gradient end */
+  --btn-text-dm: #ffffff;
+
 
   /* --- Universal Semantic Variables (Default to Light Mode) --- */
   --primary-accent: var(--primary-accent-lm);
@@ -80,7 +101,7 @@
   --text-nav-link: var(--text-nav-link-lm);
   --bg-page: var(--bg-page-lm);
   --bg-card: var(--bg-card-lm);
-  --bg-card-alt: var(--bg-card-alt-lm); /* New alternating card background */
+  --bg-card-alt: var(--bg-card-alt-lm); 
   --bg-nav: var(--bg-nav-lm);
   --bg-input: var(--bg-input-lm);
   --bg-disabled: var(--bg-disabled-lm);
@@ -90,16 +111,24 @@
   --border-nav: var(--border-nav-lm);
   --border-input: var(--border-input-lm);
 
-  --status-new-bg-lm: #dc3545;
-  --status-processed-bg-lm: #28a745;
-  --status-pending-bg-lm: #ffc107;
-  --status-pending-text-lm: #333;
-  --status-international-bg-lm: #fd7e14;
-  --status-rfqsent-bg-lm: #17a2b8; /* Assuming this exists or is added for RFQ Sent */
-  --status-completed-offline-bg-lm: #000000; /* Black background for light mode */
-  --status-completed-offline-text-lm: #ffffff; /* White text for light mode */
-  --status-unknown-bg-lm: #6c757d;
-  --status-text-lm: #ffffff; /* Default text for most status badges */
+  /* Semantic Status Variables */
+  --status-new-bg: var(--status-new-bg-lm);
+  --status-processed-bg: var(--status-processed-bg-lm);
+  --status-pending-bg: var(--status-pending-bg-lm);
+  --status-pending-text: var(--status-pending-text-lm);
+  --status-international-bg: var(--status-international-bg-lm);
+  --status-rfqsent-bg: var(--status-rfqsent-bg-lm);
+  --status-completed-offline-bg: var(--status-completed-offline-bg-lm);
+  --status-completed-offline-text: var(--status-completed-offline-text-lm);
+  --status-unknown-bg: var(--status-unknown-bg-lm);
+  --status-text: var(--status-text-lm);
+
+  /* Semantic Button Variables */
+  --btn-primary-gradient-start: var(--btn-primary-gradient-start-lm);
+  --btn-primary-gradient-end: var(--btn-primary-gradient-end-lm);
+  --btn-success-gradient-start: var(--btn-success-gradient-start-lm);
+  --btn-success-gradient-end: var(--btn-success-gradient-end-lm);
+  --btn-text: var(--btn-text-lm);
 }
 
 /* --- Dark Mode Overrides --- */
@@ -113,7 +142,7 @@
     --text-nav-link: var(--text-nav-link-dm);
     --bg-page: var(--bg-page-dm);
     --bg-card: var(--bg-card-dm);
-    --bg-card-alt: var(--bg-card-alt-dm); /* New alternating card background for dark mode */
+    --bg-card-alt: var(--bg-card-alt-dm); 
     --bg-nav: var(--bg-nav-dm);
     --bg-input: var(--bg-input-dm);
     --bg-disabled: var(--bg-disabled-dm);
@@ -123,21 +152,24 @@
     --border-nav: var(--border-nav-dm);
     --border-input: var(--border-input-dm);
 
-    --status-new-bg-dm: #cf6679;
-    --status-processed-bg-dm: #66bb6a;
-    --status-pending-bg-dm: #ffee58;
-    --status-pending-text-dm: #121212;
-    --status-international-bg-dm: #ffa726;
-    --status-rfqsent-bg-dm: #4dd0e1; /* Assuming this exists or is added */
-    --status-completed-offline-bg-dm: #333333; /* Dark grey for dark mode (or stick with black) */
-    --status-completed-offline-text-dm: #ffffff; /* White text for dark mode */
-    --status-unknown-bg-dm: #78909c;
-    --status-text-dm: #ffffff;
-
-    /* ... then update the semantic variables for dark mode ... */
+    /* Semantic Status Variables - Dark Mode */
+    --status-new-bg: var(--status-new-bg-dm);
+    --status-processed-bg: var(--status-processed-bg-dm);
+    --status-pending-bg: var(--status-pending-bg-dm);
+    --status-pending-text: var(--status-pending-text-dm);
+    --status-international-bg: var(--status-international-bg-dm);
+    --status-rfqsent-bg: var(--status-rfqsent-bg-dm);
     --status-completed-offline-bg: var(--status-completed-offline-bg-dm);
     --status-completed-offline-text: var(--status-completed-offline-text-dm);
-
+    --status-unknown-bg: var(--status-unknown-bg-dm);
+    --status-text: var(--status-text-dm);
+    
+    /* Semantic Button Variables - Dark Mode */
+    --btn-primary-gradient-start: var(--btn-primary-gradient-start-dm);
+    --btn-primary-gradient-end: var(--btn-primary-gradient-end-dm);
+    --btn-success-gradient-start: var(--btn-success-gradient-start-dm);
+    --btn-success-gradient-end: var(--btn-success-gradient-end-dm);
+    --btn-text: var(--btn-text-dm);
   }
 }
 
@@ -173,6 +205,7 @@ a:hover {
 }
 
 /* Input and select elements globally (if you want consistent base styling) */
+/* This global style will be overridden by more specific button classes */
 input, button, textarea, select {
   font-family: inherit; /* Inherit Eloquia font */
   font-size: 1em;
@@ -180,7 +213,7 @@ input, button, textarea, select {
   background-color: var(--bg-input);
   border: 1px solid var(--border-input);
   border-radius: 4px;
-  padding: 0.5em 0.75em; /* Example padding */
+  padding: 0.5em 0.75em; 
 }
 
 input:focus, textarea:focus, select:focus {
@@ -191,29 +224,110 @@ input:focus, textarea:focus, select:focus {
 
 /* === Main Navigation === */
 .main-navigation {
-  width: 100%; /* Make nav take full width of its container (#root) */
+  width: 100%; 
   text-align: center;
   padding: 1rem 0;
   margin-bottom: 1rem;
-  border-bottom: 1px solid var(--border-nav); /* Use CSS variable */
-  background-color: var(--bg-nav);        /* Use CSS variable */
+  border-bottom: 1px solid var(--border-nav); 
+  background-color: var(--bg-nav);        
   box-sizing: border-box;
 }
 
 .main-navigation a {
   margin: 0 10px;
-  font-weight: 600; /* Slightly bolder for nav links */
-  color: var(--text-nav-link); /* Use CSS variable */
+  font-weight: 600; 
+  color: var(--text-nav-link); 
 }
+
+/* === Global Button Styles === */
+.btn {
+  display: inline-flex; 
+  align-items: center;
+  justify-content: center;
+  padding: 0.65em 1.25em; 
+  font-family: inherit;
+  font-size: 1em; 
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  color: var(--btn-text); 
+  border: none; 
+  border-radius: 6px; 
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-position 0.4s ease, background-color 0.3s ease;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  white-space: nowrap; 
+  user-select: none; 
+}
+
+.btn-gradient {
+  background-size: 150% auto; /* Increased size to allow more of the gradient to show on hover shift */
+}
+
+.btn-shadow-lift {
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0,0,0,0.05);
+}
+.btn-shadow-lift:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0,0,0,0.1);
+}
+.btn-shadow-lift:active:not(:disabled) {
+  transform: translateY(0px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0,0,0,0.05);
+}
+
+/* Color Variants */
+.btn-primary.btn-gradient {
+  /* MODIFIED: Simpler gradient from start to a darker end */
+  background-image: linear-gradient(to right bottom, 
+                                    var(--btn-primary-gradient-start) 0%, 
+                                    var(--btn-primary-gradient-end) 100%);
+  color: var(--btn-text);
+}
+.btn-primary.btn-gradient:hover:not(:disabled) {
+  background-position: right center; /* Shifts the gradient to show more of the darker end */
+}
+
+.btn-success.btn-gradient {
+  /* MODIFIED: Simpler gradient from start to a darker end */
+  background-image: linear-gradient(to right bottom, 
+                                    var(--btn-success-gradient-start) 0%, 
+                                    var(--btn-success-gradient-end) 100%);
+  color: var(--btn-text);
+}
+.btn-success.btn-gradient:hover:not(:disabled) {
+  background-position: right center; /* Shifts the gradient to show more of the darker end */
+}
+
+/* Specific button sizes (optional) */
+.btn-lg {
+  padding: 0.8em 1.5em;
+  font-size: 1.1em;
+}
+
+.btn-sm {
+  padding: 0.4em 0.8em;
+  font-size: 0.9em;
+}
+
+/* Disabled state for all .btn types */
+.btn:disabled {
+  background-image: none; 
+  background-color: var(--bg-disabled);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+  opacity: 0.65;
+}
+
 
 /* === Responsive styles for mobile === */
 @media (max-width: 768px) {
   #root {
-    /* max-width: none; /* Already set */
-    /* width: 100%; /* Already set */
-    /* margin: 0; /* Already set */
-    padding: 1rem; /* Adjusted padding for mobile #root */
-    /* text-align: left; /* Already set */
+    padding: 1rem; 
   }
 
   .main-navigation {
@@ -251,23 +365,17 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* === Default Vite Card Style === */
-/*
-  It's better to define .card styles here globally if it's a common component style.
-  The OrderDetail.css also defines .card. Consolidate them here or ensure
-  OrderDetail.css overrides are intentional.
-  Using the --bg-card and --border-strong variables is a good start.
-*/
 .card {
-  padding: 2em; /* Default Vite padding - adjust as needed */
+  padding: 2em; 
   background-color: var(--bg-card);
   border: 1px solid var(--border-strong);
-  border-radius: 8px; /* Example */
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); /* This shadow might need dark mode adjustment */
+  border-radius: 8px; 
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); 
   margin-bottom: 1rem;
-  color: var(--text-main); /* Ensure text inside cards is adaptive */
+  color: var(--text-main); 
 }
 
 /* === Default Vite Docs Link Style === */
 .read-the-docs {
-  color: var(--text-secondary); /* Use adaptive secondary text */
+  color: var(--text-secondary); 
 }

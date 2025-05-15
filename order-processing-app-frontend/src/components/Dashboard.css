@@ -5,13 +5,14 @@
   max-width: 1200px;
   margin: 10px auto;
   padding: 10px;
+  padding-bottom: 100px; /* Add padding to bottom to avoid overlap with sticky ingest button */
 }
 
 /* Dashboard title */
 .dashboard-container h2 {
-  color: #002a5c; /* Dark blue */
+  color: var(--primary-accent-dark); /* Using variable from App.css */
   margin-bottom: 20px;
-  border-bottom: 1px solid #eee; /* Separator */
+  border-bottom: 1px solid var(--border-light); /* Using variable */
   padding-bottom: 10px;
   text-align: center;    /* Center the text */
   text-transform: uppercase; /* Make text all caps */
@@ -22,10 +23,10 @@
 .table-responsive-container {
     width: 100%;
     overflow-x: auto; /* Allows horizontal scroll on desktop if table is wide */
-    border: 1px solid #dee2e6; /* Add border around table */
+    border: 1px solid var(--border-strong); /* Using variable */
     border-radius: 6px;
-    background-color: #fff; /* White background for table area */
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* Subtle shadow */
+    background-color: var(--bg-card); /* Using variable */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
 }
 
 /* === Desktop Table Styling === */
@@ -39,49 +40,47 @@
 .order-table td {
   padding: 10px 12px; /* Cell padding */
   text-align: left;
-  border-bottom: 1px solid #dee2e6; /* Row separator */
-  vertical-align: middle; /* Align content vertically */
-  /* ***** MODIFICATION: Set a darker default text color ***** */
-  color: var(--text-color); /* Was inherit, now uses #333 */
+  border-bottom: 1px solid var(--border-medium); /* Using variable */
+  vertical-align: middle; 
+  color: var(--text-main); 
 }
 
 /* Table Header */
 .order-table thead th {
-  background-color: #f8f9fa; /* Light header background */
-  font-weight: 600; /* Bolder header text */
-  color: #495057; /* Header text color */
-  border-bottom-width: 2px; /* Thicker border below header */
-  white-space: nowrap; /* Prevent header text wrapping */
+  background-color: var(--bg-card-alt); /* Using variable */
+  font-weight: 600; 
+  color: var(--text-secondary); /* Using variable */
+  border-bottom-width: 2px; 
+  white-space: nowrap; 
 }
 
 /* Table Body Rows */
 .order-table tbody tr:nth-child(even) {
-     background-color: #fdfdfd; /* Very subtle row striping */
+     background-color: color-mix(in srgb, var(--bg-card) 97%, var(--bg-page) 3%); /* Very subtle row striping */
 }
 
 .order-table tbody tr:hover {
-  background-color: #f1f3f5; /* Subtle hover effect */
+  background-color: color-mix(in srgb, var(--bg-card) 90%, var(--primary-accent) 10%); /* Subtle hover effect */
 }
-/* Add hover specifically for clickable rows */
 .order-table tbody tr.clickable-row:hover {
-  background-color: #e9ecef; /* Slightly darker hover for clickable */
+  background-color: color-mix(in srgb, var(--bg-card) 85%, var(--primary-accent) 15%); /* Slightly darker hover for clickable */
 }
 
 
 /* Link Styling within table */
 .order-table td a {
-    color: #0056b3 !important;
+    color: var(--primary-accent) !important;
     text-decoration: none;
     font-weight: 500;
 }
 .order-table td a:hover {
     text-decoration: underline;
-    color: #004085 !important; /* Darker blue on hover */
+    color: var(--primary-accent-dark) !important; 
 }
 
 /* Specific Column Alignment/Styling */
 .total-column {
-    text-align: right; /* Align total right */
+    text-align: right; 
     font-weight: 500;
     white-space: nowrap;
 }
@@ -89,53 +88,25 @@
 /* === Status Badge Styling (for table) === */
 .order-status-badge-table {
     font-weight: bold;
-    padding: 3px 7px; /* Slightly smaller padding */
+    padding: 3px 7px; 
     border-radius: 10px;
-    color: white;
-    font-size: 0.8em; /* Smaller font */
-    margin-left: 8px; /* Space from link on desktop */
-    display: inline-block; /* Default display */
-    vertical-align: middle; /* Align with text/link */
-    text-transform: uppercase; /* Optional: makes status clearer */
-    letter-spacing: 0.5px; /* Optional */
+    color: var(--status-text); /* Using variable */
+    font-size: 0.8em; 
+    margin-left: 8px; 
+    display: inline-block; 
+    vertical-align: middle; 
+    text-transform: uppercase; 
+    letter-spacing: 0.5px; 
 }
 
-/* Status Colors */
-.status-new { background-color: var(--status-new-bg); /* Uses variable */ }
-.status-processed { background-color: var(--status-processed-bg); /* Uses variable */ }
-.status-pending { background-color: var(--status-pending-bg); color: var(--status-pending-text); /* Uses variables */ }
-.status-international_manual { background-color: var(--status-international-bg); /* Uses variable */ }
-.status-rfq-sent { background-color: var(--status-rfqsent-bg); /* Example, if you have RFQ Sent */ }
-.status-unknown { background-color: var(--status-unknown-bg); /* Uses variable */ }
-
-/* ***** NEW RULE for Completed Offline ***** */
-.status-completed-offline {
-  background-color: var(--status-completed-offline-bg, #000000); /* Black background, or use variable */
-  color: var(--status-completed-offline-text, #ffffff) !important; /* White text, added !important for specificity if needed */
-}
-/* Add more statuses as needed */
-
-/* CSS Variables */
-:root {
-  --primary-color-light: #e7f1fc; /* Card background color */
-  --text-color: #333;
-  --text-light: #555;
-  --primary-color: #ffffff; /* was 0056b3 */
-  --primary-color-dark: #adbbcb; /* was 004085 */
-  --border-light: #eee;
-  --border-medium: #dee2e6;
-  /* Added for ingest button consistency */
-  --primary-accent: #0056b3; /* Example: Blue */
-  --primary-accent-dark: #004085; /* Darker blue for hover */
-  --text-on-primary: #ffffff; /* White text on blue button */
-  --bg-disabled: #e9ecef; /* Background for disabled button */
-  --text-secondary: #6c757d; /* Text color for disabled button */
-  --bg-card: #ffffff; /* Background for sticky wrapper, assuming white */
-  --error-text: #721c24; /* For error messages */
-  --success-text: #155724; /* For success messages */
-  --border-input: #ced4da; /* For select border */
-  --text-main: #212529; /* For labels */
-}
+/* Status Colors - These will use the global variables from App.css */
+.status-new { background-color: var(--status-new-bg); }
+.status-processed { background-color: var(--status-processed-bg); }
+.status-pending { background-color: var(--status-pending-bg); color: var(--status-pending-text); }
+.status-international_manual { background-color: var(--status-international-bg); }
+.status-rfq-sent { background-color: var(--status-rfqsent-bg); }
+.status-completed-offline { background-color: var(--status-completed-offline-bg); color: var(--status-completed-offline-text); }
+.status-unknown { background-color: var(--status-unknown-bg); }
 
 
 /* === Mobile Responsive Styles for Dashboard Table === */
@@ -149,100 +120,88 @@
       margin-bottom: 15px;
       border: 1px solid var(--border-medium);
       border-radius: 6px;
-      background-color: var(--primary-color-light); /* THIS SETS THE CARD BACKGROUND */
-      color: var(--text-color);
+      background-color: var(--bg-card-alt); /* Using variable for card background */
+      color: var(--text-main);
       box-shadow: 0 2px 4px rgba(0,0,0,0.05);
       padding: 5px 0;
       width: 95%;
       margin-left: auto;
       margin-right: auto;
-      position: relative; /* Essential for absolute positioning of children */
+      position: relative; 
   }
   .order-table tr.clickable-row { cursor: pointer; transition: background-color 0.2s ease, box-shadow 0.2s ease; }
   .order-table tr.clickable-row:hover {
-      background-color: var(--primary-color-light); /* Or a slightly different hover like #ddeafd */
+      background-color: color-mix(in srgb, var(--bg-card-alt) 90%, var(--primary-accent) 10%); 
       box-shadow: 0 4px 8px rgba(0,0,0,0.08);
   }
 
-  /* General Cell Styling (TD) for side-by-side label/value */
   .order-table td {
       display: block;
       padding: 6px 12px;
       border-bottom: 1px dotted var(--border-light);
       position: relative;
       min-height: auto;
-      /* color: inherit; */ /* Color is now set globally for td */
-      text-align: right; /* Default alignment for the value part on the right */
+      text-align: right; 
   }
 
-   /* General Label styling for side-by-side layout */
   .order-table td::before {
       content: attr(data-label);
       position: absolute;
       left: 12px;
-      width: 45%; /* Adjust as needed for label width (e.g., 40%, 50%) */
-      padding-right: 10px; /* Space between label and value */
+      width: 45%; 
+      padding-right: 10px; 
       white-space: nowrap;
       text-align: left;
       font-weight: bold;
-      color: var(--text-light);
+      color: var(--text-secondary);
   }
-  /* Remove bottom border from the last cell in a card */
   .order-table tr td:last-child {
     border-bottom: 0;
   }
 
-  /* Hide columns marked with .hide-mobile */
-  .order-table .hide-mobile { display: none !important; } /* Added !important for robustness */
+  .order-table .hide-mobile { display: none !important; } 
 
-  /* Date/Time display at the top right of the card */
   .order-card-datetime-top-right {
     position: absolute;
-    top: 8px; /* Adjust for vertical alignment */
-    right: 12px; /* Adjust for horizontal alignment */
+    top: 8px; 
+    right: 12px; 
     text-align: right;
-    font-size: 0.9em; /* UPDATED FONT SIZE */
-    color: var(--text-light);
+    font-size: 0.9em; 
+    color: var(--text-secondary);
     line-height: 1.3;
-    background-color: transparent; /* Ensures it blends with the card background */
+    background-color: transparent; 
     padding: 1px 3px;
     border-radius: 3px;
   }
   .order-card-date { display: block; }
-  .order-card-time { display: block; font-size: 0.9em; /* Relative to parent's 0.9em or absolute */ }
+  .order-card-time { display: block; font-size: 0.9em; }
 
 
-  /* Specific Cell Styling for Mobile */
-
-  /* Order # Cell (label hidden, content left-aligned) */
   .order-table td[data-label="Order #"] {
       padding-top: 10px;
       padding-bottom: 6px;
       font-size: 1.1em;
       font-weight: 500;
       text-align: left;
-      border-bottom: none; /* If status badge is directly below */
+      border-bottom: none; 
   }
-   .order-table td[data-label="Order #"] a { color: var(--primary-color); font-weight: 600; }
-   .order-table td[data-label="Order #"] a:hover { color: var(--primary-color-dark); }
-   .order-table td[data-label="Order #"]::before { content: ""; display: none; } /* Hide label */
+   .order-table td[data-label="Order #"] a { color: var(--primary-accent); font-weight: 600; }
+   .order-table td[data-label="Order #"] a:hover { color: var(--primary-accent-dark); }
+   .order-table td[data-label="Order #"]::before { content: ""; display: none; } 
 
-  /* Status Badge (typically under Order # on mobile) */
   .order-status-badge-table {
       display: block;
-      margin-left: 0; /* Align to left under Order # */
-      margin-top: 5px; /* Space from Order # link */
+      margin-left: 0; 
+      margin-top: 5px; 
       width: fit-content;
   }
 
-  /* Order Date Cell (content moved to top right, so hide this cell structure) */
   .order-table td[data-label="Order Date"]::before { content: ""; display: none; }
   .order-table td[data-label="Order Date"] {
       font-size: 0; padding: 0 !important; margin: 0 !important;
       border-bottom: none !important; min-height: 0 !important; line-height: 0;
   }
 
-  /* --- STYLING FOR COMMENTS (Stacked Layout & Conditional Label Hiding) --- */
   .order-table td[data-label="Comments"]::before {
       position: static; 
       display: block;   
@@ -274,28 +233,25 @@
      white-space: normal;    
      word-break: break-word;
      font-weight: normal;
-     color: var(--text-color);
+     color: var(--text-main);
      font-size: 0.9em;
      line-height: 1.4;       
   }
-  /* --- END STYLING FOR COMMENTS --- */
 
 .order-table td[data-label="Customer"] {
     font-weight: 500;
 }
    .order-table td[data-label="Ship Method"],
-   .order-table td[data-label="Ship To"] { font-size: 0.9em; color: var(--text-light); }
+   .order-table td[data-label="Ship To"] { font-size: 0.9em; color: var(--text-secondary); }
 
 
-   /* Total Cell Styling on Mobile */
    .order-table td[data-label="Total"] {
-      text-align: right; /* Value to the right for Total */
+      text-align: right; 
       font-size: 1.15em;
       font-weight: bold;
    }
-} /* End of @media (max-width: 768px) */
+} 
 
-/* ***** NEW: Rule to hide elements on desktop ***** */
 @media (min-width: 769px) {
   .hide-on-desktop {
     display: none !important;
@@ -303,7 +259,6 @@
 }
 
 
-/* Style for loading/error messages */
 .loading-message, .error-message {
   padding: 12px 15px;
   margin-top: 15px;
@@ -314,22 +269,22 @@
   border: 1px solid transparent;
 }
 .loading-message {
-  background-color: #e9ecef;
-  color: #333;
-  border-color: #ced4da;
+  background-color: var(--border-medium); /* Using variable */
+  color: var(--text-main);
+  border-color: var(--border-strong);
 }
 .error-message {
-  background-color: #f8d7da;
-  color: #721c24;
-  border-color: #f5c6cb;
+  background-color: var(--error-bg); /* Using variable */
+  color: var(--error-text);
+  border-color: var(--error-border);
 }
 
 .dashboard-controls-bar {
   display: flex;
-  justify-content: space-between; /* Aligns filter to left, ingest to right */
+  justify-content: space-between; 
   align-items: center;
-  flex-wrap: wrap; /* Allow wrapping on smaller screens */
-  gap: 15px; /* Space between items if they wrap */
+  flex-wrap: wrap; 
+  gap: 15px; 
   margin-bottom: 20px;
 }
 
@@ -344,7 +299,7 @@
   bottom: 0;
   left: 0;
   width: 100%;
-  background-color: var(--bg-card);
+  background-color: var(--bg-card); /* Using variable */
   padding: 15px 20px;
   box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
   z-index: 1000;
@@ -361,6 +316,8 @@
   text-align: center; 
 }
 
+/* REMOVED: .ingest-button specific styles as they are now handled by global .btn classes */
+/*
 .ingest-button {
   background-color: var(--primary-accent);
   color: var(--text-on-primary);
@@ -381,6 +338,7 @@
   color: var(--text-secondary);
   cursor: not-allowed;
 }
+*/
 
 .ingestion-message {
   font-size: 0.9em; 
@@ -388,53 +346,47 @@
   font-weight: 500;
 }
 
-/* ... (your existing Dashboard.css styles) ... */
 
-/* New styles for status links */
 .dashboard-status-links {
   display: flex;
-  align-items: center; /* Vertically align "View:" text with links */
-  gap: 10px; /* Space between "View:" text and first link, and between links */
-  flex-wrap: wrap; /* Allow links to wrap on smaller screens */
+  align-items: center; 
+  gap: 10px; 
+  flex-wrap: wrap; 
 }
 
 .status-link, .active-status-link {
   text-decoration: none;
-  padding: 6px 10px; /* Adjust padding as needed */
+  padding: 6px 10px; 
   border-radius: 4px;
-  color: var(--primary-accent); /* Using your existing variable */
+  color: var(--primary-accent); 
   font-weight: 500;
-  border: 1px solid transparent; /* For consistent height with active */
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease; /* Smooth transitions */
+  border: 1px solid transparent; 
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease; 
 }
 
 .status-link:hover {
-  text-decoration: none; /* Keep no underline on hover if preferred */
-  background-color: #e9ecef; /* Light grey hover, adjust as needed */
+  text-decoration: none; 
+  background-color: var(--border-light); /* Using variable */
   color: var(--primary-accent-dark);
 }
 
 .active-status-link {
-  font-weight: 700; /* Bolder for active link */
-  background-color: var(--primary-accent-light, #e7f1fc); /* Using existing or a fallback */
-  color: var(--primary-accent-dark, #004085); /* Using existing or a fallback */
-  border: 1px solid var(--primary-accent-dark, #004085); /* Optional: border for active */
+  font-weight: 700; 
+  background-color: var(--primary-accent-lm); /* Example: using light mode primary accent for active */
+  color: var(--text-on-primary); /* Example: text on primary for active */
+  border: 1px solid var(--primary-accent-dark); 
 }
 
-/* Adjust the dashboard-controls-bar if needed, for example, to center the new links if ingest button is removed or relocated */
 .dashboard-controls-bar {
   display: flex;
-  /* justify-content: space-between; */ /* Original: this might push links left if ingest button is on right */
-  justify-content: flex-start; /* Or center, depending on layout */
+  justify-content: flex-start; 
   align-items: center;
   flex-wrap: wrap;
   gap: 15px;
   margin-bottom: 20px;
 }
 
-/* If you want the "Filter by Status:" label gone, remove it from JSX.
-   If you want to keep a general label for the links area: */
-.dashboard-filters-label { /* Example if you add a span with this class */
+.dashboard-filters-label { 
   font-weight: 500;
   color: var(--text-main);
   margin-right: 10px;

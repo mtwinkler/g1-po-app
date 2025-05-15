@@ -111,11 +111,11 @@ def send_po_email(supplier_email, po_number, attachments):
          Thanks! 
          <br> 
          <strong>Mark T. Winkler</strong>
-
+         <br>
          <em>HP Enterprise Purchasing and Fulfillment</em>
+         <br>
          <strong>Global One Technology</strong>
-	 <br> 
-         <img src="https://fonts.gstatic.com/s/e/notoemoji/16.0/2709_fe0f/72.png" alt="✉️" height="16" width="1">&nbsp;
+         <br>
          <a href="mailto:sales@globalonetechnology.com" target="_blank" style="color: rgb(31, 162, 221);">sales@globalonetechnology.com</a>
         """
 

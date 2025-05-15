@@ -34,6 +34,7 @@
   --status-international-bg-lm: #fd7e14; /* Orange */
   --status-rfqsent-bg-lm: #17a2b8;    /* Teal/Info */
   --status-unknown-bg-lm: #6c757d;   /* Gray */
+  --status-completed-offline-bg-lm: #343a40; /* Dark Grey/Black */
   --status-text-lm: #ffffff;         /* Default text for status badges */
 
   /* Universal Semantic Variables - Default to Light Mode */
@@ -63,6 +64,7 @@
   --status-international-bg: var(--status-international-bg-lm);
   --status-rfqsent-bg: var(--status-rfqsent-bg-lm);
   --status-unknown-bg: var(--status-unknown-bg-lm);
+  --status-completed-offline-bg: var(--status-completed-offline-bg-lm);
   --status-text: var(--status-text-lm);
 
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
@@ -107,6 +109,7 @@
     --status-international-bg-dm: #ffa726; /* Darker orange */
     --status-rfqsent-bg-dm: #4dd0e1;    /* Lighter teal */
     --status-unknown-bg-dm: #78909c;   /* Lighter gray */
+    --status-completed-offline-bg-dm: #757575; /* Adjusted dark mode 'completed offline' */
     --status-text-dm: #ffffff;         /* Default white text still okay for most dark badges */
 
     /* Update Semantic Variables for Dark Mode */
@@ -136,6 +139,7 @@
     --status-international-bg: var(--status-international-bg-dm);
     --status-rfqsent-bg: var(--status-rfqsent-bg-dm);
     --status-unknown-bg: var(--status-unknown-bg-dm);
+    --status-completed-offline-bg: var(--status-completed-offline-bg-dm);
     --status-text: var(--status-text-dm);
   }
 }
@@ -143,7 +147,7 @@
 /* Apply base font to body - If this CSS file is loaded globally or OrderDetail is the main view */
 /* It's better in index.css or App.css if possible */
 body { /* Example if this was global */
-  font-family: var(--font-sans);
+  /* font-family: var(--font-sans); */
   color: var(--text-main);
   line-height: 1.6;
   background-color: var(--bg-page);
@@ -225,8 +229,10 @@ h3 { letter-spacing: 0.5px; }
 .status-processed { background-color: var(--status-processed-bg); }
 .status-pending { background-color: var(--status-pending-bg); color: var(--status-pending-text); } /* Uses specific text color */
 .status-international_manual { background-color: var(--status-international-bg); }
-.status-unknown { background-color: var(--status-unknown-bg); }
 .status-rfq-sent { background-color: var(--status-rfqsent-bg); }
+.status-completed-offline { background-color: var(--status-completed-offline-bg); }
+.status-unknown { background-color: var(--status-unknown-bg); }
+
 
 /* Order Info Section */
 .order-info {
@@ -387,41 +393,98 @@ h3 { letter-spacing: 0.5px; }
 }
 .copy-button:hover { opacity: 1; }
 
-.link-button {
-    background: none; border: none; cursor: pointer; padding: 0;
-    color: var(--primary-accent-dark); text-decoration: underline; font-size: inherit; /* Adaptive */
+.link-button { /* Style for "Process Manually" link */
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    color: var(--primary-accent); /* Use adaptive primary accent color */
+    text-decoration: underline;
+    font-size: 0.9em; /* As per inline style in JSX */
+    transition: color 0.2s ease;
 }
-.link-button:hover { color: var(--primary-accent-dark); } /* Already adaptive */
-.link-button:disabled { color: var(--text-secondary); text-decoration: none; cursor: not-allowed; opacity: 0.6; }
+.link-button:hover {
+    color: var(--primary-accent-dark); /* Darker on hover */
+}
+.link-button[aria-disabled="true"] { /* Style for disabled link */
+    color: var(--text-secondary);
+    text-decoration: none;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
 
 .clipboard-status { margin-left: var(--spacing-sm); font-size: 0.8em; color: var(--success-text); font-style: italic; } /* Adaptive */
 
-/* Action Button */
-.action-section { margin-top: var(--spacing-xl); text-align: center; }
-
-.process-button {
-  background-color: var(--primary-accent-dark); /* Adaptive */
-  color: var(--text-on-primary); /* Adaptive text on primary */
-  padding: 10px var(--spacing-lg);
-  border: none;
-  border-radius: 5px;
-  font-size: 1.1em;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
-  letter-spacing: 0.5px;
+/* Action Button Section - Replaces old .action-section */
+.order-actions { /* NEW: Styles for the button container */
+  margin-top: var(--spacing-xl);
+  margin-bottom: var(--spacing-md);
+  display: flex;
+  flex-direction: column; /* Stack buttons and links */
+  align-items: flex-start; /* Align to the left */
+  gap: var(--spacing-md); /* Space between elements */
 }
 
-.process-button:hover:not(:disabled) {
-  background-color: var(--primary-accent); /* Lighter adaptive accent on hover */
+/* Styles for the PROCESS ORDER button */
+.process-order-button { /* NEW or MODIFIED from your .process-button */
+  background-color: var(--status-processed-bg); /* Green for "go" - uses adaptive variable */
+  color: var(--status-text); /* Typically white, uses adaptive variable */
+  border: none;
+  padding: 10px var(--spacing-lg); /* Default padding */
+  min-height: 70px; /* Taller button - adjust as needed */
+  font-size: 1.2em;
+  font-weight: 900; /* Was bold, adjusted to 600 */
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  display: flex; /* For centering text */
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  width: auto; /* Allow button to size to content or set a specific width */
+  min-width: 200px; /* Example minimum width */
+}
+
+.process-order-button:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--status-processed-bg) 85%, black); /* Darker green */
   box-shadow: 0 2px 5px rgba(0,0,0,0.15);
 }
 
-.process-button:disabled { 
-  background-color: color-mix(in srgb, var(--text-secondary) 30%, transparent); /* Adaptive disabled */
-  color: color-mix(in srgb, var(--text-main) 50%, transparent);
-  cursor: not-allowed; 
+.process-order-button:disabled {
+  background-color: var(--bg-disabled); /* Use adaptive disabled background */
+  color: var(--text-secondary); /* Use adaptive disabled text color */
+  cursor: not-allowed;
+  box-shadow: none;
 }
+
+/* Styles for the BACK TO DASHBOARD button */
+.back-to-dashboard-button { /* NEW */
+  background-color: var(--primary-accent); /* Blue, using adaptive variable */
+  color: var(--text-on-primary); /* Text on blue, adaptive */
+  border: none;
+  padding: var(--spacing-sm) var(--spacing-md); /* Standard padding */
+  font-size: 1em;
+  font-weight: 500;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  text-transform: uppercase;
+  min-width: 200px; /* Example minimum width, match process button if desired */
+  text-align: center;
+}
+
+.back-to-dashboard-button:hover:not(:disabled) {
+  background-color: var(--primary-accent-dark); /* Darker blue */
+}
+
+.back-to-dashboard-button:disabled {
+  background-color: var(--bg-disabled);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
 
 /* Disable form elements visually */
 .form-disabled select,
@@ -436,7 +499,7 @@ h3 { letter-spacing: 0.5px; }
 
 
 /* Messages */
-.loading-message, .error-message, .success-message {
+.loading-message, .error-message, .success-message, .process-message { /* Added .process-message here */
     padding: var(--spacing-sm) var(--spacing-md);
     margin-top: var(--spacing-lg);
     border-radius: 4px;
@@ -445,8 +508,8 @@ h3 { letter-spacing: 0.5px; }
     border: 1px solid transparent;
 }
 .loading-message { background-color: var(--border-medium); color: var(--text-main); border-color: var(--border-strong);} /* Adaptive */
-.error-message { background-color: var(--error-bg); color: var(--error-text); border-color: var(--error-border); } /* Adaptive */
-.success-message { background-color: var(--success-bg); color: var(--success-text); border-color: var(--success-border); } /* Adaptive */
+.error-message, .process-message.error { background-color: var(--error-bg); color: var(--error-text); border-color: var(--error-border); } /* Adaptive, combined error styling */
+.success-message, .process-message.success { background-color: var(--success-bg); color: var(--success-text); border-color: var(--success-border); } /* Adaptive, combined success styling */
 
 
 /* --- Responsive Adjustments --- */
@@ -495,6 +558,25 @@ h3 { letter-spacing: 0.5px; }
     .order-title-section { align-items: flex-start; }
     .order-title-section h2 { margin-bottom: var(--spacing-xs); font-size: 1.6em; }
     .order-status-badge { margin-left: 0; margin-top: var(--spacing-xs); }
+
+    /* Adjust action buttons for mobile if needed */
+    .order-actions {
+        align-items: stretch; /* Make buttons full width on mobile */
+
+    }
+    .process-order-button, .back-to-dashboard-button {
+        width: 100%; /* Full width buttons on mobile */
+        min-width: 0; /* Reset min-width */
+        font-size: 1.5em; /* Slightly smaller font for mobile buttons */
+        font-weight: 900;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .process-order-button {
+        min-height: 90px; /* Slightly reduce min-height for mobile if needed */
+
+    }
+
 }
 
 @media (max-width: 480px) {
@@ -505,40 +587,14 @@ h3 { letter-spacing: 0.5px; }
     .form-grid { grid-template-columns: 1fr; }
     .form-grid label { text-align: left; }
 
-    /* Updated Process Button for Mobile - Dark Mode Friendly */
-    .process-button {
-      font-size: 1.3em; /* Keep or adjust */
-      font-weight: 500; /* Keep or adjust */
-      letter-spacing: 1px; /* Keep or adjust */
-      padding: 10px 20px; /* Keep or adjust */
-      color: var(--text-on-primary); /* Uses dark mode variable for text on button */
-      background: linear-gradient(to bottom, color-mix(in srgb, var(--primary-accent) 90%, black), color-mix(in srgb, var(--primary-accent) 70%, black)); /* Adaptive gradient */
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      outline: none;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-      transition:
-        background 0.3s ease,
-        transform 0.2s ease,
-        box-shadow 0.3s ease,
-        text-shadow 0.3s ease;
-    }
-
-    .process-button:hover:not(:disabled) {
-      background: linear-gradient(to bottom, var(--primary-accent), color-mix(in srgb, var(--primary-accent) 80%, black)); /* Adaptive gradient hover */
-      transform: translateY(-2px);
-      box-shadow: 0 0 12px color-mix(in srgb, var(--primary-accent) 50%, transparent); /* Adaptive glow */
-      text-shadow: 0 0 5px color-mix(in srgb, var(--text-on-primary) 25%, transparent); /* Adaptive text shadow */
-    }
-
-    .process-button:active:not(:disabled) { /* Added :not(:disabled) */
-      transform: scale(0.98);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-    }
+    /* Your existing responsive .process-button styles were quite different,
+       I'm applying a simpler full-width approach here.
+       If you prefer the gradient and text-shadow effects,
+       you can re-integrate them into .process-order-button for this media query.
+    */
 }
 
-.manual-actions-section {
+.manual-actions-section { /* This was in your original CSS, keeping it for now */
   margin-top: 20px;
   margin-bottom: 20px;
   text-align: center;
@@ -548,15 +604,14 @@ h3 { letter-spacing: 0.5px; }
   flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
 }
 
-.manual-action-button {
-  /* Inherits from .process-button if used together, or define specific styles here */
-  padding: 10px 15px; /* Adjust if needed */
-  font-size: 0.95em;  /* Slightly smaller if desired */
+.manual-action-button { /* This was in your original CSS, keeping it for now */
+  padding: 10px 15px;
+  font-size: 0.95em;
 }
 
 /* Example specific styles if not using inline */
 .button-mark-completed {
-  background-color: var(--status-processed-bg, #28a745); /* Use variable from root or fallback */
+  background-color: var(--status-processed-bg, #28a745);
   color: var(--status-text, #ffffff);
 }
 .button-mark-completed:hover:not(:disabled) {
@@ -565,8 +620,24 @@ h3 { letter-spacing: 0.5px; }
 
 .button-process-manually {
   background-color: var(--status-pending-bg, #ffc107);
-  color: var(--status-pending-text, #333); /* Ensure text is readable on yellow */
+  color: var(--status-pending-text, #333);
 }
 .button-process-manually:hover:not(:disabled) {
   background-color: color-mix(in srgb, var(--status-pending-bg, #ffc107) 85%, black);
+}
+
+/* Ensure back link is styled */
+.back-link {
+  display: block; /* Make it block to take full width for easier clicking */
+  margin-top: var(--spacing-lg);
+  text-align: center; /* Center the back link */
+  color: var(--primary-accent);
+  text-decoration: none;
+  font-weight: 500;
+  padding: var(--spacing-sm);
+}
+
+.back-link:hover {
+  text-decoration: underline;
+  color: var(--primary-accent-dark);
 }
