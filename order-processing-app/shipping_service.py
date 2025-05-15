@@ -178,7 +178,24 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
          print(f"ERROR UPS Payload: US State '{ship_to_state_full}' could not be mapped to a 2-letter code.")
          return None, None # Critical error
     elif not ship_to_state_code: ship_to_state_code = ship_to_state_full
+
+    # ---- MODIFICATION FOR SHIPTO ----
+    ship_to_company_name = order_data.get('customer_company', '').strip()
+    ship_to_contact_name = order_data.get('customer_name', '').strip() # This is typically the person's name
+
+    # UPS Logic:
+    # If company name is present, it usually goes into ShipTo.Name.
+    # The individual's name then goes into ShipTo.AttentionName.
+    # If no company name, the individual's name might go into ShipTo.Name,
+    # and AttentionName could be the same or omitted.
+    # For simplicity and common practice with UPS for business addresses:
     
+    ups_ship_to_name = ship_to_company_name if ship_to_company_name else ship_to_contact_name
+    ups_attention_name = ship_to_contact_name if ship_to_company_name else ship_to_contact_name # Or just ship_to_contact_name always
+
+    print(f"DEBUG UPS Payload Prep: ShipTo Name: '{ups_ship_to_name}', AttentionName: '{ups_attention_name}'")
+    # ---- END MODIFICATION ----
+
     payload = {
         "ShipmentRequest": { "Request": { "RequestOption": "nonvalidate", "TransactionReference": { "CustomerContext": f"Order_{bc_order_id_str}"}},
             "Shipment": { "Description": "Computer Parts",
@@ -187,11 +204,18 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
                     "Address": { "AddressLine": [addr for addr in [ship_from_address.get('street_1'), ship_from_address.get('street_2')] if addr and addr.strip()],
                         "City": ship_from_address.get('city'), "StateProvinceCode": ship_from_address.get('state'),
                         "PostalCode": ship_from_address.get('zip'), "CountryCode": ship_from_address.get('country', 'US')}},
-                "ShipTo": { "Name": order_data.get('customer_name'), "AttentionName": order_data.get('customer_name'),
+                "ShipTo": {
+                    "Name": ups_ship_to_name, # Use the determined name (company or person)
+                    "AttentionName": ups_attention_name, # Use the contact person's name
                     "Phone": {"Number": (order_data.get('customer_phone') or "").replace('-', '')},
-                    "Address": { "AddressLine": [addr for addr in [order_data.get('customer_shipping_address_line1'), order_data.get('customer_shipping_address_line2')] if addr and addr.strip()],
-                        "City": order_data.get('customer_shipping_city'), "StateProvinceCode": ship_to_state_code,
-                        "PostalCode": order_data.get('customer_shipping_zip'), "CountryCode": order_data.get('customer_shipping_country', 'US')}},
+                    "Address": {
+                        "AddressLine": [addr for addr in [order_data.get('customer_shipping_address_line1'), order_data.get('customer_shipping_address_line2')] if addr and addr.strip()],
+                        "City": order_data.get('customer_shipping_city'),
+                        "StateProvinceCode": ship_to_state_code,
+                        "PostalCode": order_data.get('customer_shipping_zip'),
+                        "CountryCode": order_data.get('customer_shipping_country', 'US')
+                    }
+                },
                 "PaymentInformation": { "ShipmentCharge": { "Type": "01", "BillShipper": {"AccountNumber": UPS_ACCOUNT_NUMBER}}},
                 "Service": {"Code": ups_service_code},
                 "Package": [{"Description": "Package of Computer Parts", "Packaging": {"Code": "02"},

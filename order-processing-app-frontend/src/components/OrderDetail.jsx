@@ -608,7 +608,7 @@ function OrderDetail() {
       {canDisplayProcessingForm && !isMultiSupplierMode && selectedMainSupplierTrigger && selectedMainSupplierTrigger !== MULTI_SUPPLIER_MODE_VALUE && (
         <form onSubmit={handleProcessOrder} className={`processing-form ${disableEditableFormFields ? 'form-disabled' : ''}`}>
             <section className="purchase-info card">
-              <h3>Purchase Information (Single Supplier: {suppliers.find(s=>s.id === parseInt(selectedMainSupplierTrigger, 10))?.name || ''})</h3>
+              <h3>Create PO for {suppliers.find(s=>s.id === parseInt(selectedMainSupplierTrigger, 10))?.name || ''}</h3>
               <div className="form-grid">
                 <label htmlFor="singlePoNotes">PO Notes:</label>
                 <textarea id="singlePoNotes" value={singleOrderPoNotes} onChange={handleSingleOrderPoNotesChange} rows="3" disabled={disableEditableFormFields} />

@@ -327,6 +327,76 @@ def create_and_email_daily_iif_batch(db_engine_ref):
     else:
         print(f"ERROR IIF_BATCH: No IIF content generated for {batch_date_str}, or a critical error occurred. Email not sent.")
 
+#region NEW FUNCTION FOR TODAY'S IIF
+def create_and_email_iif_for_today(db_engine_ref):
+    """
+    Generates IIF content for purchase orders created 'today' (UTC) and emails it.
+    """
+    # --- Use today's date (UTC) ---
+    target_date_for_today = datetime.now(timezone.utc).date()
+    batch_date_str = target_date_for_today.strftime("%Y-%m-%d")
+    print(f"INFO IIF_TODAY: Generating IIF batch for POs dated: {batch_date_str}")
+    # --- END DATE LOGIC ---
+
+    iif_content, mapping_failures = generate_iif_content_for_date(db_engine_ref, batch_date_str)
+    email_warning_html = None 
+
+    if mapping_failures: 
+        warning_lines = [
+             '<p><strong><span style="color: red; font-size: 1.2em;">WARNING: QuickBooks Item Mapping Failures (Today\'s Report)</span></strong></p>',
+             '<p>The INVITEM field in the attached IIF file uses the original Option PN for items that could not be mapped. Please review your `qb_product_mapping` table or add these items in QuickBooks:</p>',
+             '<ul>']
+        unique_failures = set()
+        for failure in mapping_failures:
+            failure_key = (failure['po_number'], failure['failed_sku'])
+            if failure_key not in unique_failures:
+                desc_display = html.escape(failure['description'] or '[No Description]', quote=True)
+                failed_sku_display = html.escape(failure['failed_sku'] or '[EMPTY SKU]', quote=True)
+                po_num_display = html.escape(failure['po_number'] or '[N/A]', quote=True)
+                warning_lines.append(f"<li>PO Number: <strong>{po_num_display}</strong>, Failed Option PN (used as INVITEM): <strong>{failed_sku_display}</strong> (Desc: {desc_display})</li>")
+                unique_failures.add(failure_key)
+        warning_lines.append('</ul><hr>')
+        email_warning_html = "\n".join(warning_lines)
+
+    if iif_content:
+        print(f"INFO IIF_TODAY: IIF content generated for {batch_date_str}. Length: {len(iif_content)}. Failures: {len(mapping_failures)}")
+        
+        # Optional: Save locally for debugging if needed
+        local_iif_filename = f"debug_output_Today_{batch_date_str.replace('-', '')}.iif"
+        try:
+            with open(local_iif_filename, "w", encoding="utf-8", newline='\r\n') as f:
+                f.write(iif_content) 
+            print(f"INFO IIF_TODAY: IIF content also saved locally to: {local_iif_filename}")
+        except Exception as e_save:
+            print(f"ERROR IIF_TODAY: Failed to save IIF content locally: {e_save}")
+
+        if email_service:
+            # Modify the subject or email body if you want to differentiate this email
+            email_subject = f"Today's Purchase Orders IIF Batch - {batch_date_str}"
+            
+            email_sent = email_service.send_iif_batch_email(
+                iif_content_string=iif_content,
+                batch_date_str=batch_date_str, # The function uses this for filename and body
+                warning_message_html=email_warning_html,
+                custom_subject=email_subject # Pass custom subject if your send_iif_batch_email supports it
+            )
+            # If send_iif_batch_email doesn't support custom_subject, you might need to adjust it
+            # or create a more generic email sending function. For now, assuming it might.
+
+            if email_sent:
+                print(f"SUCCESS IIF_TODAY: IIF Batch email for POs dated {batch_date_str} sent successfully.")
+                if email_warning_html: 
+                     print(f"INFO IIF_TODAY: Email included a warning about {len(mapping_failures)} item mapping failures.")
+            else:
+                print(f"ERROR IIF_TODAY: Failed to send IIF Batch email for POs dated {batch_date_str}.")
+        else:
+            print("ERROR IIF_TODAY: email_service not available. Cannot send email.")
+        return True, iif_content # Indicate success and return content for potential direct download
+    else:
+        print(f"ERROR IIF_TODAY: No IIF content generated for {batch_date_str}, or a critical error occurred. Email not sent.")
+        return False, None # Indicate failure
+#endregion
+
 if __name__ == '__main__':
     print("--- Running IIF Generator Standalone Test ---")
     from dotenv import load_dotenv

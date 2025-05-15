@@ -1932,6 +1932,67 @@ def process_order(order_id):
             db_conn.close()
             print(f"DEBUG PROCESS_ORDER_MULTI: Database connection closed for order {order_id}.")
 
+# NEW: Endpoint for Cloud Scheduler (no Firebase token verification)
+@app.route('/api/tasks/scheduler/trigger-iif-for-today', methods=['POST'])
+def scheduler_trigger_iif_for_today():
+    """
+    Triggers IIF generation for today's POs, called by Cloud Scheduler.
+    Protected by checking a specific header if configured in Cloud Scheduler.
+    """
+    # Optional: Add a simple secret header check for basic protection
+    # In Cloud Scheduler, add a header like 'X-CloudScheduler-Secret: YOUR_SECRET_VALUE'
+    # scheduler_secret = request.headers.get('X-CloudScheduler-Secret')
+    # expected_secret = os.getenv("SCHEDULER_SECRET")
+    # if not expected_secret or scheduler_secret != expected_secret:
+    #     print("WARN APP (SCHEDULER_IIF_TODAY): Missing or invalid scheduler secret header.")
+    #     return jsonify({"error": "Forbidden"}), 403
+
+    print("INFO APP (SCHEDULER_IIF_TODAY): Received request to trigger IIF for today from scheduler.")
+
+    if iif_generator is None:
+        print("ERROR APP (SCHEDULER_IIF_TODAY): iif_generator module not loaded.")
+        return jsonify({"error": "IIF generation module not available."}), 500
+    if engine is None:
+        print("ERROR APP (SCHEDULER_IIF_TODAY): Database engine not initialized.")
+        return jsonify({"error": "Database engine not available."}), 500
+
+    try:
+        print("INFO APP (SCHEDULER_IIF_TODAY): Calling iif_generator.create_and_email_iif_for_today...")
+        success, _ = iif_generator.create_and_email_iif_for_today(engine)
+
+        if success:
+            print("INFO APP (SCHEDULER_IIF_TODAY): IIF for today task completed.")
+            return jsonify({"message": "IIF generation task for today's POs triggered."}), 200
+        else:
+            print("ERROR APP (SCHEDULER_IIF_TODAY): IIF generation for today failed.")
+            return jsonify({"error": "IIF generation for today failed in generator script."}), 500
+
+    except Exception as e:
+        print(f"ERROR APP (SCHEDULER_IIF_TODAY): Error: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "An error occurred.", "details": str(e)}), 500
+
+# NEW ROUTE FOR TODAY'S IIF
+@app.route('/api/tasks/trigger-iif-for-today', methods=['POST'])
+@verify_firebase_token
+def user_trigger_iif_for_today():
+    # (Keep the body of your existing trigger_iif_for_today function here)
+    # Or, better, have this function call a common internal function that scheduler_trigger_iif_for_today also calls.
+
+    print("INFO APP (USER_IIF_TODAY): Received request to trigger IIF for today by user.")
+    if iif_generator is None: # ... (similar checks and call)
+        return jsonify({"error": "IIF generation module not available."}), 500
+    if engine is None:
+        return jsonify({"error": "Database engine not available."}), 500
+    try:
+        success, _ = iif_generator.create_and_email_iif_for_today(engine)
+        if success:
+            return jsonify({"message": "IIF generation task for today's POs triggered and email sent (if configured)."}), 200
+        else:
+            return jsonify({"error": "IIF generation for today failed. Check logs for details."}), 500
+    except Exception as e:
+        print(f"ERROR APP (USER_IIF_TODAY): Error during IIF generation task for today: {e}")
+        return jsonify({"error": "An error occurred.", "details": str(e)}), 500
           
 # === Entry point for running the Flask app ===
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ from io import BytesIO # To generate PDF in memory and handle image data
 import os
 import traceback # For detailed error logging
 import re # For regex in shipping method formatting
+from xml.sax.saxutils import escape # IMPORTED FOR SANITIZING TEXT
 
 # --- Pillow Import ---
 try:
@@ -69,14 +70,14 @@ def _format_shipping_method_for_display(method_string):
 # --- Custom Styles (Comprehensive Version) ---
 def get_custom_styles():
     styles = getSampleStyleSheet()
-    
+
     # Base styles
     styles.add(ParagraphStyle(name='Normal_Helvetica', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=11)) # Default size adjusted slightly
     styles.add(ParagraphStyle(name='Normal_Helvetica_Small', parent=styles['Normal_Helvetica'], fontSize=8, leading=10))
-    
+
     # Bold variations
     styles.add(ParagraphStyle(name='Normal_Helvetica_Bold', parent=styles['Normal_Helvetica'], fontName='Helvetica-Bold'))
-    styles.add(ParagraphStyle(name='Normal_Helvetica_Semibold', parent=styles['Normal_Helvetica'], fontName='Helvetica-Bold', fontSize=9, leading=11)) 
+    styles.add(ParagraphStyle(name='Normal_Helvetica_Semibold', parent=styles['Normal_Helvetica'], fontName='Helvetica-Bold', fontSize=9, leading=11))
 
     # Alignment variations
     styles.add(ParagraphStyle(name='Normal_Helvetica_Right', parent=styles['Normal_Helvetica'], alignment=TA_RIGHT))
@@ -88,20 +89,24 @@ def get_custom_styles():
     styles.add(ParagraphStyle(name='H1_Helvetica', parent=styles['h1'], fontName='Helvetica-Bold', fontSize=16, leading=18))
     styles.add(ParagraphStyle(name='H1_Helvetica_Right', parent=styles['H1_Helvetica'], alignment=TA_RIGHT))
     styles.add(ParagraphStyle(name='H2_Helvetica', parent=styles['h2'], fontName='Helvetica-Bold', fontSize=14, leading=16))
-    styles.add(ParagraphStyle(name='H3_Helvetica', parent=styles['h3'], fontName='Helvetica-Bold', fontSize=10, leading=12))
+    styles.add(ParagraphStyle(name='H3_Helvetica', parent=styles['h3'], fontName='Helvetica-Bold', fontSize=10, leading=12)) # Used for section titles like IN THIS SHIPMENT
 
     # Item description styles
     styles.add(ParagraphStyle(name='ItemDesc', parent=styles['Normal_Helvetica'], fontSize=9, leading=11)) # Consistent with Normal_Helvetica
     styles.add(ParagraphStyle(name='ItemDescSmall', parent=styles['Normal_Helvetica_Small'])) # Based on smaller helvetica
-    
+
     # Specific use styles
     styles.add(ParagraphStyle(name='FulfillmentNoteStyle', parent=styles['Normal_Helvetica'], fontSize=9, leading=11, textColor=colors.HexColor("#666666")))
     styles.add(ParagraphStyle(name='FooterStyle', parent=styles['Normal_Helvetica_Small'], alignment=TA_CENTER))
     styles.add(ParagraphStyle(name='EnvironmentNoteStyle', parent=styles['Normal_Helvetica_Small'], alignment=TA_CENTER, textColor=colors.HexColor("#888888")))
-    
+
     # --- STYLES for items shipping separately (from previous update) ---
-    styles.add(ParagraphStyle(name='ItemDesc_ShippingSeparately', parent=styles['ItemDesc'], textColor=colors.HexColor("#777777"))) 
+    styles.add(ParagraphStyle(name='ItemDesc_ShippingSeparately', parent=styles['ItemDesc'], textColor=colors.HexColor("#777777")))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Center_ShippingSeparately', parent=styles['Normal_Helvetica_Center'], textColor=colors.HexColor("#777777")))
+    
+    # --- NEW STYLE FOR CUSTOMER NOTES ON PACKING SLIP ---
+    styles.add(ParagraphStyle(name='CustomerNotesStyle', parent=styles['Normal_Helvetica'], spaceBefore=6, spaceAfter=6, leading=12, leftIndent=0.25*inch, rightIndent=0.25*inch))
+
 
     return styles
 
@@ -131,28 +136,25 @@ def _get_logo_element_from_gcs(styles, logo_gcs_uri=None, desired_logo_width=1.5
         if PILImage:
             try:
                 pillow_img = PILImage.open(logo_stream)
-                pillow_img.verify() 
-                logo_stream.seek(0) 
-                pillow_img = PILImage.open(logo_stream) 
+                pillow_img.verify()
+                logo_stream.seek(0)
+                pillow_img = PILImage.open(logo_stream)
                 img_width_px, img_height_px = pillow_img.size
                 if not img_width_px or not img_height_px or img_width_px == 0 or img_height_px == 0:
                     raise ValueError("Pillow reported invalid image dimensions (0 or None).")
                 aspect_ratio = float(img_height_px) / float(img_width_px)
                 actual_logo_height = desired_logo_width * aspect_ratio
-                logo_stream.seek(0) 
+                logo_stream.seek(0)
             except Exception as pil_e:
                 print(f"ERROR _get_logo_element_from_gcs: Pillow failed: {pil_e}"); traceback.print_exc()
-                return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Helvetica']) 
-        else: 
+                return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Helvetica'])
+        else:
             logo_stream.seek(0)
             actual_logo_height = 0.75 * inch # Default height if Pillow not available
-        
+
         logo = Image(logo_stream, width=actual_logo_width, height=actual_logo_height)
         if not logo.imageWidth or not logo.imageHeight or logo.imageWidth == 0 or logo.imageHeight == 0:
-             # This might happen if the image format is not directly supported by ReportLab without Pillow's help for sizing
             print(f"WARN _get_logo_element_from_gcs: ReportLab Image dimensions seem invalid for '{logo_gcs_uri}'. Attempting fallback render.")
-            # Fallback to letting ReportLab try to size it with kind='bound' might be an option, or error out
-            # For now, let's just use the company name text as a more robust fallback.
             raise ValueError("ReportLab image dimensions invalid after Pillow processing or Pillow unavailable.")
 
         return logo
@@ -163,12 +165,12 @@ def _get_logo_element_from_gcs(styles, logo_gcs_uri=None, desired_logo_width=1.5
 
 
 # --- Function to Generate Purchase Order PDF (MODIFIED) ---
-def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, po_items, 
+def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, po_items,
                                 payment_terms, payment_instructions, logo_gcs_uri=None,
-                                is_partial_fulfillment=False): # <-- NEW ARGUMENT
+                                is_partial_fulfillment=False):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=0.75*inch, rightMargin=0.75*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
-    styles = get_custom_styles() # Ensure this function is complete with all needed styles
+    styles = get_custom_styles()
     story = []
 
     logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2*inch)
@@ -189,12 +191,18 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
 
     vendor_ship_to_content = [
         [Paragraph("<b>Vendor</b>", styles['H3_Helvetica']), Paragraph("<b>Ship To</b>", styles['H3_Helvetica'])],
-        [Paragraph(f"{supplier_data.get('name', 'N/A')}<br/>"
-                   f"{supplier_data.get('address_line1', '')}<br/>"
-                   f"{supplier_data.get('address_line2', '') or ''}<br/>"
-                   f"{supplier_data.get('city', '')}, {supplier_data.get('state', '')} {supplier_data.get('zip', '')}<br/>"
-                   f"{supplier_data.get('country', '')}", styles['Normal_Helvetica']),
-         Paragraph("PLEASE BLIND DROP SHIP<br/>USING ATTACHED LABEL<br/>AND PACKING SLIP", styles['Normal_Helvetica'])]
+        [Paragraph(f"{escape(supplier_data.get('name', 'N/A'))}<br/>" # Escaped supplier data
+                   f"{escape(supplier_data.get('address_line1', ''))}<br/>"
+                   f"{escape(supplier_data.get('address_line2', '') or '')}<br/>"
+                   f"{escape(supplier_data.get('city', ''))}, {escape(supplier_data.get('state', ''))} {escape(supplier_data.get('zip', ''))}<br/>"
+                   f"{escape(supplier_data.get('country', ''))}", styles['Normal_Helvetica']),
+         Paragraph(f"PLEASE BLIND DROP SHIP<br/>USING ATTACHED LABEL<br/>AND PACKING SLIP<br/><br/>" # Added line breaks
+                   f"<b>{escape(order_data.get('customer_company', ''))}</b><br/>" # Added Company Name
+                   f"{escape(order_data.get('customer_name', ''))}<br/>"
+                   f"{escape(order_data.get('customer_shipping_address_line1', ''))}<br/>"
+                   f"{escape(order_data.get('customer_shipping_address_line2', '') or '')}<br/>" # Ensure empty string if None
+                   f"{escape(order_data.get('customer_shipping_city', ''))}, {escape(order_data.get('customer_shipping_state', ''))} {escape(order_data.get('customer_shipping_zip', ''))}<br/>"
+                   f"{escape(order_data.get('customer_shipping_country', ''))}", styles['Normal_Helvetica'])] # Added full customer address
     ]
     vendor_ship_to_table = Table(vendor_ship_to_content, colWidths=[3.5*inch, 3.5*inch])
     vendor_ship_to_table.setStyle(TableStyle([
@@ -204,7 +212,7 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
     story.append(vendor_ship_to_table); story.append(Spacer(1, 0.25 * inch))
 
     items_header = [
-        Paragraph('<b>Item</b>', styles['Normal_Helvetica_Bold']), 
+        Paragraph('<b>Item</b>', styles['Normal_Helvetica_Bold']),
         Paragraph('<b>Qty</b>', styles['Normal_Helvetica_Bold_Center']),
         Paragraph('<b>Rate</b>', styles['Normal_Helvetica_Bold_Right']),
         Paragraph('<b>Amount</b>', styles['Normal_Helvetica_Bold_Right'])
@@ -214,14 +222,14 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
     for item in po_items:
         item_amount = float(item.get('quantity', 0)) * float(item.get('unit_cost', 0.00))
         total_po_amount += item_amount
-        description_text = f"{item.get('description', 'N/A')}"
+        description_text = f"{escape(item.get('description', 'N/A'))}" # Escaped description
         items_table_data.append([
             Paragraph(description_text, styles['ItemDesc']),
             Paragraph(str(item.get('quantity', 0)), styles['Normal_Helvetica_Center']),
             Paragraph(format_currency(item.get('unit_cost', 0.00)), styles['Normal_Helvetica_Right']),
             Paragraph(format_currency(item_amount), styles['Normal_Helvetica_Right'])
         ])
-    
+
     items_table = Table(items_table_data, colWidths=[4.0*inch, 0.5*inch, 1.0*inch, 1.5*inch])
     items_table.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'TOP'),
@@ -230,44 +238,42 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
     story.append(items_table); story.append(Spacer(1, 0.1 * inch))
 
     notes_and_total_data = []
-    if payment_instructions: 
-        notes_and_total_data.append([Paragraph(payment_instructions.replace('\n', '<br/>'), styles['ItemDesc']), '', '', ''])
-    
-    # --- MODIFIED FULFILLMENT NOTE ---
+    if payment_instructions:
+        notes_and_total_data.append([Paragraph(escape(payment_instructions).replace('\n', '<br/>'), styles['ItemDesc']), '', '', '']) # Escaped and preserved newlines
+
     if order_data.get('bigcommerce_order_id'):
         fulfillment_text_prefix = "Partial fulfillment of G1 Order #" if is_partial_fulfillment else "Fulfillment of G1 Order #"
         notes_and_total_data.append([
-            Paragraph(f"{fulfillment_text_prefix}{order_data.get('bigcommerce_order_id', 'N/A')}", styles['FulfillmentNoteStyle']), 
+            Paragraph(f"{fulfillment_text_prefix}{escape(order_data.get('bigcommerce_order_id', 'N/A'))}", styles['FulfillmentNoteStyle']), # Escaped Order ID
             '', '', ''
         ])
-    # --- END MODIFIED FULFILLMENT NOTE ---
-    
-    if notes_and_total_data: 
-        notes_and_total_data.append(['', '', '', '']) 
+
+    if notes_and_total_data: # Check if any notes were added
+        notes_and_total_data.append(['', '', '', '']) # Add a spacer row only if notes exist
 
     notes_and_total_data.append([
-        '', '', 
-        Paragraph("<b>Total</b>", styles['Normal_Helvetica_Bold_Right']), 
+        '', '',
+        Paragraph("<b>Total</b>", styles['Normal_Helvetica_Bold_Right']),
         Paragraph(f"<b>USD {format_currency(total_po_amount)}</b>", styles['Normal_Helvetica_Bold_Right'])
     ])
-    
+
     if notes_and_total_data:
         notes_total_table = Table(notes_and_total_data, colWidths=[4.0*inch, 0.5*inch, 1.0*inch, 1.5*inch])
         style_cmds = [('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (0,-1), 0)]
-        
+
         current_row_for_span = 0
-        if payment_instructions: 
+        if payment_instructions:
             style_cmds.append(('SPAN', (0,current_row_for_span), (3,current_row_for_span)))
             current_row_for_span +=1
-        if order_data.get('bigcommerce_order_id'): 
+        if order_data.get('bigcommerce_order_id'):
             style_cmds.append(('SPAN', (0,current_row_for_span), (3,current_row_for_span)))
-            
-        total_row_idx = len(notes_and_total_data) - 1 
+
+        total_row_idx = len(notes_and_total_data) - 1
         style_cmds.append(('TOPPADDING', (2, total_row_idx), (3, total_row_idx), 10))
-        
+
         notes_total_table.setStyle(TableStyle(style_cmds))
         story.append(notes_total_table)
-        
+
     story.append(Spacer(1, 0.3 * inch))
     doc.build(story)
     pdf_bytes = buffer.getvalue(); buffer.close()
@@ -278,12 +284,12 @@ def _draw_packing_slip_footer(canvas, doc):
     canvas.saveState()
     styles = get_custom_styles()
     available_width = doc.width; left_margin = doc.leftMargin
-    current_y = 0.3 * inch 
+    current_y = 0.3 * inch
     env_text = """In an effort to minimize our footprint on the environment,<br/>Global One Technology uses clean, recycled packaging materials."""
     p_env = Paragraph(env_text, styles['EnvironmentNoteStyle'])
     p_env.wrapOn(canvas, available_width, doc.bottomMargin); p_env.drawOn(canvas, left_margin, current_y)
-    current_y += p_env.height + 0.1 * inch 
-    
+    current_y += p_env.height + 0.1 * inch
+
     company_footer_text = f"""<font name="Helvetica-Bold" size="9">{COMPANY_NAME}</font><br/><font name="Helvetica" size="8">
     Voice: {COMPANY_PHONE} Fax: {COMPANY_FAX}<br/>{COMPANY_ADDRESS_PACKING_SLIP_FOOTER_LINE1}<br/>
     Email: {COMPANY_EMAIL} Website: {COMPANY_WEBSITE}</font>"""
@@ -302,27 +308,24 @@ def _draw_packing_slip_footer(canvas, doc):
 
 
 # --- MODIFIED Function to Generate Packing Slip PDF ---
-def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping_separately, 
-                              logo_gcs_uri=None, po_number_for_slip=None):
+def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping_separately, logo_gcs_uri=None):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter,
                             leftMargin=0.75*inch, rightMargin=0.75*inch,
-                            topMargin=0.5*inch, bottomMargin=1.9*inch) 
-    styles = get_custom_styles()
+                            topMargin=0.5*inch, bottomMargin=1.9*inch) # Increased bottom margin for footer
+    styles = get_custom_styles() # Use the comprehensive style getter
     story = []
 
     logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2*inch)
 
-    current_date = datetime.now(timezone.utc)
-    formatted_current_date = f"{current_date.month}/{current_date.day}/{current_date.year}"
-    
-    order_ref_text = f"Date: {formatted_current_date}<br/>Order #: {order_data.get('bigcommerce_order_id', 'N/A')}"
-    if po_number_for_slip:
-        order_ref_text += f"<br/>Ref PO #: {po_number_for_slip}"
+    current_date_obj = datetime.now(timezone.utc) # Keep as datetime object
+    formatted_current_date = current_date_obj.strftime("%m/%d/%Y") # Format for display
+
+    order_ref_text = f"Date: {formatted_current_date}<br/>Order #: {escape(str(order_data.get('bigcommerce_order_id', 'N/A')))}"
 
     header_data = [
         [logo_element, Paragraph("<b>PACKING SLIP</b>", styles['H1_Helvetica_Right'])],
-        [Paragraph(COMPANY_ADDRESS_PO_HEADER, styles['Normal_Helvetica_Small']), # Consistent with PO header style
+        [Paragraph(escape(COMPANY_ADDRESS_PO_HEADER), styles['Normal_Helvetica_Small']), # Made consistent with PO
          Paragraph(order_ref_text, styles['Normal_Helvetica_Right'])]
     ]
     header_table = Table(header_data, colWidths=[4*inch, 3*inch])
@@ -334,37 +337,57 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     story.append(header_table)
     story.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=0.05*inch, spaceAfter=0.1*inch))
 
-    ship_to_address_text = (
-        f"{order_data.get('customer_name', 'N/A')}<br/>"
-        f"{order_data.get('customer_shipping_address_line1', '')}<br/>"
-        f"{order_data.get('customer_shipping_address_line2', '') or ''}<br/>"
-        f"{order_data.get('customer_shipping_city', '')}, {order_data.get('customer_shipping_state', '')} {order_data.get('customer_shipping_zip', '')}<br/>"
-        f"{order_data.get('customer_shipping_country', '')}"
-    )
+    # --- SHIP TO ADDRESS - includes company name ---
+    ship_to_address_parts = []
+    customer_company = order_data.get('customer_company', '')
+    if customer_company:
+        ship_to_address_parts.append(escape(customer_company))
+    ship_to_address_parts.append(escape(order_data.get('customer_name', '')))
+    ship_to_address_parts.append(escape(order_data.get('customer_shipping_address_line1', '')))
+    if order_data.get('customer_shipping_address_line2'):
+        ship_to_address_parts.append(escape(order_data.get('customer_shipping_address_line2', '')))
+    ship_to_address_parts.append(f"{escape(order_data.get('customer_shipping_city', ''))}, {escape(order_data.get('customer_shipping_state', ''))} {escape(order_data.get('customer_shipping_zip', ''))}")
+    ship_to_address_parts.append(escape(order_data.get('customer_shipping_country', '')))
+    if order_data.get('customer_phone'): # Optionally add phone
+         ship_to_address_parts.append(f"Phone: {escape(order_data.get('customer_phone'))}")
+    
+    ship_to_address_text = "<br/>".join(filter(None, ship_to_address_parts)) # Filter out empty parts
     ship_to_para = Paragraph(ship_to_address_text, styles['Normal_Helvetica'])
+    # --- END SHIP TO ADDRESS ---
+
     formatted_shipping_method = _format_shipping_method_for_display(order_data.get('customer_shipping_method', 'N/A'))
-    payment_method_text = order_data.get('payment_method', 'N/A')
+    payment_method_text = escape(order_data.get('payment_method', 'N/A'))
     right_column_content = [
-        Paragraph(f"<b>Shipping Method:</b> {formatted_shipping_method}", styles['Normal_Helvetica_Right']),
+        Paragraph(f"<b>Shipping Method:</b> {escape(formatted_shipping_method)}", styles['Normal_Helvetica_Right']),
         Spacer(1, 0.05 * inch),
         Paragraph(f"<b>Payment Method:</b> {payment_method_text}", styles['Normal_Helvetica_Right'])
     ]
     shipping_details_data = [
-        [Paragraph("<b>Ship To:</b>", styles['H3_Helvetica']), ""], 
-        [ship_to_para, KeepInFrame(3.5*inch, 1*inch, right_column_content)] # Use KeepInFrame for better layout control
+        [Paragraph("<b>Ship To:</b>", styles['H3_Helvetica']), ""],
+        [ship_to_para, KeepInFrame(3.5*inch, 1.2*inch, right_column_content)] # Adjusted height for KeepInFrame
     ]
     shipping_details_table = Table(shipping_details_data, colWidths=[3.5*inch, 3.5*inch])
     shipping_details_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('SPAN', (1,0), (1,0)), 
+        ('SPAN', (1,0), (1,0)),
     ]))
     story.append(shipping_details_table)
-    story.append(Spacer(1, 0.25 * inch))
+    story.append(Spacer(1, 0.15 * inch)) # Adjusted spacer
+
+    # --- CUSTOMER NOTES SECTION (NEW) ---
+    customer_notes = order_data.get('customer_notes', '').strip()
+    if customer_notes:
+        story.append(Paragraph("<b>Customer Notes:</b>", styles['Normal_Helvetica_Bold']))
+        notes_paragraph_content = escape(customer_notes).replace('\n', '<br/>\n')
+        story.append(Paragraph(notes_paragraph_content, styles['CustomerNotesStyle']))
+        story.append(Spacer(1, 0.15 * inch)) # Adjusted spacer
+    # --- END CUSTOMER NOTES SECTION ---
+
 
     story.append(Paragraph("<b>IN THIS SHIPMENT:</b>", styles['H3_Helvetica']))
     story.append(Spacer(1, 0.05 * inch))
-    
+
     items_header_shipped = [
         Paragraph('<b>Qty</b>', styles['Normal_Helvetica_Bold_Center']),
         Paragraph('<b>Item</b>', styles['Normal_Helvetica_Bold'])
@@ -374,9 +397,9 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
         for item in items_in_this_shipment:
             items_table_data_shipped.append([
                 Paragraph(str(item.get('quantity', 0)), styles['Normal_Helvetica_Center']),
-                Paragraph(item.get('name', item.get('description', 'N/A')), styles['ItemDesc'])
+                Paragraph(escape(item.get('name', item.get('description', 'N/A'))), styles['ItemDesc']) # Escaped item name/desc
             ])
-    else: 
+    else:
         items_table_data_shipped.append([
             Paragraph("<i>(No items in this specific shipment segment)</i>", styles['ItemDesc'], colSpan=2)
         ])
@@ -390,10 +413,10 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
         ('BOTTOMPADDING', (0,0), (-1,-1), 4), ('TOPPADDING', (0,0), (-1,-1), 4),
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#f0f0f0")),
     ]
-    if not items_in_this_shipment: # Add SPAN if placeholder text is used
+    if not items_in_this_shipment:
         style_cmds_shipped.append(('SPAN', (0, len(items_table_data_shipped)-1), (1, len(items_table_data_shipped)-1)))
-        style_cmds_shipped.append(('ALIGN', (0, len(items_table_data_shipped)-1), (0, len(items_table_data_shipped)-1), 'CENTER')) # Center placeholder
-        
+        style_cmds_shipped.append(('ALIGN', (0, len(items_table_data_shipped)-1), (0, len(items_table_data_shipped)-1), 'CENTER'))
+
     items_table_shipped.setStyle(TableStyle(style_cmds_shipped))
     story.append(items_table_shipped)
     story.append(Spacer(1, 0.2 * inch))
@@ -401,26 +424,27 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     if items_shipping_separately:
         story.append(Paragraph("<b>SHIPPING SEPARATELY:</b>", styles['H3_Helvetica']))
         story.append(Spacer(1, 0.05 * inch))
-        
+
         items_header_separate = [
-            Paragraph('<b>Qty</b>', styles['Normal_Helvetica_Bold_Center']),
-            Paragraph('<b>Item</b>', styles['Normal_Helvetica_Bold'])
+            Paragraph('<b>Qty</b>', styles['Normal_Helvetica_Bold_Center']), # Changed to non-grey style for header
+            Paragraph('<b>Item</b>', styles['Normal_Helvetica_Bold'])        # Changed to non-grey style for header
         ]
         items_table_data_separate = [items_header_separate]
         for item in items_shipping_separately:
             items_table_data_separate.append([
-                Paragraph(str(item.get('quantity', 0)), styles['Normal_Helvetica_Center_ShippingSeparately']), 
-                Paragraph(item.get('name', item.get('description', 'N/A')), styles['ItemDesc_ShippingSeparately']) 
+                Paragraph(str(item.get('quantity', 0)), styles['Normal_Helvetica_Center_ShippingSeparately']),
+                Paragraph(escape(item.get('name', item.get('description', 'N/A'))), styles['ItemDesc_ShippingSeparately']) # Escaped item name/desc
             ])
-        
+
         items_table_separate = Table(items_table_data_separate, colWidths=[0.75*inch, 6.25*inch])
         items_table_separate.setStyle(TableStyle([
-            ('GRID', (0,0), (-1,-1), 0.5, colors.darkgrey), 
+            ('GRID', (0,0), (-1,-1), 0.5, colors.darkgrey),
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('ALIGN', (0,0), (0,0), 'CENTER'), ('ALIGN', (1,0), (1,0), 'LEFT'),
             ('ALIGN', (0,1), (0,-1), 'CENTER'),
             ('BOTTOMPADDING', (0,0), (-1,-1), 4), ('TOPPADDING', (0,0), (-1,-1), 4),
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#f0f0f0")), 
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#f0f0f0")), # Header background like shipped items
+            ('TEXTCOLOR', (0,1), (-1,-1), colors.HexColor("#777777")), # Grey text for items shipping separately
         ]))
         story.append(items_table_separate)
 
@@ -434,21 +458,40 @@ if __name__ == '__main__':
     print("Running document_generator.py in local test mode.")
     print("NOTE: Logo will be text unless GCS is configured and test_logo_gcs_uri is set.")
 
-    sample_order_data_po = { 'bigcommerce_order_id': '106157456' }
+    # Sample data for PO
+    sample_order_data_po = {
+        'bigcommerce_order_id': 'BC789012',
+        'customer_company': 'Customer Company LLC',
+        'customer_name': 'Alice Wonderland',
+        'customer_shipping_address_line1': '123 Main St',
+        'customer_shipping_address_line2': 'Apt 4B',
+        'customer_shipping_city': 'Anytown',
+        'customer_shipping_state': 'AS',
+        'customer_shipping_zip': '12345',
+        'customer_shipping_country': 'USA',
+        'customer_phone': '555-0101'
+    }
+    # ... (rest of your existing if __name__ == '__main__' block) ...
+    # Update the calls to generate_packing_slip_pdf to remove po_number_for_slip
+    # and ensure sample_order_data_ps has customer_notes if you want to test that.
+
     sample_supplier_data = { 'name': 'Test Supplier Inc.', 'address_line1': '123 Test St', 'city': 'Testville', 'state': 'TS', 'zip': '12345', 'country': 'USA', 'payment_terms': 'Net 30' }
     sample_po_items = [{'sku': 'TEST-SKU-1', 'description': 'Test Item One (Condition Suffix)', 'quantity': 2, 'unit_cost': 10.50, 'condition': 'New'}, {'sku': 'TEST-SKU-2', 'description': 'Test Item Two', 'quantity': 1, 'unit_cost': 25.00, 'condition': 'Used'}]
     po_specific_notes = "Test payment instructions.\nSecond line."
     
-    sample_order_data_ps = { 
+    sample_order_data_ps = {
         'bigcommerce_order_id': 'ORDER-MULTI-001',
+        'order_date': datetime.now(timezone.utc).isoformat(), # Added for testing date formatting
+        'customer_company': 'Multi-Ship Company',
         'customer_name': 'Multi-Ship Customer',
         'customer_shipping_address_line1': '789 Split Ship Rd',
         'customer_shipping_city': 'Partsburg',
         'customer_shipping_state': 'PS',
         'customer_shipping_zip': '54321',
         'customer_shipping_country': 'USA',
-        'customer_shipping_method': 'Standard Ground (UPS Ground)', # Example with parentheses
-        'payment_method': 'Net 30 Terms'
+        'customer_shipping_method': 'Standard Ground (UPS Ground)',
+        'payment_method': 'Net 30 Terms',
+        'customer_notes': "This is a test customer note.\nPlease handle with care.\nThird line of notes." # Added customer notes
     }
     sample_items_in_shipment = [
         {'quantity': 1, 'name': 'Widget A - Main Part (Black Font Test)', 'sku': 'WIDGET-A'},
@@ -458,11 +501,9 @@ if __name__ == '__main__':
         {'quantity': 1, 'name': 'Widget B - Accessory (Ships Later in Grey)', 'sku': 'WIDGET-B'},
         {'quantity': 5, 'name': 'Extra Screws - Backordered (Grey Font Test)', 'sku': 'SCREW-XTRA'}
     ]
-    test_logo_gcs_uri = os.getenv("COMPANY_LOGO_GCS_URI") # Use env var for testing if set
+    test_logo_gcs_uri = os.getenv("COMPANY_LOGO_GCS_URI")
     if not test_logo_gcs_uri: print("WARN: COMPANY_LOGO_GCS_URI not set in .env for local logo test.")
     
-    test_po_ref_for_slip = "PO-MULTI-123A" 
-
     print("\nGenerating Sample Purchase Order (Local Test)...")
     po_pdf_bytes = generate_purchase_order_pdf(
         order_data=sample_order_data_po, supplier_data=sample_supplier_data,
@@ -479,32 +520,33 @@ if __name__ == '__main__':
         order_data=sample_order_data_ps,
         items_in_this_shipment=sample_items_in_shipment,
         items_shipping_separately=sample_items_shipping_separately,
-        logo_gcs_uri=test_logo_gcs_uri,
-        po_number_for_slip=test_po_ref_for_slip
+        logo_gcs_uri=test_logo_gcs_uri
     )
-    ps_filename = "LOCAL_TEST_packing_slip_multi.pdf" 
+    ps_filename = "LOCAL_TEST_packing_slip_multi.pdf"
     with open(ps_filename, "wb") as f: f.write(packing_slip_pdf_bytes)
     print(f"Sample Packing Slip PDF generated: {ps_filename}")
 
     print("\nTesting Packing Slip with EMPTY 'shipping separately' list...")
+    # Update test call to remove po_number_for_slip
     packing_slip_pdf_bytes_no_separate = generate_packing_slip_pdf(
         order_data=sample_order_data_ps,
-        items_in_this_shipment=sample_items_in_shipment, 
-        items_shipping_separately=[], 
-        logo_gcs_uri=test_logo_gcs_uri,
-        po_number_for_slip="PO-SINGLE-FULL"
+        items_in_this_shipment=sample_items_in_shipment,
+        items_shipping_separately=[],
+        logo_gcs_uri=test_logo_gcs_uri
+        # po_number_for_slip was here, now removed
     )
     ps_filename_no_separate = "LOCAL_TEST_packing_slip_no_separate.pdf"
     with open(ps_filename_no_separate, "wb") as f: f.write(packing_slip_pdf_bytes_no_separate)
     print(f"Sample Packing Slip PDF (no separate items) generated: {ps_filename_no_separate}")
 
     print("\nTesting Packing Slip with EMPTY 'items_in_this_shipment' list...")
+     # Update test call to remove po_number_for_slip
     packing_slip_pdf_bytes_no_shipped = generate_packing_slip_pdf(
         order_data=sample_order_data_ps,
-        items_in_this_shipment=[], 
-        items_shipping_separately=sample_items_shipping_separately, 
-        logo_gcs_uri=test_logo_gcs_uri,
-        po_number_for_slip="PO-ONLY-SEPARATE"
+        items_in_this_shipment=[],
+        items_shipping_separately=sample_items_shipping_separately,
+        logo_gcs_uri=test_logo_gcs_uri
+        # po_number_for_slip was here, now removed
     )
     ps_filename_no_shipped = "LOCAL_TEST_packing_slip_no_shipped.pdf"
     with open(ps_filename_no_shipped, "wb") as f: f.write(packing_slip_pdf_bytes_no_shipped)

@@ -3,7 +3,7 @@
 (venv) PS C:\Users\markt\OneDrive\Desktop\G1 PO App\order-processing-app> docker push "${env:REGION}-docker.pkg.dev/${env:PROJECT_ID}/${env:REPOSITORY}/${env:IMAGE_NAME}:${env:IMAGE_TAG}"
 
 gcloud run deploy g1-po-app-backend-service `
-    --image gcr.io/order-processing-app-458900/g1-po-app-backend-service `
+    --image gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250514a `
     --project order-processing-app-458900 `
     --region us-central1 `
     --platform managed `
