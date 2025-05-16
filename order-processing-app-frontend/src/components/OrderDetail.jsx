@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import './OrderDetail.css';
 import { useAuth } from '../contexts/AuthContext';
+import PdfIcon from '../assets/pdf-svgrepo-com.svg?react'; // Import the SVG icon
 
 // --- Helper function for debouncing ---
 function useDebounce(value, delay) {
@@ -62,6 +63,8 @@ const SHIPPING_METHODS_OPTIONS = [
     { value: "UPS Next Day Air Early A.M.", label: "UPS Next Day Air Early A.M." }
 ];
 
+// PDF_ICON constant is no longer needed as we import the SVG
+
 function OrderDetail() {
   const { orderId } = useParams();
   const { currentUser, loading: authLoading } = useAuth();
@@ -73,7 +76,9 @@ function OrderDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [processing, setProcessing] = useState(false);
-  const [processSuccess, setProcessSuccess] = useState(null);
+  const [processSuccess, setProcessSuccess] = useState(false); 
+  const [processSuccessMessage, setProcessSuccessMessage] = useState(''); 
+  const [processedPOsInfo, setProcessedPOsInfo] = useState([]); 
   const [processError, setProcessError] = useState(null);
   const [clipboardStatus, setClipboardStatus] = useState('');
   const [statusUpdateMessage, setStatusUpdateMessage] = useState('');
@@ -89,7 +94,7 @@ function OrderDetail() {
   const [lineItemAssignments, setLineItemAssignments] = useState({});
   const [poNotesBySupplier, setPoNotesBySupplier] = useState({});
   const [multiSupplierItemCosts, setMultiSupplierItemCosts] = useState({});
-  const [multiSupplierItemDescriptions, setMultiSupplierItemDescriptions] = useState({}); // ADDED
+  const [multiSupplierItemDescriptions, setMultiSupplierItemDescriptions] = useState({});
   const [multiSupplierShipmentDetails, setMultiSupplierShipmentDetails] = useState({});
   const [originalCustomerShippingMethod, setOriginalCustomerShippingMethod] = useState('UPS Ground');
 
@@ -107,7 +112,12 @@ function OrderDetail() {
     if (!currentUser) {
         setLoading(false); setOrderData(null); setSuppliers([]); return;
     }
-    setLoading(true); setError(null); setProcessSuccess(null); setProcessError(null); setStatusUpdateMessage('');
+    setLoading(true); setError(null); 
+    setProcessSuccess(false); 
+    setProcessSuccessMessage(''); 
+    setProcessedPOsInfo([]); 
+    setProcessError(null); 
+    setStatusUpdateMessage('');
     try {
         const token = await currentUser.getIdToken(true);
         const headers = { 'Authorization': `Bearer ${token}` };
@@ -128,7 +138,7 @@ function OrderDetail() {
         setSuppliers(fetchedSuppliers || []);
         setLineItemSpares({});
         setMultiSupplierItemCosts({});
-        setMultiSupplierItemDescriptions({}); // Reset here
+        setMultiSupplierItemDescriptions({});
         setMultiSupplierShipmentDetails({});
 
         if (fetchedOrderData?.order) {
@@ -156,18 +166,17 @@ function OrderDetail() {
             }));
             setPurchaseItemsRef.current(initialItems);
 
-            // Initialize multi-supplier descriptions
-            const initialMultiDescriptions = {};
+            const initialMultiDesc = {};
             fetchedOrderData.line_items.forEach(item => {
                 let defaultDescription = item.hpe_po_description || item.line_item_name || '';
                 if (defaultDescription && !defaultDescription.endsWith(cleanPullSuffix)) {
                     defaultDescription += cleanPullSuffix;
                 } else if (!defaultDescription && item.original_sku) {
-                    defaultDescription = `${item.original_sku}${cleanPullSuffix}`;
+                     defaultDescription = `${item.original_sku}${cleanPullSuffix}`;
                 }
-                initialMultiDescriptions[item.line_item_id] = defaultDescription;
+                initialMultiDesc[item.line_item_id] = defaultDescription;
             });
-            setMultiSupplierItemDescriptions(initialMultiDescriptions);
+            setMultiSupplierItemDescriptions(initialMultiDesc);
 
         } else {
             setPurchaseItemsRef.current([]);
@@ -254,7 +263,7 @@ function OrderDetail() {
   const handleMainSupplierTriggerChange = (e) => {
     const value = e.target.value;
     setSelectedMainSupplierTrigger(value);
-    setProcessError(null); setProcessSuccess(null);
+    setProcessError(null); setProcessSuccess(false); setProcessSuccessMessage(''); setProcessedPOsInfo([]);
     if (value === MULTI_SUPPLIER_MODE_VALUE) {
         setIsMultiSupplierMode(true);
         setSingleOrderPoNotes('');
@@ -263,7 +272,6 @@ function OrderDetail() {
         setLineItemAssignments({});
         setPoNotesBySupplier({});
         setMultiSupplierItemCosts({});
-        // Re-initialize descriptions based on current originalLineItems
         const initialMultiDesc = {};
         if (orderData?.line_items) {
             orderData.line_items.forEach(item => {
@@ -282,11 +290,11 @@ function OrderDetail() {
         setIsMultiSupplierMode(false);
         const s = suppliers.find(sup => sup.id === parseInt(value, 10));
         setSingleOrderPoNotes(s?.defaultponotes || '');
-        setShipmentMethod(originalCustomerShippingMethod); // Reset for single supplier mode
+        setShipmentMethod(originalCustomerShippingMethod);
         setLineItemAssignments({});
         setPoNotesBySupplier({});
         setMultiSupplierItemCosts({});
-        setMultiSupplierItemDescriptions({}); // Clear when not in multi-supplier mode
+        setMultiSupplierItemDescriptions({});
         setMultiSupplierShipmentDetails({});
     }
   };
@@ -299,11 +307,10 @@ function OrderDetail() {
         const s = suppliers.find(sup => sup.id === parseInt(supplierId, 10));
         setPoNotesBySupplier(prev => ({ ...prev, [supplierId]: s?.defaultponotes || '' }));
     }
-    // Initialize shipment details for this supplier if in multi-supplier mode
     if (supplierId && isMultiSupplierMode && !multiSupplierShipmentDetails[supplierId]) {
         setMultiSupplierShipmentDetails(prev => ({
             ...prev,
-            [supplierId]: { method: originalCustomerShippingMethod, weight: '' } // Default to customer's method
+            [supplierId]: { method: originalCustomerShippingMethod, weight: '' }
         }));
     }
   };
@@ -316,7 +323,6 @@ function OrderDetail() {
     setMultiSupplierItemCosts(prev => ({ ...prev, [originalLineItemId]: cost }));
   };
   
-  // ADDED: Handler for multi-supplier item description change
   const handleMultiSupplierItemDescriptionChange = (originalLineItemId, description) => {
     setMultiSupplierItemDescriptions(prev => ({ ...prev, [originalLineItemId]: description }));
   };
@@ -337,7 +343,7 @@ function OrderDetail() {
     if (field === 'sku') {
         const trimmedSku = String(value).trim();
         items[index].sku = trimmedSku;
-        items[index].skuInputValue = trimmedSku; // Keep skuInputValue for controlled input
+        items[index].skuInputValue = trimmedSku;
         setSkuToLookup({ index, sku: trimmedSku });
     }
     setPurchaseItemsRef.current(items);
@@ -347,12 +353,10 @@ function OrderDetail() {
   const handleShipmentWeightChange = (e) => setShipmentWeight(e.target.value);
 
   const handleCopyToClipboard = async (textToCopy) => {
-    console.log('handleCopyToClipboard called with:', textToCopy);
     if (!textToCopy) return;
     try {
         await navigator.clipboard.writeText(String(textToCopy).trim());
         setClipboardStatus(`Copied: ${String(textToCopy).trim()}`);
-        console.log('Clipboard API success');
         setTimeout(() => setClipboardStatus(''), 1500);
     } catch (err) {
         console.error('Clipboard write failed:', err);
@@ -400,10 +404,10 @@ function OrderDetail() {
   const handleProcessOrder = async (e) => {
     e.preventDefault();
     if (!currentUser) { setProcessError("Please log in."); return; }
-    setProcessing(true); setProcessError(null); setProcessSuccess(null); setStatusUpdateMessage('');
+    setProcessing(true); setProcessError(null); setProcessSuccess(false); setProcessSuccessMessage(''); setProcessedPOsInfo([]); setStatusUpdateMessage('');
 
     let payloadAssignments = [];
-    const currentOriginalLineItems = orderData?.line_items || []; // Use a stable reference
+    const currentOriginalLineItems = orderData?.line_items || [];
 
     if (isMultiSupplierMode) {
         const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id);
@@ -428,46 +432,40 @@ function OrderDetail() {
                         itemCostValidationError = `Missing or invalid unit cost for SKU ${item.original_sku} (Supplier: ${suppliers.find(s=>s.id===parseInt(supId,10))?.name}).`;
                         return null;
                     }
-
                     let descriptionForPo = multiSupplierItemDescriptions[item.line_item_id];
-                    if (descriptionForPo === undefined) { // Fallback if not in state (should be pre-filled)
+                    if (descriptionForPo === undefined) {
                         descriptionForPo = item.hpe_po_description || item.line_item_name || `${item.original_sku || ''}${cleanPullSuffix}`;
                     }
                     if (!String(descriptionForPo).trim()) {
                         itemCostValidationError = `Missing description for SKU ${item.original_sku} (Supplier: ${suppliers.find(s=>s.id===parseInt(supId,10))?.name}).`;
                         return null;
                     }
-
                     return {
                         original_order_line_item_id: item.line_item_id,
-                        sku: item.hpe_option_pn || item.original_sku, // Use mapped SKU if available
+                        sku: item.hpe_option_pn || item.original_sku,
                         description: String(descriptionForPo).trim(),
                         quantity: item.quantity,
                         unit_cost: costFloat.toFixed(2),
-                        condition: 'New', // Or derive from item if applicable
+                        condition: 'New',
                     };
                 }).filter(Boolean);
 
                 if (itemCostValidationError) { setProcessError(itemCostValidationError); setProcessing(false); return; }
                 if (poLineItems.length !== itemsForThisSupplier.length && itemsForThisSupplier.length > 0) {
-                    setProcessError("One or more items for a supplier had validation errors (e.g. missing cost or description)."); 
+                    setProcessError("One or more items for a supplier had validation errors."); 
                     setProcessing(false); return; 
                 }
-
-
                 const shipmentDetailsForThisPo = multiSupplierShipmentDetails[supId] || {};
                 const currentPoWeight = shipmentDetailsForThisPo.weight;
                 const currentPoMethod = shipmentDetailsForThisPo.method;
-
                 if (currentPoMethod && (!currentPoWeight || parseFloat(currentPoWeight) <= 0)) {
-                    setProcessError(`Invalid/missing weight for PO to ${suppliers.find(s=>s.id === parseInt(supId, 10))?.name} when shipping method is selected.`);
+                    setProcessError(`Invalid/missing weight for PO to ${suppliers.find(s=>s.id === parseInt(supId, 10))?.name}.`);
                     setProcessing(false); return;
                 }
                 if (!currentPoMethod && currentPoWeight && parseFloat(currentPoWeight) > 0) {
-                    setProcessError(`Shipping method required for PO to ${suppliers.find(s=>s.id === parseInt(supId, 10))?.name} if weight is provided.`);
+                    setProcessError(`Shipping method required for PO to ${suppliers.find(s=>s.id === parseInt(supId, 10))?.name}.`);
                     setProcessing(false); return;
                 }
-                
                 payloadAssignments.push({
                     supplier_id: parseInt(supId, 10),
                     payment_instructions: poNotesBySupplier[supId] || "",
@@ -481,22 +479,21 @@ function OrderDetail() {
              setProcessError("No items assigned to suppliers for PO generation.");
              setProcessing(false); return;
         }
-    } else { // Single Supplier Mode
+    } else { 
         const singleSelectedSupId = selectedMainSupplierTrigger;
         if (!singleSelectedSupId || singleSelectedSupId === MULTI_SUPPLIER_MODE_VALUE) {
-            setProcessError("Please select a supplier for single PO mode."); setProcessing(false); return;
+            setProcessError("Please select a supplier."); setProcessing(false); return;
         }
         const weightFloat = parseFloat(shipmentWeight);
         if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight."); setProcessing(false); return; }
         if (!shipmentMethod) { setProcessError("Please select a shipment method."); setProcessing(false); return; }
-
         let itemValidationError = null;
         const finalPurchaseItems = purchaseItemsRef.current.map((item, index) => {
             const quantityInt = parseInt(item.quantity, 10); const costFloat = parseFloat(item.unit_cost);
-            if (isNaN(quantityInt) || quantityInt <= 0) { itemValidationError = `Item #${index + 1} (SKU: ${item.sku||'N/A'}): Quantity must be > 0.`; return null; }
-            if (item.unit_cost === '' || isNaN(costFloat) || costFloat < 0) { itemValidationError = `Item #${index + 1} (SKU: ${item.sku||'N/A'}): Unit cost is invalid.`; return null; }
-            if (!String(item.sku).trim()) { itemValidationError = `Item #${index + 1}: Purchase SKU is required.`; return null; }
-            if (!String(item.description).trim()) { itemValidationError = `Item #${index + 1} (SKU: ${item.sku}): Description is required.`; return null; }
+            if (isNaN(quantityInt) || quantityInt <= 0) { itemValidationError = `Item #${index + 1}: Quantity must be > 0.`; return null; }
+            if (item.unit_cost === '' || isNaN(costFloat) || costFloat < 0) { itemValidationError = `Item #${index + 1}: Unit cost is invalid.`; return null; }
+            if (!String(item.sku).trim()) { itemValidationError = `Item #${index + 1}: SKU is required.`; return null; }
+            if (!String(item.description).trim()) { itemValidationError = `Item #${index + 1}: Description is required.`; return null; }
             return { original_order_line_item_id: item.original_order_line_item_id, sku: String(item.sku).trim(), description: String(item.description).trim(), quantity: quantityInt, unit_cost: costFloat.toFixed(2), condition: item.condition || 'New' };
         }).filter(Boolean);
 
@@ -507,30 +504,38 @@ function OrderDetail() {
              payloadAssignments.push({
                 supplier_id: parseInt(singleSelectedSupId, 10),
                 payment_instructions: singleOrderPoNotes,
-                total_shipment_weight_lbs: weightFloat, // Already validated above
-                shipment_method: shipmentMethod, // Already validated above
+                total_shipment_weight_lbs: weightFloat,
+                shipment_method: shipmentMethod,
                 po_line_items: finalPurchaseItems
             });
         }
     }
-    
     if (payloadAssignments.length === 0 && !(currentOriginalLineItems.length === 0) ) {
-        setProcessError("No data to create Purchase Orders based on current selections.");
+        setProcessError("No data to create Purchase Orders.");
         setProcessing(false); return;
     }
-    
     try {
         const token = await currentUser.getIdToken(true);
         const finalPayload = { assignments: payloadAssignments };
-        console.log("Submitting payload:", JSON.stringify(finalPayload, null, 2));
         const processApiUrl = `${VITE_API_BASE_URL}/orders/${orderId}/process`;
         const response = await fetch(processApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(finalPayload) });
-        const responseData = await response.json().catch(() => null);
-        if (!response.ok) { let err = responseData?.details || responseData?.error || `HTTP error ${response.status}`; if (response.status === 401 || response.status === 403) { err = "Unauthorized."; navigate('/login'); } throw new Error(err); }
-        setProcessSuccess(responseData.message || "Order processed successfully!");
-        const ac = new AbortController(); await fetchOrderAndSuppliers(ac.signal);
+        const responseData = await response.json().catch(() => ({ message: "Processing request sent, but response was not valid JSON." })); 
+        
+        if (!response.ok) { 
+            let err = responseData?.details || responseData?.error || responseData?.message || `HTTP error ${response.status}`; 
+            if (response.status === 401 || response.status === 403) { err = "Unauthorized."; navigate('/login'); } 
+            throw new Error(err); 
+        }
+        
+        setProcessSuccess(true); 
+        setProcessSuccessMessage(responseData.message || "Order processed successfully!"); 
+        setProcessedPOsInfo(responseData.processed_purchase_orders || []); 
+        
+        const ac = new AbortController(); await fetchOrderAndSuppliers(ac.signal); 
     } catch (err) {
         setProcessError(err.message || "An unexpected error occurred during processing.");
+        setProcessSuccess(false);
+        setProcessedPOsInfo([]);
     } finally {
         setProcessing(false);
     }
@@ -567,9 +572,53 @@ function OrderDetail() {
         </span>
       </div>
 
-      {statusUpdateMessage && !processError && !processSuccess && (<div className={statusUpdateMessage.toLowerCase().includes("error") ? "error-message" : "success-message"} style={{ marginTop: '10px', marginBottom: '10px' }}>{statusUpdateMessage}</div>)}
-      {processSuccess && <div className="success-message" style={{ marginBottom: '10px' }}>{processSuccess}</div>}
+      {statusUpdateMessage && !processError && !processSuccess && (
+          <div className={statusUpdateMessage.toLowerCase().includes("error") ? "error-message" : "success-message"} style={{ marginTop: '10px', marginBottom: '10px' }}>
+              {statusUpdateMessage}
+          </div>
+      )}
+
       {processError && <div className="error-message" style={{ marginBottom: '10px' }}>{processError}</div>}
+
+      {processSuccess && (
+        <div className="process-success-container card" style={{ marginBottom: '20px', padding: '15px', textAlign: 'center' }}>
+          <p className="success-message-large">ORDER PROCESSED SUCCESSFULLY!</p>
+          {processSuccessMessage && processSuccessMessage !== "Order processed successfully!" && (
+            <p style={{ fontSize: '0.9em', color: 'var(--text-secondary)', marginTop: '5px' }}>
+              {processSuccessMessage}
+            </p>
+          )}
+          {processedPOsInfo.length > 0 && (
+            <div className="processed-po-links" style={{ marginTop: '15px' }}>
+              <h4>Generated Documents:</h4>
+              {processedPOsInfo.map((poInfo, index) => (
+                <div key={poInfo.po_number || index} className="po-document-group" style={{ marginBottom: '10px', padding: '10px', border: '1px solid var(--border-light)', borderRadius: '4px' }}>
+                  <p style={{fontWeight: 'bold', marginBottom: '5px'}}>PO #: {poInfo.po_number} (Supplier ID: {poInfo.supplier_id})</p>
+                  {poInfo.po_pdf_gcs_uri && (
+                    <a href={poInfo.po_pdf_gcs_uri.replace("gs://", "https://storage.googleapis.com/")} target="_blank" rel="noopener noreferrer" className="pdf-link">
+                      <PdfIcon className="pdf-svg-icon" /> View PO {/* Using PdfIcon component */}
+                    </a>
+                  )}
+                  {poInfo.packing_slip_gcs_uri && (
+                    <a href={poInfo.packing_slip_gcs_uri.replace("gs://", "https://storage.googleapis.com/")} target="_blank" rel="noopener noreferrer" className="pdf-link" style={{ marginLeft: '10px' }}>
+                      <PdfIcon className="pdf-svg-icon" /> View Packing Slip {/* Using PdfIcon component */}
+                    </a>
+                  )}
+                  {poInfo.label_gcs_uri && (
+                    <a href={poInfo.label_gcs_uri.replace("gs://", "https://storage.googleapis.com/")} target="_blank" rel="noopener noreferrer" className="pdf-link" style={{ marginLeft: '10px' }}>
+                      <PdfIcon className="pdf-svg-icon" /> View Label {/* Using PdfIcon component */}
+                    </a>
+                  )}
+                   {!poInfo.po_pdf_gcs_uri && !poInfo.packing_slip_gcs_uri && !poInfo.label_gcs_uri && (
+                       <p style={{fontSize: '0.8em', fontStyle: 'italic'}}>No PDF documents were generated for this PO.</p>
+                   )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
 
        <section className="order-info card">
         <h3>Order Information</h3>
@@ -689,11 +738,7 @@ function OrderDetail() {
                                         />
                                     </div>
                                     <div className="item-cost-multi">
-                                      {/* Use a single label. Ensure your CSS for 'mobile-label' or general labels handles visibility appropriately. */}
-                                      {/* If 'mobile-label' is specifically hidden on desktop by your CSS, this will work as intended. */}
-                                      {/* Otherwise, this label will show, and you can remove the 'mobile-label' class if it's not needed. */}
                                       <label htmlFor={`cost-${item.line_item_id}`} className="mobile-label">Unit Cost:</label>
-                                      {/* <span className="desktop-label">Unit Cost:</span>  <-- This was the duplicate, now removed/commented */}
                                       <input
                                           id={`cost-${item.line_item_id}`}
                                           type="number"
@@ -734,7 +779,7 @@ function OrderDetail() {
                                     min="0.1"
                                     placeholder="e.g., 5.0"
                                     disabled={disableAllActions || !multiSupplierShipmentDetails[supplierId]?.method}
-                                    className="price-input" // Re-used price-input class, consider specific if needed
+                                    className="price-input" 
                                 />
                             </div>
                         </div>
@@ -771,14 +816,14 @@ function OrderDetail() {
           )}
       </div>
 
-      <div className="order-actions" style={{ marginTop: '20px' }}>
-          {isActuallyProcessed && (
-              <button type="button" onClick={() => navigate('/')} className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics" disabled={disableAllActions}>
+      <div className="order-actions" style={{ marginTop: '20px', textAlign: 'center' }}>
+          {(isActuallyProcessed || isActuallyCompletedOffline || processSuccess) && (
+              <button type="button" onClick={() => navigate('/')} className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics" disabled={disableAllActions && !processSuccess}>
                   BACK TO DASHBOARD
               </button>
           )}
-          {(isActuallyProcessed || isActuallyCompletedOffline) && !canDisplayProcessingForm && (
-              <div style={{ textAlign: 'center', marginTop: '0px', color: 'var(--text-secondary)' }}>
+          {(isActuallyProcessed || isActuallyCompletedOffline) && !canDisplayProcessingForm && !processSuccess && (
+              <div style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>
                   This order has been {order.status?.toLowerCase()} and no further automated actions are available.
               </div>
           )}
