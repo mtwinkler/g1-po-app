@@ -391,3 +391,56 @@
   color: var(--text-main);
   margin-right: 10px;
 }
+
+.revenue-positive {
+  color: green;
+}
+
+.revenue-zero { /* or .revenue-non-positive */
+  color: red;
+}
+
+.revenue-tab-content h3 {
+  margin-bottom: 15px;
+  text-align: center;
+  color: var(--text-main);
+}
+
+.daily-revenue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px; /* Space between each revenue item */
+  /* Ensure this list container allows its children to span full width if needed */
+  /* max-width: 500px; /* Example: Or set a specific width if desired */
+  /* margin: 0 auto; /* Example: To center the list if it has a max-width */
+}
+
+.daily-revenue-item {
+  /* Previous flexbox styles commented out or replaced */
+  /* display: flex; */
+  /* justify-content: space-between; */
+  /* align-items: center; */
+
+  display: grid;
+  grid-template-columns: auto 1fr; /* Date takes auto width, revenue takes remaining space */
+  gap: 10px; /* Space between date and revenue columns */
+  align-items: center; /* Vertically align items in the center of the row */
+
+  padding: 5px 15px;
+  background-color: var(--bg-card-alt); /* Or var(--bg-card) depending on desired look */
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  font-size: 1em;
+}
+
+/* Style the first child (date span) of the grid item */
+.daily-revenue-item > span:first-child {
+  color: var(--text-secondary); /* Style for the date */
+  /* No specific grid alignment needed if it's the first column */
+}
+
+/* Style the second child (revenue span) of the grid item */
+.daily-revenue-item > span:last-child {
+  justify-self: end; /* Aligns this grid item (the revenue span) to the end (right) of its grid cell */
+  text-align: right; /* Aligns the text within the revenue span to the right */
+}

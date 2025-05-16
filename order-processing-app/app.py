@@ -10,7 +10,7 @@ from sqlalchemy import text # For sqlalchemy.text for raw SQL / transaction cont
 from dotenv import load_dotenv
 from google.cloud.sql.connector import Connector as GcpSqlConnector # Alias connector
 import requests
-from datetime import datetime, timezone # For po_date
+from datetime import datetime, timezone, timedelta # Ensure timedelta is imported
 from sqlalchemy.dialects.postgresql import insert
 from decimal import Decimal # If you need to handle decimal conversion for total_amount explicitly
 import inspect # For checking function arguments if needed
@@ -1993,7 +1993,88 @@ def user_trigger_iif_for_today():
     except Exception as e:
         print(f"ERROR APP (USER_IIF_TODAY): Error during IIF generation task for today: {e}")
         return jsonify({"error": "An error occurred.", "details": str(e)}), 500
-          
+
+@app.route('/api/reports/daily-revenue', methods=['GET'])
+@verify_firebase_token # Assuming this report should be authenticated
+def get_daily_revenue_report():
+    print("DEBUG DAILY_REVENUE: Received request for daily revenue report.")
+    db_conn = None
+    try:
+        if engine is None:
+            print("ERROR DAILY_REVENUE: Database engine not available.")
+            return jsonify({"error": "Database engine not available."}), 500
+
+        db_conn = engine.connect()
+        print("DEBUG DAILY_REVENUE: DB connection established.")
+
+        # Calculate the date 14 days ago (inclusive of today, so 13 days back from start of today)
+        # We want to include all of today, and go back 13 full days before that.
+        today_utc = datetime.now(timezone.utc).date()
+        start_date_utc = today_utc - timedelta(days=13) # Covers today + 13 previous days = 14 days total
+
+        # The query needs to cast order_date to a date for grouping
+        # and filter for the last 14 days.
+        # Ensure your order_date is stored as a timestamp or datetime type in PostgreSQL.
+        # If order_date is already UTC, you can cast directly.
+        # If it might have other timezones or no timezone, ensure it's handled consistently.
+        # Assuming order_date is stored as TIMESTAMPTZ or a UTC timestamp.
+        sql_query = text("""
+            SELECT
+                DATE(order_date AT TIME ZONE 'UTC') AS sale_date,
+                SUM(total_sale_price) AS daily_revenue
+            FROM orders
+            WHERE DATE(order_date AT TIME ZONE 'UTC') >= :start_date
+            GROUP BY sale_date
+            ORDER BY sale_date DESC
+            LIMIT 14;
+        """)
+        # Note: If your order_date is already a simple DATE type in UTC,
+        # you could simplify DATE(order_date AT TIME ZONE 'UTC') to just DATE(order_date)
+        # or even just order_date if it's already just a date.
+        # The AT TIME ZONE 'UTC' is good practice if it's a TIMESTAMPTZ.
+
+        records = db_conn.execute(sql_query, {"start_date": start_date_utc}).fetchall()
+
+        daily_revenue_data = []
+        for row in records:
+            row_dict = convert_row_to_dict(row) # Your existing helper
+            if row_dict and row_dict.get('sale_date') is not None:
+                daily_revenue_data.append({
+                    "sale_date": row_dict['sale_date'].strftime('%Y-%m-%d'), # Format date as string
+                    "daily_revenue": float(row_dict.get('daily_revenue', 0.0)) # Convert Decimal to float
+                })
+
+        # Fill in missing dates with 0 revenue for a complete 14-day list
+        # This makes the frontend easier to work with if you want to display all 14 days
+        # regardless of whether there was revenue.
+        revenue_map = {item['sale_date']: item['daily_revenue'] for item in daily_revenue_data}
+        complete_daily_revenue = []
+        for i in range(14):
+            current_date = today_utc - timedelta(days=i)
+            current_date_str = current_date.strftime('%Y-%m-%d')
+            complete_daily_revenue.append({
+                "sale_date": current_date_str,
+                "daily_revenue": revenue_map.get(current_date_str, 0.0)
+            })
+
+        # The list is currently newest to oldest due to range(14) and today_utc - timedelta(days=i)
+        # If you want oldest to newest, you can reverse it or adjust the loop.
+        # The SQL query already orders by sale_date DESC, so the initial data is newest first.
+        # Let's ensure the final output is newest to oldest for consistency with typical reports.
+        # The complete_daily_revenue is already newest to oldest if today_utc is the first date generated.
+
+        print(f"DEBUG DAILY_REVENUE: Fetched daily revenue for last 14 days. Count: {len(complete_daily_revenue)}")
+        return jsonify(make_json_safe(complete_daily_revenue)), 200
+
+    except Exception as e:
+        print(f"ERROR DAILY_REVENUE: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "Failed to fetch daily revenue report", "details": str(e)}), 500
+    finally:
+        if db_conn and not db_conn.closed:
+            db_conn.close()
+            print("DEBUG DAILY_REVENUE: DB connection closed.")
+
 # === Entry point for running the Flask app ===
 if __name__ == '__main__':
     print(f"Starting G1 PO App Backend...")

@@ -5,11 +5,3 @@ Can you include everything in the initial Project Outline and Handover Report in
 
 
 
-
-I have one more request before we move to the front end development. In addition to the email going to the supplier, I want an PO Processed Confirmation Email going to sales@globalonetechnology.com with the following attributes:
-
-Subject: 
-Processed G1 PO #[po_number] for Order # [bigcommerce_order_id]
-
-Body:
-Supplier: [Supplier Name]
