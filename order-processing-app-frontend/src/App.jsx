@@ -4,6 +4,7 @@ import React from 'react';
 import './App.css';
 import { Routes, Route, Link, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+// import pdfIcon from './assets/pdf-icon.png'; // Ensure this path is correc
 
 // --- Import Components ---
 import Dashboard from './components/Dashboard';
@@ -119,7 +120,9 @@ function AppContent() {
           />
         </Routes>
       </div>
+      <img src="{pdfIcon}" alt="preload pdf icon" style={{ width: 1, height: 1, opacity: 0, position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }} />
     </div>
+    
   );
 }
 

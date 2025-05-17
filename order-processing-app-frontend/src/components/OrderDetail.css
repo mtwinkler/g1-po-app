@@ -693,3 +693,152 @@ h3 { letter-spacing: 0.5px; }
     /* justify-content: flex-start; */
   }
 }
+
+/* Add to OrderDetail.css */
+
+.success-message-large {
+  font-weight: bold;
+  color: var(--success-text, green); /* Use your theme's success color */
+  font-size: 1.2em; /* Make it larger */
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.process-success-container {
+  background-color: var(--bg-card-alt, #f9f9f9); /* Light background for the section */
+  border: 1px solid var(--success-border, green);
+}
+
+.processed-po-links h4 {
+  margin-bottom: 10px;
+  color: var(--text-main);
+}
+
+.po-document-group {
+  background-color: var(--bg-page, #fff); /* Slightly different background for each PO group */
+}
+
+.pdf-link {
+  display: inline-block; /* Or block if you want them on new lines */
+  margin-right: 15px; /* Space between links */
+  margin-bottom: 5px;
+  color: var(--primary-accent, blue);
+  text-decoration: none;
+}
+
+.pdf-link:hover {
+  text-decoration: underline;
+  color: var(--primary-accent-dark, darkblue);
+}
+
+/* Ensure your existing .success-message and .error-message are styled */
+.success-message {
+  padding: 10px;
+  background-color: var(--success-bg, #e6fffa);
+  color: var(--success-text, green);
+  border: 1px solid var(--success-border, green);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.error-message {
+  padding: 10px;
+  background-color: var(--error-bg, #ffebeb);
+  color: var(--error-text, red);
+  border: 1px solid var(--error-border, red);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.process-success-container.card {
+  margin-bottom: 20px;
+  padding: 15px;
+  text-align: center;
+  background-color: var(--bg-card-alt, #f9f9f9); 
+  border: 1px solid var(--success-border, green);
+  border-radius: var(--border-radius-medium, 6px);
+}
+
+.success-message-large {
+  font-weight: bold;
+  color: var(--success-text, green); 
+  font-size: 1.2em; 
+  text-align: center;
+  margin-bottom: 5px;
+}
+
+.success-message-detail {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  margin-top: 0;
+  margin-bottom: 15px; 
+}
+
+.processed-po-links h4 {
+  margin-top: 10px; 
+  margin-bottom: 10px;
+  color: var(--text-main);
+  font-size: 1.1em;
+}
+
+.po-document-group {
+  background-color: var(--bg-page, #fff); 
+  margin-bottom: 15px; 
+  padding: 10px 15px; 
+  border: 1px solid var(--border-medium, #ddd); 
+  border-radius: var(--border-radius-small, 4px);
+  text-align: left; 
+}
+
+.po-document-group .po-number-title { /* This will now contain "PO # ... sent to ..." */
+  font-weight: bold;
+  margin-bottom: 10px; /* Increased space before links */
+  font-size: 1em;
+  color: var(--text-main);
+}
+/* .po-document-group .supplier-name-subtitle { /* Removed as it's combined */
+  /* font-size: 0.9em; */
+  /* color: var(--text-secondary); */
+  /* margin-bottom: 10px; */
+/* } */
+
+.pdf-links-wrapper {
+  display: flex;
+  flex-wrap: wrap; 
+  gap: 10px; 
+  justify-content: flex-start; 
+}
+
+.pdf-link {
+  display: inline-flex; 
+  align-items: center; 
+  color: var(--primary-accent, blue);
+  text-decoration: none;
+  gap: 5px; 
+  padding: 6px 10px; 
+  border: 1px solid var(--border-input, #ccc); 
+  border-radius: var(--border-radius-small, 4px);
+  background-color: var(--bg-button-secondary, #f0f0f0); 
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+  font-size: 0.9em; 
+}
+
+.pdf-link:hover {
+  text-decoration: none; 
+  background-color: var(--bg-button-secondary-hover, #e0e0e0);
+  border-color: var(--primary-accent-light, #a0cfff); 
+  color: var(--primary-accent-dark, darkblue);
+}
+
+.pdf-icon {
+  width: 18px;  /* Adjust to your preferred size e.g., 18px, 20px */
+  height: 18px; /* Adjust to your preferred size */
+  /* vertical-align: middle; Not strictly needed with inline-flex on parent */
+}
+
+.no-documents-note {
+  font-size: 0.9em; /* Made slightly larger */
+  font-style: italic;
+  color: var(--text-secondary);
+  margin-top: 8px; /* Added some top margin */
+}

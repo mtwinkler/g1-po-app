@@ -148,19 +148,21 @@ def send_po_email(supplier_email, po_number, attachments):
         traceback.print_exc()
         return False
 
-def send_quickbooks_data_email(po_data):
-    """Sends structured PO data for potential QuickBooks import."""
-    print(f"DEBUG QB_EMAIL: Attempting to send QuickBooks data email for PO {po_data.get('po_number')}")
-
-    if EMAIL_SERVICE_PROVIDER != "postmark":
-        print(f"DEBUG QB_EMAIL: Email service provider is '{EMAIL_SERVICE_PROVIDER}', not Postmark. Skipping QB email.")
-        return False
-    if not PostmarkClient:
-        print("ERROR QB_EMAIL: PostmarkClient library is not available. QB Email not sent.")
-        return False
-    if not EMAIL_API_KEY or not EMAIL_SENDER_ADDRESS or not QUICKBOOKS_EMAIL_RECIPIENT:
-        print("DEBUG QB_EMAIL: Postmark API key, sender, or QB recipient address not configured. Skipping QB email.")
-        return False
+# REMOVE OR COMMENT OUT THIS ENTIRE FUNCTION "PO Data for QuickBooks Import":
+# def send_quickbooks_data_email(po_data):
+#     """Sends structured PO data for potential QuickBooks import."""
+#     print(f"DEBUG QB_EMAIL: Attempting to send QuickBooks data email for PO {po_data.get('po_number')}")
+#
+#     if EMAIL_SERVICE_PROVIDER != "postmark":
+#         # ... (rest of the function code) ...
+#     # ...
+#     # ...
+#     # try:
+#     #     # ... Postmark send call ...
+#     # except Exception as e:
+#     #     # ... error handling ...
+#     # return False
+# END OF FUNCTION TO REMOVE OR COMMENT OUT
 
     client = PostmarkClient(server_token=EMAIL_API_KEY)
 
