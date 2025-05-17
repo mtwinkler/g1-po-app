@@ -1,20 +1,18 @@
-// App.jsx
-
 import React from 'react';
 import './App.css';
 import { Routes, Route, Link, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-// import pdfIcon from './assets/pdf-icon.png'; // Ensure this path is correc
+// import pdfIcon from './assets/pdf-icon.png'; 
 
 // --- Import Components ---
 import Dashboard from './components/Dashboard';
 import SupplierList from './components/SupplierList';
 import SupplierForm from './components/SupplierForm';
 import EditSupplierForm from './components/EditSupplierForm';
-// ProductMappingList, ProductMappingForm, EditProductMappingForm are removed as per request
 import OrderDetail from './components/OrderDetail';
 import Login from './components/Login';
 import ProtectedRoute from './components/ProtectedRoute';
+import StandaloneUpsLabel from './components/StandaloneUpsLabel'; // +++ ADD THIS IMPORT
 
 // Main App content component
 function AppContent() {
@@ -25,12 +23,11 @@ function AppContent() {
       <nav className="main-navigation">
         {currentUser && (
           <>
-            {/* Link to the main dashboard view (orders) */}
             <Link to="/dashboard">Orders</Link> |{' '}
             <Link to="/suppliers">Suppliers</Link> |{' '}
-            {/* Changed "Products" to "Daily Sales" and updated the link */}
-            <Link to="/dashboard/sales">Daily Sales</Link>
-            <button
+            <Link to="/dashboard/sales">Daily Sales</Link> |{' '}
+            <Link to="/utils/standalone-label-generator">UPS Label</Link> {/* +++ ADD NEW LINK */}
+            {/* <button
               onClick={async () => {
                 try {
                   await logout();
@@ -51,7 +48,7 @@ function AppContent() {
               }}
             >
               Logout
-            </button>
+            </button> */}
           </>
         )}
         {!currentUser && (
@@ -106,6 +103,16 @@ function AppContent() {
 
           {/* Order Detail Route */}
           <Route path="/orders/:orderId" element={<ProtectedRoute><OrderDetail /></ProtectedRoute>} />
+
+          {/* +++ ADD NEW UTILITY ROUTE +++ */}
+          <Route 
+            path="/utils/standalone-label-generator" 
+            element={
+              <ProtectedRoute>
+                <StandaloneUpsLabel />
+              </ProtectedRoute>
+            } 
+          />
 
           {/* Catch-all Route for 404 Not Found */}
           <Route

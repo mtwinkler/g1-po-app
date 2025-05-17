@@ -16,6 +16,7 @@ from decimal import Decimal
 import inspect 
 import re
 import base64 # <--- ADDED IMPORT FOR BASE64
+import sys
 
 # --- Firebase Admin SDK Imports ---
 import firebase_admin
@@ -1348,61 +1349,63 @@ def get_description_for_sku(sku_value):
 print("DEBUG APP_SETUP: Defined /api/lookup/description/<sku> GET route.")
 
 
-# === TASK AND REPORT ROUTES ===
-@app.route('/api/tasks/scheduler/trigger-iif-for-today', methods=['POST'])
-def scheduler_trigger_iif_for_today():
-    print("INFO APP (SCHEDULER_IIF_TODAY): Received request to trigger IIF for today from scheduler.")
-    # Example of header check for Cloud Scheduler (optional, but recommended)
-    # expected_header = os.getenv("CLOUD_SCHEDULER_HEADER_VALUE")
-    # if request.headers.get("X-CloudScheduler-JobName") and expected_header: # Or a custom header
-    #    if request.headers.get("Your-Custom-Header") != expected_header:
-    #        print("WARN APP (SCHEDULER_IIF_TODAY): Invalid or missing custom header for scheduler.")
-    #        return jsonify({"error": "Forbidden"}), 403
-    # else: # If not called by Cloud Scheduler with expected headers (e.g. local test)
-    #    print("WARN APP (SCHEDULER_IIF_TODAY): Potentially insecure call (missing scheduler headers).")
+# SCHEDULER ROUTE FOR THE MAIN DAILY BATCH (YESTERDAY'S POs)
+@app.route('/api/tasks/scheduler/trigger-daily-iif-batch', methods=['POST'])
+def scheduler_trigger_daily_iif_batch(): 
+    print("INFO APP: Received request for DAILY IIF BATCH (Yesterday's POs) from scheduler.", flush=True)
+    # Optional: Add Cloud Scheduler header verification here
+    # if not request.headers.get("X-CloudScheduler") and not app.debug:
+    #     print("WARN APP (DAILY IIF BATCH): Missing X-CloudScheduler header.")
+    #     return jsonify({"error": "Forbidden - Invalid Caller"}), 403
 
     if iif_generator is None:
-        print("ERROR APP (SCHEDULER_IIF_TODAY): iif_generator module not loaded.")
+        print("ERROR APP (DAILY IIF BATCH): iif_generator module not loaded.", flush=True)
         return jsonify({"error": "IIF generation module not available."}), 500
     if engine is None:
-        print("ERROR APP (SCHEDULER_IIF_TODAY): Database engine not initialized.")
+        print("ERROR APP (DAILY IIF BATCH): Database engine not initialized.", flush=True)
         return jsonify({"error": "Database engine not available."}), 500
     try:
-        print("INFO APP (SCHEDULER_IIF_TODAY): Calling iif_generator.create_and_email_iif_for_today...")
-        success, message = iif_generator.create_and_email_iif_for_today(engine)
-        if success:
-            print(f"INFO APP (SCHEDULER_IIF_TODAY): IIF for today task completed. Message: {message}")
-            return jsonify({"message": message or "IIF generation task for today's POs triggered."}), 200
-        else:
-            print(f"ERROR APP (SCHEDULER_IIF_TODAY): IIF generation for today failed. Message: {message}")
-            return jsonify({"error": message or "IIF generation for today failed in generator script."}), 500 
+        print("INFO APP (DAILY IIF BATCH): Calling iif_generator.create_and_email_daily_iif_batch...", flush=True)
+        # Call the function for YESTERDAY'S POs
+        iif_generator.create_and_email_daily_iif_batch(engine) 
+        
+        print(f"INFO APP (DAILY IIF BATCH): Daily IIF batch (yesterday) task triggered successfully.", flush=True)
+        return jsonify({"message": "Daily IIF batch (yesterday's POs) task triggered."}), 200
     except Exception as e:
-        print(f"ERROR APP (SCHEDULER_IIF_TODAY): Error: {e}")
-        traceback.print_exc()
-        return jsonify({"error": "An error occurred during scheduled IIF generation.", "details": str(e)}), 500
+        print(f"ERROR APP (DAILY IIF BATCH): Unhandled exception in route: {e}", flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        return jsonify({"error": "An error occurred during scheduled daily IIF batch generation.", "details": str(e)}), 500
 
-# This user-triggered version should be distinct if the scheduler one has different auth.
-# If both use Firebase token, one endpoint is fine. If scheduler is different, ensure paths are distinct.
-# Assuming your original had two distinct POST endpoints for /api/tasks/trigger-iif-for-today, one for scheduler (no token) and one for user (with token).
-# The one below is for user, with @verify_firebase_token.
-@app.route('/api/tasks/trigger-iif-for-today-user', methods=['POST']) # Changed path to make it distinct
-@verify_firebase_token
-def user_trigger_iif_for_today(): # Renamed function
-    print("INFO APP (USER_IIF_TODAY): Received request to trigger IIF for today by user.")
+# USER-TRIGGERED ROUTE FOR TODAY'S POs
+@app.route('/api/tasks/trigger-iif-for-today-user', methods=['POST'])
+@verify_firebase_token # User triggered, so needs auth
+def user_trigger_iif_for_today():
+    print("INFO APP: Received request for TODAY'S IIF by user.", flush=True)
     if iif_generator is None: 
+        print("ERROR APP (TODAY IIF USER): iif_generator module not loaded.", flush=True)
         return jsonify({"error": "IIF generation module not available."}), 500
     if engine is None:
+        print("ERROR APP (TODAY IIF USER): Database engine not initialized.", flush=True)
         return jsonify({"error": "Database engine not available."}), 500
     try:
-        success, message = iif_generator.create_and_email_iif_for_today(engine) 
+        print("INFO APP (TODAY IIF USER): Calling iif_generator.create_and_email_iif_for_today...", flush=True)
+        # Calls the "today" function from iif_generator
+        success, result_message_or_content = iif_generator.create_and_email_iif_for_today(engine) 
+        
         if success:
-            return jsonify({"message": message or "IIF generation task for today's POs triggered and email sent (if configured)."}), 200
+            print(f"INFO APP (TODAY IIF USER): Today's IIF task completed. Success: {success}, Result: {'IIF content generated (length: ' + str(len(result_message_or_content)) + ')' if isinstance(result_message_or_content, str) and len(result_message_or_content)>100 else result_message_or_content}", flush=True)
+            return jsonify({"message": "IIF generation for today's POs triggered and email sent (if configured)."}), 200
         else:
-            return jsonify({"error": message or "IIF generation for today failed. Check logs."}), 500
+            print(f"ERROR APP (TODAY IIF USER): Today's IIF task failed. Success: {success}, Message: {result_message_or_content}", flush=True)
+            return jsonify({"error": result_message_or_content or "IIF generation for today failed. Check logs."}), 500
     except Exception as e:
-        print(f"ERROR APP (USER_IIF_TODAY): Error during IIF generation task for today: {e}")
+        print(f"ERROR APP (TODAY IIF USER): Unhandled exception in route: {e}", flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
         return jsonify({"error": "An error occurred during user-triggered IIF generation.", "details": str(e)}), 500
-print("DEBUG APP_SETUP: Defined IIF trigger routes.")
+
+print("DEBUG APP_SETUP: Defined IIF trigger routes.") # This should be after all route definitions in this section
 
 
 @app.route('/api/reports/daily-revenue', methods=['GET'])
@@ -1453,7 +1456,164 @@ def get_daily_revenue_report():
             print("DEBUG DAILY_REVENUE: DB connection closed.")
 print("DEBUG APP_SETUP: Defined /api/reports/daily-revenue GET route.")
 
+# === UTILITY ROUTES ===
+@app.route('/api/utils/generate_standalone_ups_label', methods=['POST'])
+@verify_firebase_token
+def generate_standalone_ups_label():
+    print("DEBUG STANDALONE_LABEL: --- ROUTE ENTERED ---", flush=True)
+    current_utc_datetime = datetime.now(timezone.utc)
+    try:
+        print("DEBUG STANDALONE_LABEL: Attempting to get payload.", flush=True)
+        payload = request.get_json()
+        print(f"DEBUG STANDALONE_LABEL: Payload received: {payload}", flush=True)
 
+        ship_to_data = payload.get('ship_to')
+        package_data = payload.get('package')
+        shipping_method_name_from_payload = payload.get('shipping_method_name')
+        print(f"DEBUG STANDALONE_LABEL: Parsed payload parts. ShipTo: {bool(ship_to_data)}, Package: {bool(package_data)}, Method: {bool(shipping_method_name_from_payload)}", flush=True)
+
+
+        if not all([ship_to_data, package_data, shipping_method_name_from_payload]):
+            print("ERROR STANDALONE_LABEL: Missing critical payload parts.", flush=True)
+            return jsonify({"error": "Missing ship_to, package, or shipping_method_name in payload"}), 400
+
+        # Add more detailed checks for inner parts if needed, e.g.
+        # print(f"DEBUG STANDALONE_LABEL: ship_to_data.get('name'): {ship_to_data.get('name')}", flush=True)
+
+
+        if engine is None:
+            print("ERROR STANDALONE_LABEL: Database engine is None!", flush=True)
+            return jsonify({"error": "Database engine not available."}), 500
+        if shipping_service is None:
+            print("ERROR STANDALONE_LABEL: shipping_service is None!", flush=True)
+            return jsonify({"error": "Shipping service module not available."}), 500
+        if email_service is None:
+            print("ERROR STANDALONE_LABEL: email_service is None!", flush=True)
+            return jsonify({"error": "Email service module not available."}), 500
+        
+        print("DEBUG STANDALONE_LABEL: All service modules seem available.", flush=True)
+
+        ship_from_address_details = {
+            'name': SHIP_FROM_NAME, 'contact_person': SHIP_FROM_CONTACT, 'street_1': SHIP_FROM_STREET1,
+            'street_2': SHIP_FROM_STREET2, 'city': SHIP_FROM_CITY, 'state': SHIP_FROM_STATE,
+            'zip': SHIP_FROM_ZIP, 'country': SHIP_FROM_COUNTRY, 'phone': SHIP_FROM_PHONE
+        }
+        print(f"DEBUG STANDALONE_LABEL: Ship from address: {ship_from_address_details}", flush=True)
+        if not all([ship_from_address_details['street_1'], ship_from_address_details['city'], ship_from_address_details['state'], ship_from_address_details['zip'], ship_from_address_details['phone']]):
+            print("ERROR STANDALONE_LABEL: Ship From address is not fully configured in environment variables.", flush=True)
+            return jsonify({"error": "Server-side ship-from address not fully configured."}), 500
+        
+        print("DEBUG STANDALONE_LABEL: Ship from address validated.", flush=True)
+
+        ad_hoc_order_data = {
+            "bigcommerce_order_id": f"STANDALONE_{int(current_utc_datetime.timestamp())}",
+            "customer_company": ship_to_data.get('name'),
+            "customer_name": ship_to_data.get('attention_name', ship_to_data.get('name')),
+            "customer_phone": ship_to_data.get('phone'),
+            "customer_shipping_address_line1": ship_to_data.get('address_line1'),
+            "customer_shipping_address_line2": ship_to_data.get('address_line2', ''),
+            "customer_shipping_city": ship_to_data.get('city'),
+            "customer_shipping_state": ship_to_data.get('state'),
+            "customer_shipping_zip": ship_to_data.get('zip_code'),
+            "customer_shipping_country": ship_to_data.get('country_code', 'US'),
+            "customer_email": "sales@globalonetechnology.com",
+            "order_date": current_utc_datetime
+        }
+        print(f"DEBUG STANDALONE_LABEL: Constructed ad_hoc_order_data: {ad_hoc_order_data}", flush=True)
+        
+        total_weight_lbs = float(package_data['weight_lbs'])
+        print(f"DEBUG STANDALONE_LABEL: About to call shipping_service.generate_ups_label for method '{shipping_method_name_from_payload}', weight {total_weight_lbs} lbs.", flush=True)
+        
+        label_pdf_bytes, tracking_number = shipping_service.generate_ups_label(
+            order_data=ad_hoc_order_data,
+            ship_from_address=ship_from_address_details,
+            total_weight_lbs=total_weight_lbs,
+            customer_shipping_method_name=shipping_method_name_from_payload
+        )
+        print(f"DEBUG STANDALONE_LABEL: shipping_service.generate_ups_label returned. Tracking: {tracking_number}, Label Bytes: {bool(label_pdf_bytes)}", flush=True)
+
+        if not label_pdf_bytes or not tracking_number:
+            print(f"ERROR STANDALONE_LABEL: Failed to generate UPS label after call. Tracking: {tracking_number}, Label Bytes: {bool(label_pdf_bytes)}", flush=True)
+            return jsonify({"error": "Failed to generate UPS label. Check server logs.", "tracking_number": tracking_number}), 500
+        
+        print(f"DEBUG STANDALONE_LABEL: About to call email_service.", flush=True)
+        
+        print(f"INFO STANDALONE_LABEL: UPS Label generated successfully. Tracking: {tracking_number}")
+
+        # 4. Email the label
+        email_subject = f"Standalone UPS Label Generated - Tracking: {tracking_number}"
+        email_html_body = (
+            f"<p>A UPS shipping label has been generated via the Standalone Label Generator.</p>"
+            f"<p><b>Tracking Number:</b> {tracking_number}</p>"
+            f"<p><b>Ship To:</b><br>"
+            f"{ship_to_data.get('name', '')}<br>"
+            f"{ship_to_data.get('attention_name', '')}<br>"
+            f"{ship_to_data.get('address_line1', '')}<br>"
+            f"{ship_to_data.get('address_line2', '') if ship_to_data.get('address_line2') else ''}"
+            f"{ship_to_data.get('city', '')}, {ship_to_data.get('state', '')} {ship_to_data.get('zip_code', '')}<br>"
+            f"{ship_to_data.get('country_code', '')}</p>"
+            f"<p><b>Package Description:</b> {package_data.get('description', 'N/A')}</p>"
+            f"<p><b>Weight:</b> {total_weight_lbs} lbs</p>"
+            f"<p><b>Shipping Method:</b> {shipping_method_name_from_payload}</p>"
+            f"<p>The label is attached to this email.</p>"
+        )
+        email_text_body = email_html_body.replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n").replace("<b>", "").replace("</b>", "") # Simple text conversion
+
+        attachments = [{
+            "Name": f"UPS_Label_{tracking_number}.pdf",
+            "Content": base64.b64encode(label_pdf_bytes).decode('utf-8'),
+            "ContentType": "application/pdf"
+        }]
+
+        email_sent = False
+        # Ensure the function name matches what's in your email_service.py
+        if hasattr(email_service, 'send_sales_notification_email'):
+            email_service.send_sales_notification_email(
+                recipient_email="sales@globalonetechnology.com",
+                subject=email_subject,
+                html_body=email_html_body,
+                text_body=email_text_body,
+                attachments=attachments
+            )
+            email_sent = True
+        elif hasattr(email_service, 'send_generic_email'): # Fallback if you used a generic name
+             email_service.send_generic_email(
+                recipient_email="sales@globalonetechnology.com",
+                subject=email_subject,
+                html_body=email_html_body,
+                text_body=email_text_body, # Ensure your generic function can take text_body
+                attachments=attachments
+            )
+             email_sent = True
+        else:
+            print("ERROR STANDALONE_LABEL: Suitable email function (like send_sales_notification_email) not found in email_service.py.")
+            # Don't fail the whole request if email sending part has an issue, but log it.
+            # The frontend can still get the tracking number.
+
+        if email_sent:
+            print(f"INFO STANDALONE_LABEL: Email with label sent to sales@globalonetechnology.com.")
+        else:
+             print(f"WARN STANDALONE_LABEL: Email function not found or failed, but label was generated. Tracking: {tracking_number}")
+
+
+        return jsonify({
+            "message": "UPS label generated and emailed successfully.",
+            "tracking_number": tracking_number
+        }), 200
+
+    except ValueError as ve: # Catch ValueError specifically if you expect it for bad input
+        print(f"ERROR STANDALONE_LABEL (ValueError): {ve}", flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        return jsonify({"error": "Processing failed due to invalid data.", "details": str(ve)}), 400
+    except Exception as e:
+        print(f"CRITICAL STANDALONE_LABEL: UNHANDLED EXCEPTION IN ROUTE: {e}", flush=True)
+        traceback.print_exc(file=sys.stderr) # Force traceback to stderr
+        sys.stderr.flush() # Ensure it's written out
+        return jsonify({"error": "An unexpected error occurred during standalone label generation.", "details": str(e)}), 500
+    finally:
+        print("DEBUG STANDALONE_LABEL: --- ROUTE EXITING ---", flush=True)
+        
 # === Entry point for running the Flask app ===
 if __name__ == '__main__':
     print(f"Starting G1 PO App Backend...")

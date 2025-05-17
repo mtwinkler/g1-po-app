@@ -1,0 +1,110 @@
+/* src/components/StandaloneUpsLabel.css */
+.standalone-label-container {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+}
+
+.standalone-label-container h2 {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  color: var(--primary-accent-dark);
+}
+
+.standalone-label-form .form-section {
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.standalone-label-form .form-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 1rem;
+}
+
+.standalone-label-form .form-section h3 {
+  margin-bottom: 1rem;
+  color: var(--text-secondary);
+  font-size: 1.1em;
+}
+
+.standalone-label-form .form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); /* Responsive grid */
+  gap: 1rem;
+}
+
+.standalone-label-form .form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.standalone-label-form .form-group.full-width {
+  grid-column: 1 / -1; /* Span full width */
+}
+
+.standalone-label-form label {
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.standalone-label-form input[type="text"],
+.standalone-label-form input[type="tel"],
+.standalone-label-form input[type="number"],
+.standalone-label-form select,
+.standalone-label-form textarea {
+  width: 100%;
+  padding: 0.65em 0.75em;
+  border: 1px solid var(--border-input);
+  border-radius: 4px;
+  background-color: var(--bg-input);
+  color: var(--text-main);
+  box-sizing: border-box; /* Ensure padding doesn't expand element */
+}
+
+.standalone-label-form input:focus,
+.standalone-label-form select:focus,
+.standalone-label-form textarea:focus {
+  border-color: var(--primary-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-accent) 20%, transparent);
+  outline: none;
+}
+
+.standalone-label-form textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.standalone-label-form button[type="submit"] {
+  display: block;
+  width: auto; /* Fit content */
+  min-width: 200px;
+  margin: 1.5rem auto 0; /* Centered button */
+}
+
+.form-message {
+  text-align: center;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border-radius: 4px;
+}
+.error-message {
+  color: #721c24;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+}
+.success-message {
+  color: #155724;
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+}
+
+/* Adjustments for smaller screens if needed */
+@media (max-width: 600px) {
+  .standalone-label-form .form-grid {
+    grid-template-columns: 1fr; /* Stack on smaller screens */
+  }
+}

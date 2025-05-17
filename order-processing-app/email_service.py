@@ -256,7 +256,7 @@ def send_iif_batch_email(iif_content_string, batch_date_str, warning_message_htm
     final_html_body = "\n".join(html_body_parts)
     final_text_body = "\n".join(text_body_parts)
 
-    subject_to_send = custom_subject if custom_subject else f"{DAILY_IIF_EMAIL_SUBJECT_PREFIX} {batch_date_str}" # MODIFIED LINE
+    subject_to_send = custom_subject if custom_subject else f"{DAILY_IIF_EMAIL_SUBJECT_PREFIX} {batch_date_str}"
 
     try:
         print(f"DEBUG IIF_EMAIL: Attempting to send IIF batch email for date {batch_date_str}")

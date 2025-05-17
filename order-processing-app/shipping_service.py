@@ -147,107 +147,200 @@ def map_shipping_method_to_ups_code(method_name_from_bc):
     return code
 
 def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, customer_shipping_method_name, access_token):
-    # ... (This function remains the same as your last working version, including payload and error handling) ...
-    # Ensure it returns (raw_gif_bytes, tracking_number)
-    if not access_token: print("ERROR UPS_LABEL_RAW: UPS Access token not provided."); return None, None
+    if not access_token:
+        print("ERROR UPS_LABEL_RAW: UPS Access token not provided.")
+        return None, None
+
     bc_order_id_str = str(order_data.get('bigcommerce_order_id', 'N/A'))
     headers = {
-        "Authorization": f"Bearer {access_token}", "Content-Type": "application/json",
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
         "Accept": "application/json",
         "transId": f"Order{bc_order_id_str}-{int(datetime.now(timezone.utc).timestamp()*1000)}",
         "transactionSrc": "OrderProcessingApp"
     }
     ups_service_code = map_shipping_method_to_ups_code(customer_shipping_method_name)
-    ship_to_state_full = order_data.get('customer_shipping_state', '')
+
+    # --- State Processing Logic ---
+    ship_to_state_input = order_data.get('customer_shipping_state', '')
+    ship_to_country_code_from_data = order_data.get('customer_shipping_country', 'US') # Default to US if not provided
+    ship_to_country_code_upper = ship_to_country_code_from_data.upper() if ship_to_country_code_from_data else 'US'
+    
+    ship_to_state_processed = ''  # Initialize
+
     state_mapping = {
-        "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA", 
-        "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC", 
-        "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL", 
-        "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA", 
-        "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI", 
-        "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT", 
-        "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ", 
-        "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", 
-        "ohio": "OH", "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA", 
-        "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", "tennessee": "TN", 
-        "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA", 
+        "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+        "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC",
+        "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL",
+        "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA",
+        "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI",
+        "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT",
+        "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
+        "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND",
+        "ohio": "OH", "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA",
+        "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", "tennessee": "TN",
+        "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA",
         "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY", "puerto rico": "PR",
     }
-    ship_to_state_code = state_mapping.get(ship_to_state_full.lower().strip(), "")
-    if not ship_to_state_code and order_data.get('customer_shipping_country', 'US').upper() == 'US':
-         print(f"ERROR UPS Payload: US State '{ship_to_state_full}' could not be mapped to a 2-letter code.")
-         return None, None # Critical error
-    elif not ship_to_state_code: ship_to_state_code = ship_to_state_full
-
-    # ---- MODIFICATION FOR SHIPTO ----
-    ship_to_company_name = order_data.get('customer_company', '').strip()
-    ship_to_contact_name = order_data.get('customer_name', '').strip() # This is typically the person's name
-
-    # UPS Logic:
-    # If company name is present, it usually goes into ShipTo.Name.
-    # The individual's name then goes into ShipTo.AttentionName.
-    # If no company name, the individual's name might go into ShipTo.Name,
-    # and AttentionName could be the same or omitted.
-    # For simplicity and common practice with UPS for business addresses:
     
-    ups_ship_to_name = ship_to_company_name if ship_to_company_name else ship_to_contact_name
-    ups_attention_name = ship_to_contact_name if ship_to_company_name else ship_to_contact_name # Or just ship_to_contact_name always
+    # Invert the mapping to easily check if the input is already a valid 2-letter code
+    valid_us_state_codes = {v: k for k, v in state_mapping.items()} # For US states
 
-    print(f"DEBUG UPS Payload Prep: ShipTo Name: '{ups_ship_to_name}', AttentionName: '{ups_attention_name}'")
-    # ---- END MODIFICATION ----
+    if ship_to_country_code_upper == 'US':
+        input_state_upper_stripped = ship_to_state_input.upper().strip()
+        if len(input_state_upper_stripped) == 2 and input_state_upper_stripped in valid_us_state_codes:
+            # Input is already a valid 2-letter US state code
+            ship_to_state_processed = input_state_upper_stripped
+            print(f"DEBUG UPS Payload (State): US State '{ship_to_state_input}' used as 2-letter code: {ship_to_state_processed}")
+        else:
+            # Try to map from full name for US state
+            ship_to_state_processed = state_mapping.get(ship_to_state_input.lower().strip(), "")
+            if not ship_to_state_processed:
+                print(f"ERROR UPS Payload: US State '{ship_to_state_input}' could not be mapped to a 2-letter code.")
+                return None, None # Critical error for US if no mapping
+            else:
+                print(f"DEBUG UPS Payload (State): Mapped US State '{ship_to_state_input}' to '{ship_to_state_processed}'")
+    else:
+        # For non-US countries, assume the input state/province is directly usable by UPS
+        # Or, if it's empty for a non-US country where state is optional, UPS might accept it.
+        ship_to_state_processed = ship_to_state_input.strip() 
+        print(f"DEBUG UPS Payload (State): Non-US country '{ship_to_country_code_upper}'. Using state/province '{ship_to_state_processed}' as is.")
+    # --- End State Processing Logic ---
+
+    # ---- ShipTo Name and AttentionName Logic ----
+    ship_to_company_name = order_data.get('customer_company', '').strip()
+    # 'customer_name' in ad_hoc_order_data is set to 'attention_name' from payload, or 'name' if attention is missing
+    ship_to_contact_person_name = order_data.get('customer_name', '').strip() 
+
+    # UPS Logic: Prefer company name in ShipTo.Name if available.
+    ups_ship_to_name = ship_to_company_name if ship_to_company_name else ship_to_contact_person_name
+    # AttentionName should be the contact person. If no company, ShipTo.Name is already the person.
+    ups_attention_name = ship_to_contact_person_name
+    
+    # If company name was used for ShipTo.Name, and contact name is the same,
+    # UPS sometimes prefers AttentionName to be different or more specific if possible,
+    # but having it the same is usually fine if it's just one person.
+    # If ShipTo.Name is already the person (no company), AttentionName can be the same.
+    # The current logic is generally acceptable.
+
+    print(f"DEBUG UPS Payload Prep (ShipTo): Name: '{ups_ship_to_name}', AttentionName: '{ups_attention_name}'")
+    # ---- End ShipTo Name and AttentionName Logic ----
 
     payload = {
-        "ShipmentRequest": { "Request": { "RequestOption": "nonvalidate", "TransactionReference": { "CustomerContext": f"Order_{bc_order_id_str}"}},
-            "Shipment": { "Description": "Computer Parts",
-                "Shipper": { "Name": ship_from_address.get('name'), "AttentionName": ship_from_address.get('contact_person'),
-                    "Phone": {"Number": (ship_from_address.get('phone') or "").replace('-', '')}, "ShipperNumber": UPS_ACCOUNT_NUMBER,
-                    "Address": { "AddressLine": [addr for addr in [ship_from_address.get('street_1'), ship_from_address.get('street_2')] if addr and addr.strip()],
-                        "City": ship_from_address.get('city'), "StateProvinceCode": ship_from_address.get('state'),
-                        "PostalCode": ship_from_address.get('zip'), "CountryCode": ship_from_address.get('country', 'US')}},
+        "ShipmentRequest": {
+            "Request": {
+                "RequestOption": "nonvalidate",
+                "TransactionReference": {"CustomerContext": f"Order_{bc_order_id_str}"}
+            },
+            "Shipment": {
+                "Description": "Computer Parts", # Consider making this dynamic if needed
+                "Shipper": {
+                    "Name": ship_from_address.get('name'),
+                    "AttentionName": ship_from_address.get('contact_person'),
+                    "Phone": {"Number": (ship_from_address.get('phone') or "").replace('-', '')},
+                    "ShipperNumber": UPS_ACCOUNT_NUMBER,
+                    "Address": {
+                        "AddressLine": [addr for addr in [ship_from_address.get('street_1'), ship_from_address.get('street_2')] if addr and addr.strip()],
+                        "City": ship_from_address.get('city'),
+                        "StateProvinceCode": ship_from_address.get('state'),
+                        "PostalCode": ship_from_address.get('zip'),
+                        "CountryCode": ship_from_address.get('country', 'US')
+                    }
+                },
                 "ShipTo": {
-                    "Name": ups_ship_to_name, # Use the determined name (company or person)
-                    "AttentionName": ups_attention_name, # Use the contact person's name
+                    "Name": ups_ship_to_name,
+                    "AttentionName": ups_attention_name,
                     "Phone": {"Number": (order_data.get('customer_phone') or "").replace('-', '')},
                     "Address": {
                         "AddressLine": [addr for addr in [order_data.get('customer_shipping_address_line1'), order_data.get('customer_shipping_address_line2')] if addr and addr.strip()],
                         "City": order_data.get('customer_shipping_city'),
-                        "StateProvinceCode": ship_to_state_code,
+                        "StateProvinceCode": ship_to_state_processed,  # USE THE PROCESSED STATE CODE
                         "PostalCode": order_data.get('customer_shipping_zip'),
-                        "CountryCode": order_data.get('customer_shipping_country', 'US')
+                        "CountryCode": ship_to_country_code_upper # USE THE PROCESSED (UPPERCASED) COUNTRY CODE
                     }
                 },
-                "PaymentInformation": { "ShipmentCharge": { "Type": "01", "BillShipper": {"AccountNumber": UPS_ACCOUNT_NUMBER}}},
+                "PaymentInformation": {
+                    "ShipmentCharge": {
+                        "Type": "01", # Bill Shipper
+                        "BillShipper": {"AccountNumber": UPS_ACCOUNT_NUMBER}
+                    }
+                },
                 "Service": {"Code": ups_service_code},
-                "Package": [{"Description": "Package of Computer Parts", "Packaging": {"Code": "02"},
-                    "PackageWeight": {"UnitOfMeasurement": {"Code": "LBS"}, "Weight": str(round(float(max(0.1, total_weight_lbs)), 1))},
-                    "ReferenceNumber": [{"Code": "02", "Value": str(bc_order_id_str)}]}]
-            }, "LabelSpecification": {"LabelImageFormat": {"Code": "GIF"}, "HTTPUserAgent": "Mozilla/5.0"}
-        }}
+                "Package": [{
+                    "Description": "Package of Computer Parts", # Consider making this dynamic if needed
+                    "Packaging": {"Code": "02"}, # 02 = Customer Supplied Package
+                    "PackageWeight": {
+                        "UnitOfMeasurement": {"Code": "LBS"},
+                        "Weight": str(round(float(max(0.1, total_weight_lbs)), 1)) # Ensure weight is at least 0.1
+                    },
+                    "ReferenceNumber": [{"Code": "02", "Value": str(bc_order_id_str)}] # PO Number Reference
+                }]
+            },
+            "LabelSpecification": {
+                "LabelImageFormat": {"Code": "GIF"}, # Or "PNG", "ZPL", "SPL"
+                "HTTPUserAgent": "Mozilla/5.0"
+                # "LabelStockSize": { "Height": "6", "Width": "4" } # Optional
+            }
+        }
+    }
+
     try:
-        # print(f"DEBUG UPS_LABEL_RAW: Payload: {json.dumps(payload, indent=2)}")
+        # For detailed debugging of the payload sent to UPS:
+        # print(f"DEBUG UPS_LABEL_RAW: Full Payload to UPS API: {json.dumps(payload, indent=2)}")
         response = requests.post(UPS_SHIPPING_API_ENDPOINT, headers=headers, json=payload)
-        response.raise_for_status()
+        
+        # Log response status and first 500 chars of text for quick diagnostics
+        print(f"DEBUG UPS_LABEL_RAW: UPS API Response Status: {response.status_code}")
+        # print(f"DEBUG UPS_LABEL_RAW: UPS API Response Text (first 500 chars): {response.text[:500]}")
+
+        response.raise_for_status()  # Raises HTTPError for 4xx/5xx responses
         response_data = response.json()
+
         shipment_response = response_data.get("ShipmentResponse", {})
         shipment_results = shipment_response.get("ShipmentResults", {})
-        response_status_obj = shipment_response.get("Response", {}).get("ResponseStatus", {})
-        if response_status_obj.get("Code") == "1": # Success
+        
+        # Check overall response status from UPS
+        ups_api_response_status_obj = shipment_response.get("Response", {}).get("ResponseStatus", {})
+        if ups_api_response_status_obj.get("Code") == "1":  # "1" typically means success for UPS APIs
             tracking_number = shipment_results.get("ShipmentIdentificationNumber")
-            package_results = shipment_results.get("PackageResults", [])
-            if package_results and package_results[0]:
-                label_image_base64 = package_results[0].get("ShippingLabel", {}).get("GraphicImage")
-                if label_image_base64: return base64.b64decode(label_image_base64), tracking_number
-            if tracking_number: print(f"WARN UPS_LABEL_RAW: Tracking {tracking_number} obtained, but label image missing."); return None, tracking_number
-        else: # UPS API Error
-            error_desc = response_status_obj.get("Description", "Unknown UPS Error")
-            errors = shipment_response.get("Response", {}).get("Error"); # ... (error parsing logic) ...
-            print(f"ERROR UPS_LABEL_RAW: UPS API error: {error_desc}. Full: {response_data}")
-        return None, None
-    except requests.exceptions.HTTPError as e: # ... (HTTPError parsing logic) ...
-        print(f"ERROR UPS_LABEL_RAW: HTTPError: {e}. Response: {e.response.text if e.response else 'N/A'}")
-        return None, None
-    except Exception as e: print(f"ERROR UPS_LABEL_RAW: Unexpected: {e}"); import traceback; traceback.print_exc(); return None, None
+            package_results_list = shipment_results.get("PackageResults", [])
+            
+            if package_results_list and isinstance(package_results_list, list) and package_results_list[0]:
+                label_image_base64 = package_results_list[0].get("ShippingLabel", {}).get("GraphicImage")
+                if label_image_base64:
+                    print(f"INFO UPS_LABEL_RAW: Label generated successfully. Tracking: {tracking_number}")
+                    return base64.b64decode(label_image_base64), tracking_number
+            
+            # If tracking number is present but no label image (should be rare with successful code "1")
+            if tracking_number:
+                print(f"WARN UPS_LABEL_RAW: Tracking {tracking_number} obtained, but label image data is missing from successful UPS response.")
+                return None, tracking_number # Or decide if this is a hard failure (None, None)
+            else:
+                print(f"ERROR UPS_LABEL_RAW: UPS API success code '1' but no tracking number or label image. Full Results: {shipment_results}")
+                return None, None
+        else:
+            # UPS API indicated an error
+            error_description = ups_api_response_status_obj.get("Description", "Unknown UPS API Error")
+            # UPS often puts more detailed errors in an "Error" array within "Response"
+            detailed_errors = shipment_response.get("Response", {}).get("Error", [])
+            error_details_str = "; ".join([f"Code {err.get('ErrorCode')}: {err.get('ErrorDescription')}" for err in detailed_errors]) if detailed_errors else "No detailed errors provided."
+            
+            print(f"ERROR UPS_LABEL_RAW: UPS API returned an error. Description: '{error_description}'. Details: '{error_details_str}'. Full Response: {json.dumps(response_data, indent=2)}")
+            return None, None
 
+    except requests.exceptions.HTTPError as http_err:
+        error_message = f"HTTPError calling UPS API: {http_err}."
+        response_text = http_err.response.text if http_err.response is not None else "No response body."
+        print(f"ERROR UPS_LABEL_RAW: {error_message} Response: {response_text[:1000]}") # Log more of the response
+        return None, None
+    except requests.exceptions.RequestException as req_err: # More general requests error (timeout, connection error)
+        print(f"ERROR UPS_LABEL_RAW: RequestException calling UPS API: {req_err}")
+        return None, None
+    except Exception as e:
+        print(f"ERROR UPS_LABEL_RAW: Unexpected exception during UPS label generation: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, None
 
 def convert_image_bytes_to_pdf_bytes(image_bytes, image_format="GIF"):
     # ... (This function remains the same as your last working version) ...
