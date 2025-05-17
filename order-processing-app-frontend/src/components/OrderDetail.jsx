@@ -55,6 +55,7 @@ const formatShippingMethod = (methodString) => {
 };
 
 const MULTI_SUPPLIER_MODE_VALUE = "_MULTI_SUPPLIER_MODE_";
+const G1_ONSITE_FULFILLMENT_VALUE = "_G1_ONSITE_FULFILLMENT_"; // New constant
 const SHIPPING_METHODS_OPTIONS = [
     { value: "UPS Ground", label: "UPS Ground" },
     { value: "UPS 2nd Day Air", label: "UPS 2nd Day Air" },
@@ -87,6 +88,7 @@ function OrderDetail() {
 
   const [selectedMainSupplierTrigger, setSelectedMainSupplierTrigger] = useState('');
   const [isMultiSupplierMode, setIsMultiSupplierMode] = useState(false);
+  const [isG1OnsiteFulfillmentMode, setIsG1OnsiteFulfillmentMode] = useState(false); // New state
   const [singleOrderPoNotes, setSingleOrderPoNotes] = useState('');
   const [lineItemAssignments, setLineItemAssignments] = useState({});
   const [poNotesBySupplier, setPoNotesBySupplier] = useState({});
@@ -99,7 +101,7 @@ function OrderDetail() {
   const [loadingSpares, setLoadingSpares] = useState(false);
 
   const setPurchaseItemsRef = useRef(setPurchaseItems);
-  useEffect(() => { setPurchaseItemsRef.current = setPurchaseItems; }, [setPurchaseItems]); // Added dependency
+  useEffect(() => { setPurchaseItemsRef.current = setPurchaseItems; }, [setPurchaseItems]);
   const purchaseItemsRef = useRef(purchaseItems);
   useEffect(() => { purchaseItemsRef.current = purchaseItems; }, [purchaseItems]);
 
@@ -154,7 +156,6 @@ function OrderDetail() {
         if (!isPostProcessRefresh) {
             setLineItemSpares({});
             setMultiSupplierItemCosts({});
-            // setMultiSupplierItemDescriptions({}); // This was potentially cleared too early, re-init below
             setMultiSupplierShipmentDetails({});
 
             if (fetchedOrderData?.order) {
@@ -162,17 +163,17 @@ function OrderDetail() {
                 const parsedCustomerMethod = formatShippingMethod(customerMethodRaw);
                 const validShippingOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === parsedCustomerMethod);
                 const finalCustomerMethod = validShippingOption ? parsedCustomerMethod : 'UPS Ground';
-                setShipmentMethod(finalCustomerMethod);
+                setShipmentMethod(finalCustomerMethod); // Set for all modes initially
                 setOriginalCustomerShippingMethod(finalCustomerMethod); 
             }
             if (fetchedOrderData?.line_items) {
-                const initialItems = fetchedOrderData.line_items.map(item => ({
+                const initialItemsForPoForm = fetchedOrderData.line_items.map(item => ({ // This is for the editable PO form
                     original_order_line_item_id: item.line_item_id,
                     sku: item.hpe_option_pn || item.original_sku || '',
                     description: (item.hpe_po_description || item.line_item_name || '') + ( (item.hpe_po_description || item.line_item_name || '').endsWith(cleanPullSuffix) ? '' : cleanPullSuffix),
                     skuInputValue: item.hpe_option_pn || item.original_sku || '',
                     quantity: item.quantity || 1,
-                    unit_cost: '',
+                    unit_cost: '', // To be filled by user for PO
                     condition: 'New',
                     original_sku: item.original_sku,
                     hpe_option_pn: item.hpe_option_pn,
@@ -180,7 +181,7 @@ function OrderDetail() {
                     hpe_po_description: item.hpe_po_description,
                     hpe_pn_type: item.hpe_pn_type,
                 }));
-                setPurchaseItemsRef.current(initialItems);
+                setPurchaseItemsRef.current(initialItemsForPoForm);
 
                 const initialMultiDesc = {};
                 fetchedOrderData.line_items.forEach(item => {
@@ -192,12 +193,13 @@ function OrderDetail() {
                     }
                     initialMultiDesc[item.line_item_id] = defaultDescription;
                 });
-                setMultiSupplierItemDescriptions(initialMultiDesc); // Initialize here
+                setMultiSupplierItemDescriptions(initialMultiDesc);
             } else {
                 setPurchaseItemsRef.current([]);
-                setMultiSupplierItemDescriptions({}); // Clear if no line items
+                setMultiSupplierItemDescriptions({});
             }
         } else if (fetchedOrderData?.order) { 
+            // If just refreshing, ensure original customer shipping method is current
             setOriginalCustomerShippingMethod(formatShippingMethod(fetchedOrderData.order.customer_shipping_method) || 'UPS Ground');
         }
 
@@ -206,7 +208,7 @@ function OrderDetail() {
     } finally {
         if (!signal || !signal.aborted) setLoading(false);
     }
-  }, [orderId, cleanPullSuffix, VITE_API_BASE_URL, currentUser, setPurchaseItemsRef]); // Added setPurchaseItemsRef
+  }, [orderId, cleanPullSuffix, VITE_API_BASE_URL, currentUser, setPurchaseItemsRef]);
 
   useEffect(() => {
     if (authLoading) { setLoading(true); return; }
@@ -220,14 +222,13 @@ function OrderDetail() {
   }, [orderId, currentUser, authLoading, fetchOrderAndSuppliers]);
 
   useEffect(() => {
-    // Check orderData and line_items before proceeding
     if (!currentUser || !orderData?.line_items || orderData.line_items.length === 0) return;
     
     const fetchAllSpares = async () => {
         setLoadingSpares(true);
         const sparesMap = {};
         const token = await currentUser.getIdToken(true);
-        for (const item of orderData.line_items) { // Use orderData.line_items directly
+        for (const item of orderData.line_items) {
             if (item.original_sku && item.hpe_pn_type === 'option') {
                 try {
                     const trimmedOriginalSku = String(item.original_sku).trim();
@@ -244,12 +245,12 @@ function OrderDetail() {
         setLineItemSpares(sparesMap); setLoadingSpares(false);
     };
     fetchAllSpares();
-  }, [orderData?.line_items, currentUser, VITE_API_BASE_URL]); // Dependency on orderData.line_items
+  }, [orderData?.line_items, currentUser, VITE_API_BASE_URL]);
 
   const [skuToLookup, setSkuToLookup] = useState({ index: -1, sku: '' });
   const debouncedSku = useDebounce(skuToLookup.sku, 500);
   useEffect(() => {
-    if (!currentUser || !debouncedSku || skuToLookup.index === -1 || isMultiSupplierMode) return;
+    if (!currentUser || !debouncedSku || skuToLookup.index === -1 || isMultiSupplierMode || isG1OnsiteFulfillmentMode) return; // Don't lookup if G1 onsite
     const abortController = new AbortController();
     const fetchDescription = async () => {
       try {
@@ -260,7 +261,6 @@ function OrderDetail() {
         if (response.ok) {
             const data = await response.json();
             if (abortController.signal.aborted) return;
-            // Use the callback version of setState for purchaseItems to ensure we have the latest state
             setPurchaseItemsRef.current(prevItems => {
                 const updatedItems = [...prevItems];
                 if (updatedItems[skuToLookup.index]?.skuInputValue === debouncedSku) { 
@@ -283,7 +283,7 @@ function OrderDetail() {
     };
     fetchDescription();
     return () => abortController.abort();
-  }, [debouncedSku, skuToLookup.index, cleanPullSuffix, VITE_API_BASE_URL, currentUser, isMultiSupplierMode, setPurchaseItemsRef]); 
+  }, [debouncedSku, skuToLookup.index, cleanPullSuffix, VITE_API_BASE_URL, currentUser, isMultiSupplierMode, isG1OnsiteFulfillmentMode, setPurchaseItemsRef]); 
   
   const handleMainSupplierTriggerChange = (e) => {
     const value = e.target.value;
@@ -292,18 +292,29 @@ function OrderDetail() {
     setProcessSuccess(false); 
     setProcessSuccessMessage(''); 
     setProcessedPOsInfo([]);
-    if (value === MULTI_SUPPLIER_MODE_VALUE) {
+    
+    // Default shipment method to original customer's method when mode changes
+    setShipmentMethod(originalCustomerShippingMethod);
+    setShipmentWeight(''); // Clear weight when mode changes
+
+    if (value === G1_ONSITE_FULFILLMENT_VALUE) {
+        setIsG1OnsiteFulfillmentMode(true);
+        setIsMultiSupplierMode(false);
+        setSingleOrderPoNotes('');
+        setPurchaseItemsRef.current([]); // Clear editable PO items, not needed for G1 onsite
+        setLineItemAssignments({});
+        setPoNotesBySupplier({});
+        setMultiSupplierItemCosts({});
+        setMultiSupplierItemDescriptions({}); // Could be re-initialized if needed for display, but form is hidden
+        setMultiSupplierShipmentDetails({});
+    } else if (value === MULTI_SUPPLIER_MODE_VALUE) {
+        setIsG1OnsiteFulfillmentMode(false);
         setIsMultiSupplierMode(true);
         setSingleOrderPoNotes('');
-        setShipmentMethod(originalCustomerShippingMethod); 
-        setShipmentWeight('');
-        setLineItemAssignments({}); // Clear previous assignments
-        setPoNotesBySupplier({});   // Clear previous notes
-        setMultiSupplierItemCosts({}); // Clear previous costs
-        
-        // Re-initialize descriptions for multi-supplier mode based on current original line items
+        setPurchaseItemsRef.current([]); // Clear editable PO items
+        // Initialize multi-supplier descriptions based on original line items
         const initialMultiDesc = {};
-        if (originalLineItems) { // originalLineItems is already defined in component scope
+        if (originalLineItems) {
             originalLineItems.forEach(item => {
                 let defaultDescription = item.hpe_po_description || item.line_item_name || '';
                 if (defaultDescription && !defaultDescription.endsWith(cleanPullSuffix)) {
@@ -315,20 +326,43 @@ function OrderDetail() {
             });
         }
         setMultiSupplierItemDescriptions(initialMultiDesc);
-        setMultiSupplierShipmentDetails({}); // Clear previous shipment details
-    } else { 
-        setIsMultiSupplierMode(false);
-        const s = suppliers.find(sup => sup.id === parseInt(value, 10));
-        setSingleOrderPoNotes(s?.defaultponotes || '');
-        setShipmentMethod(originalCustomerShippingMethod); 
-        // Clear multi-supplier specific states as they are not relevant for single supplier mode
         setLineItemAssignments({});
         setPoNotesBySupplier({});
         setMultiSupplierItemCosts({});
-        setMultiSupplierItemDescriptions({}); // Clear these as they are specific to multi-supplier items
+        setMultiSupplierShipmentDetails({});
+    } else { // Single regular supplier or cleared selection ""
+        setIsG1OnsiteFulfillmentMode(false);
+        setIsMultiSupplierMode(false);
+        const s = suppliers.find(sup => sup.id === parseInt(value, 10));
+        setSingleOrderPoNotes(s?.defaultponotes || '');
+        // Re-initialize purchaseItems for the single supplier PO form from original items
+        if (originalLineItems) {
+            const initialItemsForPoForm = originalLineItems.map(item => ({
+                original_order_line_item_id: item.line_item_id,
+                sku: item.hpe_option_pn || item.original_sku || '',
+                description: (item.hpe_po_description || item.line_item_name || '') + ( (item.hpe_po_description || item.line_item_name || '').endsWith(cleanPullSuffix) ? '' : cleanPullSuffix),
+                skuInputValue: item.hpe_option_pn || item.original_sku || '',
+                quantity: item.quantity || 1,
+                unit_cost: '',
+                condition: 'New',
+                original_sku: item.original_sku,
+                hpe_option_pn: item.hpe_option_pn,
+                original_name: item.line_item_name,
+                hpe_po_description: item.hpe_po_description,
+                hpe_pn_type: item.hpe_pn_type,
+            }));
+            setPurchaseItemsRef.current(initialItemsForPoForm);
+        } else {
+            setPurchaseItemsRef.current([]);
+        }
+        setLineItemAssignments({});
+        setPoNotesBySupplier({});
+        setMultiSupplierItemCosts({});
+        setMultiSupplierItemDescriptions({});
         setMultiSupplierShipmentDetails({});
     }
   };
+
   const handleSingleOrderPoNotesChange = (e) => setSingleOrderPoNotes(e.target.value);
   const handleLineItemSupplierAssignment = (originalLineItemId, supplierId) => {
     setLineItemAssignments(prev => ({ ...prev, [originalLineItemId]: supplierId }));
@@ -362,15 +396,16 @@ function OrderDetail() {
     }));
   };
   const handlePurchaseItemChange = (index, field, value) => {
-    // Use callback form of setState for purchaseItems to ensure access to the latest state
     setPurchaseItemsRef.current(prevItems => {
         const items = [...prevItems];
-        items[index] = { ...items[index], [field]: value };
-        if (field === 'sku') {
-            const trimmedSku = String(value).trim();
-            items[index].sku = trimmedSku; 
-            items[index].skuInputValue = trimmedSku; 
-            setSkuToLookup({ index, sku: trimmedSku });
+        if (items[index]) { // Ensure item exists at index
+            items[index] = { ...items[index], [field]: value };
+            if (field === 'sku') {
+                const trimmedSku = String(value).trim();
+                items[index].sku = trimmedSku; 
+                items[index].skuInputValue = trimmedSku; 
+                setSkuToLookup({ index, sku: trimmedSku });
+            }
         }
         return items;
     });
@@ -392,19 +427,15 @@ function OrderDetail() {
 
   const handlePartNumberLinkClick = async (e, partNumber) => {
     e.preventDefault(); 
-
-    if (orderData?.order?.bigcommerce_order_id) { // Check if orderData and order exist
+    if (orderData?.order?.bigcommerce_order_id) {
         await handleCopyToClipboard(orderData.order.bigcommerce_order_id);
     }
-
     if (!currentUser) {
         setStatusUpdateMessage("Please log in to perform this action.");
         return; 
     }
-    
     const currentOrderStatus = orderData?.order?.status?.toLowerCase();
     const trimmedPartNumberForStatusCheck = String(partNumber || '').trim();
-
     if (currentOrderStatus === 'new' && trimmedPartNumberForStatusCheck) {
       try {
         setStatusUpdateMessage(''); 
@@ -430,11 +461,7 @@ function OrderDetail() {
       } catch (err) {
         setStatusUpdateMessage(`Error updating status for part ${trimmedPartNumberForStatusCheck}: ${err.message}`);
       }
-    } else if (trimmedPartNumberForStatusCheck && currentOrderStatus && !['new', 'rfq sent', 'processed', 'completed offline', 'pending'].includes(currentOrderStatus)) {
-      // Commented out to avoid overriding more important messages like "Order processed successfully"
-      // setStatusUpdateMessage(`Order status is '${orderData?.order?.status}'. Part status not updated.`);
     }
-
     const brokerbinUrl = createBrokerbinLink(partNumber);
     window.open(brokerbinUrl, '_blank', 'noopener,noreferrer');
   };
@@ -462,9 +489,28 @@ function OrderDetail() {
 
     let payloadAssignments = [];
     
-    if (isMultiSupplierMode) {
+    if (isG1OnsiteFulfillmentMode) {
+        if (originalLineItems.length > 0) { // Shipment info required only if there are items
+            const weightFloat = parseFloat(shipmentWeight);
+            if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { 
+                setProcessError("Invalid shipment weight for G1 Onsite Fulfillment."); 
+                setProcessing(false); return; 
+            }
+            if (!shipmentMethod) { 
+                setProcessError("Please select a shipment method for G1 Onsite Fulfillment."); 
+                setProcessing(false); return; 
+            }
+        }
+        payloadAssignments.push({
+            supplier_id: G1_ONSITE_FULFILLMENT_VALUE, 
+            payment_instructions: "G1 Onsite Fulfillment", 
+            po_line_items: [], // No PO items as no PO is created
+            total_shipment_weight_lbs: originalLineItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null,
+            shipment_method: originalLineItems.length > 0 ? shipmentMethod : null
+        });
+
+    } else if (isMultiSupplierMode) {
         const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id); 
-        
         if (originalLineItems.length > 0) {
             if (assignedSupplierIds.length === 0) {
                 setProcessError("Multi-Supplier Mode: Assign items to at least one supplier.");
@@ -476,7 +522,6 @@ function OrderDetail() {
                 setProcessing(false); return;
             }
         }
-
         for (const supId of assignedSupplierIds) {
             const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supId);
             if (itemsForThisSupplier.length > 0) {
@@ -505,17 +550,14 @@ function OrderDetail() {
                         condition: 'New', 
                     };
                 }).filter(Boolean); 
-
                 if (itemCostValidationError) { setProcessError(itemCostValidationError); setProcessing(false); return; }
                 if (poLineItems.length !== itemsForThisSupplier.length && itemsForThisSupplier.length > 0) {
                     setProcessError("One or more items for a supplier had validation errors (e.g., missing cost/description)."); 
                     setProcessing(false); return; 
                 }
-                
                 const shipmentDetailsForThisPo = multiSupplierShipmentDetails[supId] || {};
                 const currentPoWeight = shipmentDetailsForThisPo.weight;
                 const currentPoMethod = shipmentDetailsForThisPo.method;
-
                 if (currentPoMethod && (!currentPoWeight || parseFloat(currentPoWeight) <= 0)) {
                     setProcessError(`Invalid/missing weight for PO to ${suppliers.find(s=>s.id === parseInt(supId, 10))?.name} when a shipping method is selected.`);
                     setProcessing(false); return;
@@ -524,7 +566,6 @@ function OrderDetail() {
                     setProcessError(`Shipping method required for PO to ${suppliers.find(s=>s.id === parseInt(supId, 10))?.name} when weight is provided.`);
                     setProcessing(false); return;
                 }
-                
                 payloadAssignments.push({
                     supplier_id: parseInt(supId, 10),
                     payment_instructions: poNotesBySupplier[supId] || "",
@@ -538,19 +579,17 @@ function OrderDetail() {
              setProcessError("No items were successfully assigned or configured for PO generation.");
              setProcessing(false); return;
         }
-    } else { 
+    } else { // Single regular supplier
         const singleSelectedSupId = selectedMainSupplierTrigger;
-        if (!singleSelectedSupId || singleSelectedSupId === MULTI_SUPPLIER_MODE_VALUE) {
+        if (!singleSelectedSupId || singleSelectedSupId === MULTI_SUPPLIER_MODE_VALUE /* Should not happen if G1 onsite is handled first */) {
             setProcessError("Please select a supplier."); setProcessing(false); return;
         }
-        // Use purchaseItemsRef.current for validation in single supplier mode as it reflects user edits
         const currentPurchaseItems = purchaseItemsRef.current; 
-        if (currentPurchaseItems.length > 0) { // Validate shipping only if there are items in the PO form
+        if (currentPurchaseItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight."); setProcessing(false); return; }
             if (!shipmentMethod) { setProcessError("Please select a shipment method."); setProcessing(false); return; }
         }
-
         let itemValidationError = null;
         const finalPurchaseItems = currentPurchaseItems.map((item, index) => {
             const quantityInt = parseInt(item.quantity, 10); const costFloat = parseFloat(item.unit_cost);
@@ -560,21 +599,15 @@ function OrderDetail() {
             if (!String(item.description).trim()) { itemValidationError = `Item #${index + 1}: Description is required.`; return null; }
             return { original_order_line_item_id: item.original_order_line_item_id, sku: String(item.sku).trim(), description: String(item.description).trim(), quantity: quantityInt, unit_cost: costFloat.toFixed(2), condition: item.condition || 'New' };
         }).filter(Boolean);
-
         if (itemValidationError) { setProcessError(itemValidationError); setProcessing(false); return; }
-        // This condition means if there were original items, the PO form must also result in items.
-        // If there were no original items, it's okay for finalPurchaseItems to be empty (e.g. manual PO without items, if backend supports)
         if (finalPurchaseItems.length === 0 && originalLineItems.length > 0) { 
             setProcessError("No valid line items for PO. Please check quantities, costs, SKUs, and descriptions."); 
             setProcessing(false); return; 
         }
-        
-        // Only create an assignment if there are items in the PO form OR if there were no original items (manual PO scenario)
         if (finalPurchaseItems.length > 0 || originalLineItems.length === 0) {
              payloadAssignments.push({
                 supplier_id: parseInt(singleSelectedSupId, 10),
                 payment_instructions: singleOrderPoNotes,
-                // Send shipping details only if there are items in the final PO
                 total_shipment_weight_lbs: finalPurchaseItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null, 
                 shipment_method: finalPurchaseItems.length > 0 ? shipmentMethod : null, 
                 po_line_items: finalPurchaseItems
@@ -582,11 +615,16 @@ function OrderDetail() {
         }
     }
     
-    if (payloadAssignments.length === 0 && originalLineItems.length > 0 ) {
+    if (payloadAssignments.length === 0 && originalLineItems.length > 0 && !isG1OnsiteFulfillmentMode /* G1 onsite can have 0 assignments if order had 0 items */ ) {
         setProcessError("No data to create Purchase Orders. Check item assignments and details.");
         setProcessing(false); return;
     }
-    
+     if (payloadAssignments.length === 0 && originalLineItems.length === 0 && selectedMainSupplierTrigger === "") { // Nothing selected, no items
+        setProcessError("Please select a supplier or fulfillment mode.");
+        setProcessing(false); return;
+    }
+
+
     try {
         const token = await currentUser.getIdToken(true);
         const finalPayload = { assignments: payloadAssignments };
@@ -626,11 +664,11 @@ function OrderDetail() {
       return <p style={{ textAlign: 'center', marginTop: '20px' }}>Order details not found or error loading.</p>;
   }
 
-  const isActuallyProcessed = order?.status?.toLowerCase() === 'processed';
-  const isActuallyCompletedOffline = order?.status?.toLowerCase() === 'completed offline';
-  const canDisplayProcessingForm = !processSuccess && !(isActuallyProcessed || isActuallyCompletedOffline);
+  const isActuallyProcessed = order?.status?.toLowerCase() === 'processed' || order?.status?.toLowerCase() === 'completed offline';
+  // const isActuallyCompletedOffline = order?.status?.toLowerCase() === 'completed offline'; // Merged above
+  const canDisplayProcessingForm = !processSuccess && !isActuallyProcessed; // Simplified condition
   const disableAllActions = processing || manualStatusUpdateInProgress;
-  const disableEditableFormFields = isActuallyProcessed || isActuallyCompletedOffline || disableAllActions || processSuccess;
+  const disableEditableFormFields = isActuallyProcessed || disableAllActions || processSuccess;
 
   let displayOrderDate = 'N/A';
   if (order?.order_date) try { displayOrderDate = new Date(order.order_date).toLocaleDateString(); } catch (e) { /* ignore */ }
@@ -665,30 +703,32 @@ function OrderDetail() {
           {processSuccessMessage && processSuccessMessage !== "Order processed successfully!" && (
             <p className="success-message-detail">{processSuccessMessage}</p>
           )}
-          {Array.isArray(processedPOsInfo) && processedPOsInfo.length > 0 && (
+          {/* {Array.isArray(processedPOsInfo) && processedPOsInfo.length > 0 && (
             <div className="processed-po-links">
               <h4>Generated Documents:</h4>
               {processedPOsInfo.map((poInfo, index) => {
                 const supplierForPO = suppliers.find(s => s.id === poInfo.supplier_id);
-                const supplierName = supplierForPO ? supplierForPO.name : `ID: ${poInfo.supplier_id}`;
-                const poTitle = `PO #${poInfo.po_number} sent to ${supplierName}`;
+                const supplierName = supplierForPO ? supplierForPO.name : (poInfo.supplier_id === G1_ONSITE_FULFILLMENT_VALUE ? "G1 Onsite" : `ID: ${poInfo.supplier_id}`);
+                const poTitleText = poInfo.po_number ? `PO #${poInfo.po_number} sent to ${supplierName}` : `${supplierName} Fulfillment`;
+
+
                 const hasAnyPdf = poInfo.po_pdf_gcs_uri || poInfo.packing_slip_gcs_uri || poInfo.label_gcs_uri;
 
                 return (
-                    <div key={poInfo.po_number || index} className="po-document-group">
-                        <p className="po-number-title">{poTitle}</p>
+                    <div key={poInfo.po_number || poInfo.supplier_id || index} className="po-document-group">
+                        <p className="po-number-title">{poTitleText}</p>
                         {hasAnyPdf ? (
                             <div className="pdf-links-wrapper">
                                 {poInfo.po_pdf_gcs_uri && ( <a href={poInfo.po_pdf_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link"> View PO </a> )}
                                 {poInfo.packing_slip_gcs_uri && ( <a href={poInfo.packing_slip_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link"> View Packing Slip </a> )}
                                 {poInfo.label_gcs_uri && ( <a href={poInfo.label_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link"> View Label </a> )}
                             </div>
-                        ) : ( <p className="no-documents-note">No PDF document links available for this PO.</p> )}
+                        ) : ( <p className="no-documents-note">No PDF document links available for this processing event.</p> )}
                     </div>
                 );
               })}
             </div>
-          )}
+          )} */}
         </div>
       )}
 
@@ -718,29 +758,35 @@ function OrderDetail() {
         <section className="supplier-mode-selection card">
         <h3>Begin Order Fulfillment</h3>
         <div className="form-grid">
-            <label htmlFor="mainSupplierTrigger" style={{ marginRight: '8px' }}>Supplier Mode:</label> 
+            <label htmlFor="mainSupplierTrigger" style={{ marginRight: '8px' }}>Fulfillment Mode:</label> 
             <select 
                 id="mainSupplierTrigger" 
                 value={selectedMainSupplierTrigger} 
                 onChange={handleMainSupplierTriggerChange} 
-                disabled={disableAllActions || suppliers.length === 0}
+                disabled={disableAllActions || (suppliers.length === 0 && originalLineItems.length === 0) } // Disable if no suppliers AND no items for G1 onsite
                 style={{ flexGrow: 1 }}
             >
-                <option value="">-- Select Supplier --</option>
-                {originalLineItems.length > 1 && ( 
-                    <option value={MULTI_SUPPLIER_MODE_VALUE}>** Use Multiple Suppliers **</option>
-                )}
+                <option value="">-- Select Mode --</option>
                 {(suppliers || []).map(supplier => (
                     <option key={supplier.id} value={supplier.id}>
                         {supplier.name || 'Unnamed Supplier'}
                     </option>
                 ))}
+                {originalLineItems.length > 1 && ( 
+                    <option value={MULTI_SUPPLIER_MODE_VALUE}>** Use Multiple Suppliers **</option>
+                )}
+                {/* G1 Onsite Fulfillment option always available if there are items */}
+                {originalLineItems.length > 0 && (
+                   <option value={G1_ONSITE_FULFILLMENT_VALUE}>G1 Onsite Fulfillment</option>
+                )}
             </select>
         </div>
       </section>
      )}
 
-      {canDisplayProcessingForm && !isMultiSupplierMode && selectedMainSupplierTrigger && selectedMainSupplierTrigger !== MULTI_SUPPLIER_MODE_VALUE && (
+      {/* Form for Single Regular Supplier PO */}
+      {canDisplayProcessingForm && !isMultiSupplierMode && !isG1OnsiteFulfillmentMode && selectedMainSupplierTrigger && 
+       selectedMainSupplierTrigger !== MULTI_SUPPLIER_MODE_VALUE && selectedMainSupplierTrigger !== G1_ONSITE_FULFILLMENT_VALUE && (
         <form onSubmit={handleProcessOrder} className={`processing-form ${disableEditableFormFields ? 'form-disabled' : ''}`}>
             <section className="purchase-info card">
               <h3>Create PO for {suppliers.find(s=>s.id === parseInt(selectedMainSupplierTrigger, 10))?.name || ''}</h3>
@@ -751,7 +797,7 @@ function OrderDetail() {
               <div className="purchase-items-grid">
                 <h4>Items to Purchase:</h4>
                 <div className="item-header-row"><span>Purchase SKU</span><span>Description</span><span>Qty</span><span>Unit Cost</span></div>
-                {purchaseItemsRef.current.map((item, index) => ( // Use purchaseItemsRef.current for rendering
+                {purchaseItemsRef.current.map((item, index) => ( 
                      <div key={`po-item-${item.original_order_line_item_id || index}`} className="item-row">
                         <div><label className="mobile-label" htmlFor={`sku-${index}`}>SKU:</label><input id={`sku-${index}`} type="text" value={item.skuInputValue || ''} onChange={(e) => handlePurchaseItemChange(index, 'sku', e.target.value)} placeholder="SKU" required disabled={disableEditableFormFields} title={item.original_sku ? `Original: ${item.original_sku}` : ''} className="sku-input" /></div>
                         <div><label className="mobile-label" htmlFor={`desc-${index}`}>Desc:</label><textarea id={`desc-${index}`} value={item.description || ''} onChange={(e) => handlePurchaseItemChange(index, 'description', e.target.value)} placeholder="Desc" rows={2} disabled={disableEditableFormFields} className="description-textarea" /></div>
@@ -766,12 +812,12 @@ function OrderDetail() {
             <section className="shipment-info card">
               <h3>Shipment Information</h3>
               <div className="form-grid">
-                <label htmlFor="shipmentMethod">Method:</label>
-                <select id="shipmentMethod" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={purchaseItemsRef.current.length > 0}> 
+                <label htmlFor="shipmentMethodSingle">Method:</label>
+                <select id="shipmentMethodSingle" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={purchaseItemsRef.current.length > 0}> 
                     {SHIPPING_METHODS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
-                <label htmlFor="shipmentWeight">Weight (lbs):</label>
-                <input type="number" id="shipmentWeight" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={purchaseItemsRef.current.length > 0} disabled={disableEditableFormFields} /> 
+                <label htmlFor="shipmentWeightSingle">Weight (lbs):</label>
+                <input type="number" id="shipmentWeightSingle" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={purchaseItemsRef.current.length > 0} disabled={disableEditableFormFields} /> 
               </div>
             </section>
              <div className="order-actions">
@@ -782,7 +828,8 @@ function OrderDetail() {
         </form>
       )}
 
-      {canDisplayProcessingForm && isMultiSupplierMode && (
+      {/* Form for Multi-Supplier Mode */}
+      {canDisplayProcessingForm && isMultiSupplierMode && !isG1OnsiteFulfillmentMode && (
         <form onSubmit={handleProcessOrder} className={`processing-form multi-supplier-active ${disableEditableFormFields ? 'form-disabled' : ''}`}>
             <section className="multi-supplier-assignment card">
                 <h3>Assign Original Items to Suppliers</h3>
@@ -797,7 +844,6 @@ function OrderDetail() {
                     </div>
                 ))}
             </section>
-
             {[...new Set(Object.values(lineItemAssignments))].filter(id => id).map(supplierId => { 
                 const supplier = suppliers.find(s => s.id === parseInt(supplierId, 10));
                 if (!supplier) return null; 
@@ -849,13 +895,36 @@ function OrderDetail() {
         </form>
       )}
 
+      {/* Form for G1 Onsite Fulfillment */}
+      {canDisplayProcessingForm && isG1OnsiteFulfillmentMode && (
+        <form onSubmit={handleProcessOrder} className={`processing-form g1-onsite-fulfillment-active ${disableEditableFormFields ? 'form-disabled' : ''}`}>
+            <section className="shipment-info card">
+              <h3>Shipment Information (for G1 Onsite Fulfillment)</h3>
+              <div className="form-grid">
+                <label htmlFor="shipmentMethodG1">Method:</label>
+                <select id="shipmentMethodG1" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={originalLineItems.length > 0}>
+                    {SHIPPING_METHODS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+                <label htmlFor="shipmentWeightG1">Weight (lbs):</label>
+                <input type="number" id="shipmentWeightG1" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={originalLineItems.length > 0} disabled={disableEditableFormFields} />
+              </div>
+            </section>
+            <div className="order-actions">
+                <button type="submit" disabled={disableAllActions || processing} className="btn btn-gradient btn-shadow-lift btn-success">
+                    {processing ? 'Processing G1 Fulfillment...' : 'PROCESS G1 ONSITE FULFILLMENT'}
+                </button>
+            </div>
+        </form>
+      )}
+
+
       <div className="manual-actions-section" style={{marginTop: "20px"}}>
-           {order && (order.status?.toLowerCase() === 'international_manual' || order.status?.toLowerCase() === 'pending') && !isActuallyProcessed && !isActuallyCompletedOffline && (
+           {order && (order.status?.toLowerCase() === 'international_manual' || order.status?.toLowerCase() === 'pending') && !isActuallyProcessed && (
               <button onClick={() => handleManualStatusUpdate('Completed Offline')} className="btn btn-gradient btn-shadow-lift btn-success manual-action-button-specifics" disabled={disableAllActions}>
                   {manualStatusUpdateInProgress && (order.status?.toLowerCase() === 'international_manual' || order.status?.toLowerCase() === 'pending') ? 'Updating...' : 'Mark as Completed Offline'}
               </button>
           )}
-           {order && order.status?.toLowerCase() === 'new' && !isActuallyProcessed && !isActuallyCompletedOffline && (
+           {order && order.status?.toLowerCase() === 'new' && !isActuallyProcessed && (
               <div style={{ marginTop: '10px', textAlign: 'center' }}>
                   <a href="#" onClick={(e) => { e.preventDefault(); if (!disableAllActions) handleManualStatusUpdate('pending');}}
                       className={`link-button ${(manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new') ? 'link-button-updating' : ''}`}
@@ -868,12 +937,12 @@ function OrderDetail() {
       </div>
 
       <div className="order-actions" style={{ marginTop: '20px', textAlign: 'center' }}>
-          {(isActuallyProcessed || isActuallyCompletedOffline || processSuccess) && (
+          {(isActuallyProcessed || processSuccess) && ( // Simplified condition
               <button type="button" onClick={() => navigate('/')} className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics" disabled={disableAllActions && !processSuccess}> 
                   BACK TO DASHBOARD
               </button>
           )}
-          {(isActuallyProcessed || isActuallyCompletedOffline) && !processSuccess && (
+          {isActuallyProcessed && !processSuccess && ( // Show only if processed AND no new success message
               <div style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>
                   This order has been {order.status?.toLowerCase()} and no further automated actions are available.
               </div>

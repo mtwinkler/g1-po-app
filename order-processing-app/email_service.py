@@ -277,6 +277,66 @@ def send_iif_batch_email(iif_content_string, batch_date_str, warning_message_htm
         traceback.print_exc()
         return False
 
+def send_sales_notification_email(recipient_email, subject, html_body, text_body, attachments):
+    """
+    Sends a generic notification email using Postmark, intended for internal sales notifications.
+    Each item in 'attachments' should be a dict:
+    {'Name': 'filename.ext', 'Content': base64_encoded_string, 'ContentType': 'mime/type'}
+    (Note: This attachment format is for PostmarkClient library. If using direct API, adjust.)
+    """
+    print(f"DEBUG EMAIL_SERVICE (SALES_NOTIF): Attempting to send notification email to {recipient_email} with subject '{subject}'")
+
+    if EMAIL_SERVICE_PROVIDER != "postmark":
+        print(f"DEBUG EMAIL_SERVICE (SALES_NOTIF): Email service provider is '{EMAIL_SERVICE_PROVIDER}', not 'postmark'. Skipping actual send.")
+        return False
+
+    if not PostmarkClient:
+        print("ERROR EMAIL_SERVICE (SALES_NOTIF): PostmarkClient library is not available. Email not sent.")
+        return False
+
+    if not EMAIL_API_KEY or not EMAIL_SENDER_ADDRESS:
+        print("ERROR EMAIL_SERVICE (SALES_NOTIF): Postmark Server Token (EMAIL_API_KEY) or Sender Address not configured.")
+        return False
+
+    if not recipient_email:
+        print(f"ERROR EMAIL_SERVICE (SALES_NOTIF): No recipient email provided.")
+        return False
+
+    try:
+        client = PostmarkClient(server_token=EMAIL_API_KEY)
+
+        # The attachments are expected to be pre-formatted for PostmarkClient by app.py
+        # (i.e., Content is already base64 encoded string)
+
+        print(f"DEBUG EMAIL_SERVICE (SALES_NOTIF): Sending Postmark email to {recipient_email} with {len(attachments)} attachments.")
+
+        email_params = {
+            "From": f"{COMPANY_NAME_FOR_EMAIL} <{EMAIL_SENDER_ADDRESS}>", # Or a more specific sender name
+            "To": recipient_email,
+            "Subject": subject,
+            "HtmlBody": html_body,
+            "TextBody": text_body, # Good practice to include a text part
+            "Attachments": attachments, # Expects list of dicts with "Name", "Content", "ContentType"
+            "TrackOpens": True,
+            "MessageStream": "outbound" # Or your specific transactional stream
+        }
+
+        # Add BCC if configured and if appropriate for this type of notification
+        # if EMAIL_BCC_ADDRESS:
+        #     email_params["Bcc"] = EMAIL_BCC_ADDRESS
+        #     print(f"DEBUG EMAIL_SERVICE (SALES_NOTIF): BCCing to {EMAIL_BCC_ADDRESS}")
+
+        response = client.emails.send(**email_params)
+
+        print(f"INFO EMAIL_SERVICE (SALES_NOTIF): Notification email sent successfully via Postmark. MessageID: {response.get('MessageID') if isinstance(response, dict) else 'N/A'}")
+        return True
+
+    except Exception as e:
+        print(f"CRITICAL EMAIL_SERVICE (SALES_NOTIF): Failed to send notification email via Postmark: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 
 if __name__ == '__main__':
     print("--- Testing Email Service ---")

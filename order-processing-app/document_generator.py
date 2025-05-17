@@ -326,11 +326,12 @@ def _draw_packing_slip_footer(canvas, doc):
 
 
 # --- MODIFIED Function to Generate Packing Slip PDF ---
-def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping_separately, logo_gcs_uri=None):
+def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping_separately, 
+                              logo_gcs_uri=None, is_g1_onsite_fulfillment=False): # <--- ADDED is_g1_onsite_fulfillment=False HERE
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter,
                             leftMargin=0.75*inch, rightMargin=0.75*inch,
-                            topMargin=0.5*inch, bottomMargin=1.9*inch)
+                            topMargin=0.5*inch, bottomMargin=1.9*inch) # Ensure bottom margin accommodates footer
     styles = get_custom_styles()
     story = []
 
@@ -338,21 +339,26 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     current_date_obj = datetime.now(timezone.utc)
     formatted_current_date = current_date_obj.strftime("%m/%d/%Y")
     bc_order_id_ps_str = str(order_data.get('bigcommerce_order_id', 'N/A'))
+    
+    packing_slip_title_text = "PACKING SLIP"
+    # Optionally use the flag to change the title
+    if is_g1_onsite_fulfillment:
+        packing_slip_title_text = "PACKING SLIP" 
+    
     order_ref_text = f"Date: {formatted_current_date}<br/>Order #: {escape(bc_order_id_ps_str)}"
-
-    # Use COMPANY_ADDRESS_PO_HEADER (which is now "" if you set it above)
+    
     company_address_display_ps = COMPANY_ADDRESS_PO_HEADER if COMPANY_ADDRESS_PO_HEADER else ""
 
     header_data = [
-        [logo_element, Paragraph("<b>PACKING SLIP</b>", styles['H1_Helvetica_Right'])],
-        [Paragraph(escape(company_address_display_ps), styles['Normal_Helvetica_Small']), # Use the variable
+        [logo_element, Paragraph(f"<b>{packing_slip_title_text}</b>", styles['H1_Helvetica_Right'])],
+        [Paragraph(escape(company_address_display_ps), styles['Normal_Helvetica_Small']),
          Paragraph(order_ref_text, styles['Normal_Helvetica_Right'])]
     ]
     header_table = Table(header_data, colWidths=[4*inch, 3*inch])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (0,0), 6),
-        ('SPAN', (0,0), (0,0)),
+        ('SPAN', (0,0), (0,0)), 
     ]))
     story.append(header_table)
     story.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=0.05*inch, spaceAfter=0.1*inch))
@@ -468,7 +474,8 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
         ]))
         story.append(items_table_separate)
 
-    doc.build(story, onFirstPage=_draw_packing_slip_footer, onLaterPages=_draw_packing_slip_footer)
+    # Ensure it uses _draw_packing_slip_footer in doc.build as it was in your original file.
+    doc.build(story, onFirstPage=_draw_packing_slip_footer, onLaterPages=_draw_packing_slip_footer) # Ensure this line is correct
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes
