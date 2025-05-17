@@ -732,28 +732,37 @@ function OrderDetail() {
         </div>
       )}
 
-      {orderData && order && !processSuccess && (
-       <section className="order-info card">
-        <h3>Order Information</h3>
-        <div><strong>Rec'd:</strong> {displayOrderDate}</div>
-        <div><strong>Customer:</strong> {order.customer_company || order.customer_name || 'N/A'}</div>
-        <div><strong>Paid by:</strong> {order.payment_method || 'N/A'}</div>
-        <div><strong>Ship:</strong> {displayCustomerShippingMethod} to {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
-        {order.customer_notes && (<div style={{ marginTop: '5px' }}><strong>Comments:</strong> {order.customer_notes}</div>)}
-        <hr style={{ margin: '10px 0' }} />
-        {originalLineItems.map((item) => (
-            <p key={`orig-item-${item.line_item_id}`} className="order-info-sku-line">
-                <span>({item.quantity || 0}) </span>
-                <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.original_sku}`} onClick={(e) => handlePartNumberLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
-                {loadingSpares && item.hpe_pn_type === 'option' && !lineItemSpares[item.line_item_id] && <span className="loading-text"> (loading spare...)</span>}
-                {lineItemSpares[item.line_item_id] && ( <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>( <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a> )</span> )}
-                {item.hpe_option_pn && String(item.hpe_option_pn).trim() !== String(item.original_sku).trim() && String(item.hpe_option_pn).trim() !== lineItemSpares[item.line_item_id] && ( <span>{' ('} <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a> {')'}</span> )}
-                <span> @ ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
-            </p>
-        ))}
-      </section>
-      )}
+  {orderData && order && !processSuccess && (
+   <section className="order-info card">
+    <h3>Order Information</h3>
+    <div><strong>Rec'd:</strong> {displayOrderDate}</div>
+    <div><strong>Customer:</strong> {order.customer_company || order.customer_name || 'N/A'}</div>
+    <div><strong>Paid by:</strong> {order.payment_method || 'N/A'}</div>
+    <div><strong>Ship:</strong> {displayCustomerShippingMethod} to {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
+    
+    {/* +++ START NEW/MODIFIED SECTION FOR CUSTOMER UPS ACCOUNT +++ */}
+    {order.is_bill_to_customer_account && order.customer_ups_account_number && (
+      <div className="customer-ups-account-info">
+        <strong>Bill Shipping To:</strong> Customer UPS Account # {order.customer_ups_account_number}
+      </div>
+    )}
+    {/* +++ END NEW/MODIFIED SECTION FOR CUSTOMER UPS ACCOUNT +++ */}
 
+    {order.customer_notes && (<div style={{ marginTop: '5px' }}><strong>Comments:</strong> {order.customer_notes}</div>)}
+    <hr style={{ margin: '10px 0' }} />
+    {originalLineItems.map((item) => (
+        <p key={`orig-item-${item.line_item_id}`} className="order-info-sku-line">
+            <span>({item.quantity || 0}) </span>
+            <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.original_sku}`} onClick={(e) => handlePartNumberLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
+            {loadingSpares && item.hpe_pn_type === 'option' && !lineItemSpares[item.line_item_id] && <span className="loading-text"> (loading spare...)</span>}
+            {lineItemSpares[item.line_item_id] && ( <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>( <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a> )</span> )}
+            {item.hpe_option_pn && String(item.hpe_option_pn).trim() !== String(item.original_sku).trim() && String(item.hpe_option_pn).trim() !== lineItemSpares[item.line_item_id] && ( <span>{' ('} <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a> {')'}</span> )}
+            <span> @ ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
+        </p>
+    ))}
+  </section>
+  )}
+  
      {canDisplayProcessingForm && (
         <section className="supplier-mode-selection card">
         <h3>Begin Order Fulfillment</h3>

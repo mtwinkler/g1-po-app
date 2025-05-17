@@ -92,15 +92,17 @@ def send_po_email(supplier_email, po_number, attachments):
         email_attachments_for_postmark = []
         if attachments:
             for att_data in attachments:
-                if att_data and att_data.get('filename') and att_data.get('content') and att_data.get('content_type'):
-                    encoded_content = base64.b64encode(att_data['content']).decode('utf-8')
+                # Check for 'Name' (capitalized) as that's what app.py provides
+                # And directly use att_data['Content'] as it's already a base64 string
+                if att_data and att_data.get('Name') and att_data.get('Content') and att_data.get('ContentType'):
                     email_attachments_for_postmark.append({
-                        "Name": att_data['filename'],
-                        "Content": encoded_content,
-                        "ContentType": att_data['content_type']
+                        "Name": att_data['Name'],         # Use 'Name'
+                        "Content": att_data['Content'],   # Already base64 encoded string from app.py
+                        "ContentType": att_data['ContentType']
                     })
                 else:
-                    print(f"WARN EMAIL_SERVICE (PO): Invalid attachment data skipped for PO {po_number}: {att_data}")
+                    # This warning should now only trigger if essential parts are truly missing from app.py's perspective
+                    print(f"WARN EMAIL_SERVICE (PO): Invalid or incomplete attachment data structure skipped for PO {po_number}. Data: {att_data}")
 
         subject = f"New Purchase Order #{po_number} from {COMPANY_NAME_FOR_EMAIL}"
         html_body = f"""
