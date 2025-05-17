@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import './OrderDetail.css';
 import { useAuth } from '../contexts/AuthContext';
-// pdfIconUrl import is removed as it's no longer used
 
 // --- Helper function for debouncing ---
 function useDebounce(value, delay) {
@@ -51,7 +50,7 @@ const formatShippingMethod = (methodString) => {
   if (lowerMethodString.includes('2nd day') || lowerMethodString.includes('second day')) return 'UPS 2nd Day Air';
   if (lowerMethodString.includes('next day air early a.m.') || lowerMethodString.includes('next day air e')) return 'UPS Next Day Air Early A.M.';
   if (lowerMethodString.includes('next day') || lowerMethodString.includes('nda')) return 'UPS Next Day Air';
-  if (lowerMethodString.includes('free shipping')) return 'UPS Ground'; // Added based on common practice
+  if (lowerMethodString.includes('free shipping')) return 'UPS Ground';
   return String(methodString).trim();
 };
 
@@ -100,11 +99,24 @@ function OrderDetail() {
   const [loadingSpares, setLoadingSpares] = useState(false);
 
   const setPurchaseItemsRef = useRef(setPurchaseItems);
-  useEffect(() => { setPurchaseItemsRef.current = setPurchaseItems; }, []);
+  useEffect(() => { setPurchaseItemsRef.current = setPurchaseItems; }, [setPurchaseItems]); // Added dependency
   const purchaseItemsRef = useRef(purchaseItems);
   useEffect(() => { purchaseItemsRef.current = purchaseItems; }, [purchaseItems]);
 
   const cleanPullSuffix = " - clean pull";
+
+  const originalLineItems = orderData?.line_items || [];
+
+  useEffect(() => {
+    const currentLineItemsCount = originalLineItems.length;
+    
+    if (isMultiSupplierMode && currentLineItemsCount <= 1) {
+      setIsMultiSupplierMode(false); 
+      if (selectedMainSupplierTrigger === MULTI_SUPPLIER_MODE_VALUE) {
+        setSelectedMainSupplierTrigger(''); 
+      }
+    }
+  }, [originalLineItems.length, isMultiSupplierMode, selectedMainSupplierTrigger, setIsMultiSupplierMode, setSelectedMainSupplierTrigger, MULTI_SUPPLIER_MODE_VALUE]);
 
   const fetchOrderAndSuppliers = useCallback(async (signal, isPostProcessRefresh = false) => {
     if (!currentUser) {
@@ -142,7 +154,7 @@ function OrderDetail() {
         if (!isPostProcessRefresh) {
             setLineItemSpares({});
             setMultiSupplierItemCosts({});
-            setMultiSupplierItemDescriptions({});
+            // setMultiSupplierItemDescriptions({}); // This was potentially cleared too early, re-init below
             setMultiSupplierShipmentDetails({});
 
             if (fetchedOrderData?.order) {
@@ -180,10 +192,10 @@ function OrderDetail() {
                     }
                     initialMultiDesc[item.line_item_id] = defaultDescription;
                 });
-                setMultiSupplierItemDescriptions(initialMultiDesc);
+                setMultiSupplierItemDescriptions(initialMultiDesc); // Initialize here
             } else {
                 setPurchaseItemsRef.current([]);
-                setMultiSupplierItemDescriptions({});
+                setMultiSupplierItemDescriptions({}); // Clear if no line items
             }
         } else if (fetchedOrderData?.order) { 
             setOriginalCustomerShippingMethod(formatShippingMethod(fetchedOrderData.order.customer_shipping_method) || 'UPS Ground');
@@ -194,7 +206,7 @@ function OrderDetail() {
     } finally {
         if (!signal || !signal.aborted) setLoading(false);
     }
-  }, [orderId, cleanPullSuffix, VITE_API_BASE_URL, currentUser]);
+  }, [orderId, cleanPullSuffix, VITE_API_BASE_URL, currentUser, setPurchaseItemsRef]); // Added setPurchaseItemsRef
 
   useEffect(() => {
     if (authLoading) { setLoading(true); return; }
@@ -208,12 +220,14 @@ function OrderDetail() {
   }, [orderId, currentUser, authLoading, fetchOrderAndSuppliers]);
 
   useEffect(() => {
+    // Check orderData and line_items before proceeding
     if (!currentUser || !orderData?.line_items || orderData.line_items.length === 0) return;
+    
     const fetchAllSpares = async () => {
         setLoadingSpares(true);
         const sparesMap = {};
         const token = await currentUser.getIdToken(true);
-        for (const item of orderData.line_items) {
+        for (const item of orderData.line_items) { // Use orderData.line_items directly
             if (item.original_sku && item.hpe_pn_type === 'option') {
                 try {
                     const trimmedOriginalSku = String(item.original_sku).trim();
@@ -230,7 +244,7 @@ function OrderDetail() {
         setLineItemSpares(sparesMap); setLoadingSpares(false);
     };
     fetchAllSpares();
-  }, [orderData?.line_items, currentUser, VITE_API_BASE_URL]);
+  }, [orderData?.line_items, currentUser, VITE_API_BASE_URL]); // Dependency on orderData.line_items
 
   const [skuToLookup, setSkuToLookup] = useState({ index: -1, sku: '' });
   const debouncedSku = useDebounce(skuToLookup.sku, 500);
@@ -246,29 +260,30 @@ function OrderDetail() {
         if (response.ok) {
             const data = await response.json();
             if (abortController.signal.aborted) return;
-            const currentItems = purchaseItemsRef.current;
-            const updatedItems = [...currentItems];
-            if (updatedItems[skuToLookup.index]?.skuInputValue === debouncedSku) { // Check if the input value hasn't changed
-                let newDescription = data.description;
-                if (newDescription && typeof newDescription === 'string' && !newDescription.endsWith(cleanPullSuffix)) newDescription += cleanPullSuffix;
-                else if (!newDescription) { // if API returns no description, append suffix to existing or just use suffix
-                    const existingDesc = (updatedItems[skuToLookup.index].description || "").replace(new RegExp(escapeRegExp(cleanPullSuffix) + "$"), "").trim();
-                    newDescription = (existingDesc ? existingDesc + " " : "") + cleanPullSuffix.trim();
-                    if (newDescription.startsWith(" " + cleanPullSuffix.trim())) newDescription = cleanPullSuffix.trim(); // Avoid leading space if existingDesc was empty
+            // Use the callback version of setState for purchaseItems to ensure we have the latest state
+            setPurchaseItemsRef.current(prevItems => {
+                const updatedItems = [...prevItems];
+                if (updatedItems[skuToLookup.index]?.skuInputValue === debouncedSku) { 
+                    let newDescription = data.description;
+                    if (newDescription && typeof newDescription === 'string' && !newDescription.endsWith(cleanPullSuffix)) {
+                        newDescription += cleanPullSuffix;
+                    } else if (!newDescription) { 
+                        const existingDesc = (updatedItems[skuToLookup.index].description || "").replace(new RegExp(escapeRegExp(cleanPullSuffix) + "$"), "").trim();
+                        newDescription = (existingDesc ? existingDesc + " " : "") + cleanPullSuffix.trim();
+                        if (newDescription.startsWith(" " + cleanPullSuffix.trim())) newDescription = cleanPullSuffix.trim(); 
+                    }
+                    updatedItems[skuToLookup.index] = { ...updatedItems[skuToLookup.index], description: newDescription };
                 }
-                updatedItems[skuToLookup.index] = { ...updatedItems[skuToLookup.index], description: newDescription };
-                setPurchaseItemsRef.current(updatedItems);
-            }
+                return updatedItems;
+            });
         } else if (response.status === 401 || response.status === 403) {
             console.error("Unauthorized to fetch SKU description.");
-            // Optionally: navigate('/login') or show user message
         }
-        // No specific error handling for 404, as it just means no description found.
       } catch (error) { if (error.name !== 'AbortError') console.error("Error fetching description:", error); }
     };
     fetchDescription();
     return () => abortController.abort();
-  }, [debouncedSku, skuToLookup.index, cleanPullSuffix, VITE_API_BASE_URL, currentUser, isMultiSupplierMode]); // isMultiSupplierMode added to dependencies
+  }, [debouncedSku, skuToLookup.index, cleanPullSuffix, VITE_API_BASE_URL, currentUser, isMultiSupplierMode, setPurchaseItemsRef]); 
   
   const handleMainSupplierTriggerChange = (e) => {
     const value = e.target.value;
@@ -280,54 +295,51 @@ function OrderDetail() {
     if (value === MULTI_SUPPLIER_MODE_VALUE) {
         setIsMultiSupplierMode(true);
         setSingleOrderPoNotes('');
-        // Reset single supplier fields
-        setShipmentMethod(originalCustomerShippingMethod); // Reset to original customer method
+        setShipmentMethod(originalCustomerShippingMethod); 
         setShipmentWeight('');
-        // Initialize multi-supplier specific states
-        setLineItemAssignments({});
-        setPoNotesBySupplier({});
-        setMultiSupplierItemCosts({});
-        // Re-initialize multi-supplier descriptions based on current order data
+        setLineItemAssignments({}); // Clear previous assignments
+        setPoNotesBySupplier({});   // Clear previous notes
+        setMultiSupplierItemCosts({}); // Clear previous costs
+        
+        // Re-initialize descriptions for multi-supplier mode based on current original line items
         const initialMultiDesc = {};
-        if (orderData?.line_items) {
-            orderData.line_items.forEach(item => {
+        if (originalLineItems) { // originalLineItems is already defined in component scope
+            originalLineItems.forEach(item => {
                 let defaultDescription = item.hpe_po_description || item.line_item_name || '';
                 if (defaultDescription && !defaultDescription.endsWith(cleanPullSuffix)) {
                     defaultDescription += cleanPullSuffix;
                 } else if (!defaultDescription && item.original_sku) {
-                     defaultDescription = `${item.original_sku}${cleanPullSuffix}`; // Fallback to SKU + suffix
+                     defaultDescription = `${item.original_sku}${cleanPullSuffix}`;
                 }
                 initialMultiDesc[item.line_item_id] = defaultDescription;
             });
         }
         setMultiSupplierItemDescriptions(initialMultiDesc);
-        setMultiSupplierShipmentDetails({}); // Clear previous multi-supplier shipment details
-    } else { // Single supplier mode or no supplier selected
+        setMultiSupplierShipmentDetails({}); // Clear previous shipment details
+    } else { 
         setIsMultiSupplierMode(false);
         const s = suppliers.find(sup => sup.id === parseInt(value, 10));
         setSingleOrderPoNotes(s?.defaultponotes || '');
-        setShipmentMethod(originalCustomerShippingMethod); // Reset to original
-        // Clear multi-supplier states
+        setShipmentMethod(originalCustomerShippingMethod); 
+        // Clear multi-supplier specific states as they are not relevant for single supplier mode
         setLineItemAssignments({});
         setPoNotesBySupplier({});
         setMultiSupplierItemCosts({});
-        setMultiSupplierItemDescriptions({});
+        setMultiSupplierItemDescriptions({}); // Clear these as they are specific to multi-supplier items
         setMultiSupplierShipmentDetails({});
     }
   };
   const handleSingleOrderPoNotesChange = (e) => setSingleOrderPoNotes(e.target.value);
   const handleLineItemSupplierAssignment = (originalLineItemId, supplierId) => {
     setLineItemAssignments(prev => ({ ...prev, [originalLineItemId]: supplierId }));
-    // If a supplier is assigned and their PO notes aren't set yet, set default notes
     if (supplierId && !poNotesBySupplier[supplierId]) {
         const s = suppliers.find(sup => sup.id === parseInt(supplierId, 10));
         setPoNotesBySupplier(prev => ({ ...prev, [supplierId]: s?.defaultponotes || '' }));
     }
-    // If a supplier is assigned in multi-supplier mode and shipment details aren't set, initialize them
     if (supplierId && isMultiSupplierMode && !multiSupplierShipmentDetails[supplierId]) {
         setMultiSupplierShipmentDetails(prev => ({
             ...prev,
-            [supplierId]: { method: originalCustomerShippingMethod, weight: '' } // Default to customer's method
+            [supplierId]: { method: originalCustomerShippingMethod, weight: '' } 
         }));
     }
   };
@@ -344,21 +356,24 @@ function OrderDetail() {
     setMultiSupplierShipmentDetails(prev => ({
         ...prev,
         [supplierId]: {
-            ...(prev[supplierId] || { method: originalCustomerShippingMethod, weight: '' }), // Default if not existing
+            ...(prev[supplierId] || { method: originalCustomerShippingMethod, weight: '' }), 
             [field]: value
         }
     }));
   };
   const handlePurchaseItemChange = (index, field, value) => {
-    const items = [...purchaseItemsRef.current];
-    items[index] = { ...items[index], [field]: value };
-    if (field === 'sku') {
-        const trimmedSku = String(value).trim();
-        items[index].sku = trimmedSku; // Update the actual SKU for submission
-        items[index].skuInputValue = trimmedSku; // Keep input value separate for debouncing
-        setSkuToLookup({ index, sku: trimmedSku });
-    }
-    setPurchaseItemsRef.current(items);
+    // Use callback form of setState for purchaseItems to ensure access to the latest state
+    setPurchaseItemsRef.current(prevItems => {
+        const items = [...prevItems];
+        items[index] = { ...items[index], [field]: value };
+        if (field === 'sku') {
+            const trimmedSku = String(value).trim();
+            items[index].sku = trimmedSku; 
+            items[index].skuInputValue = trimmedSku; 
+            setSkuToLookup({ index, sku: trimmedSku });
+        }
+        return items;
+    });
   };
   const handleShipmentMethodChange = (e) => setShipmentMethod(e.target.value);
   const handleShipmentWeightChange = (e) => setShipmentWeight(e.target.value);
@@ -375,29 +390,23 @@ function OrderDetail() {
     }
   };
 
-  // NEW FUNCTION to handle part number link clicks
   const handlePartNumberLinkClick = async (e, partNumber) => {
-    e.preventDefault(); // Prevent default link navigation to control the flow
+    e.preventDefault(); 
 
-    // 1. Copy Order# to clipboard
-    if (orderData?.order?.bigcommerce_order_id) {
+    if (orderData?.order?.bigcommerce_order_id) { // Check if orderData and order exist
         await handleCopyToClipboard(orderData.order.bigcommerce_order_id);
     }
 
-    // 2. Perform original status update logic (adapted from former handleBrokerbinLinkClick)
     if (!currentUser) {
         setStatusUpdateMessage("Please log in to perform this action.");
-        // Do not proceed to open link if not logged in
         return; 
     }
     
     const currentOrderStatus = orderData?.order?.status?.toLowerCase();
     const trimmedPartNumberForStatusCheck = String(partNumber || '').trim();
 
-    // Only attempt status update if order status is 'new' and there's a part number
     if (currentOrderStatus === 'new' && trimmedPartNumberForStatusCheck) {
       try {
-        // Clear message only if attempting an update, otherwise preserve existing messages
         setStatusUpdateMessage(''); 
         const token = await currentUser.getIdToken(true);
         const statusApiUrl = `${VITE_API_BASE_URL}/orders/${orderId}/status`;
@@ -411,48 +420,37 @@ function OrderDetail() {
             let err = responseData?.details || responseData?.error || `HTTP error ${response.status}`;
             if (response.status === 401 || response.status === 403) {
                 err = "Unauthorized. Please log in again.";
-                navigate('/login'); // Redirect if session is invalid
+                navigate('/login'); 
             }
             throw new Error(err);
         }
         const ac = new AbortController();
-        await fetchOrderAndSuppliers(ac.signal, false); // Refresh order data to reflect new status
+        await fetchOrderAndSuppliers(ac.signal, false); 
         setStatusUpdateMessage(`Status updated to RFQ Sent for part: ${trimmedPartNumberForStatusCheck}`);
       } catch (err) {
         setStatusUpdateMessage(`Error updating status for part ${trimmedPartNumberForStatusCheck}: ${err.message}`);
       }
     } else if (trimmedPartNumberForStatusCheck && currentOrderStatus && !['new', 'rfq sent', 'processed', 'completed offline', 'pending'].includes(currentOrderStatus)) {
-      // If status is not 'new' and a part number was clicked, inform user status wasn't changed.
-      // Avoid clearing other important messages like "Order Processed Successfully".
-      // This message is less critical than error or success messages.
+      // Commented out to avoid overriding more important messages like "Order processed successfully"
       // setStatusUpdateMessage(`Order status is '${orderData?.order?.status}'. Part status not updated.`);
     }
-    // If no status update logic was triggered, existing statusUpdateMessage (if any) will persist.
 
-    // 3. Open Brokerbin URL in a new window
     const brokerbinUrl = createBrokerbinLink(partNumber);
     window.open(brokerbinUrl, '_blank', 'noopener,noreferrer');
   };
 
-  // REMOVE or comment out the old handleBrokerbinLinkClick function:
-  /*
-  const handleBrokerbinLinkClick = async (e, partNumber) => {
-    // ... old code ...
-  };
-  */
-
   const handleManualStatusUpdate = async (newStatus) => {
     if (!currentUser) { setStatusUpdateMessage("Please log in to update status."); return; }
-    if (!orderId || !VITE_API_BASE_URL) { setStatusUpdateMessage("Configuration error."); return; } // Basic check
-    setManualStatusUpdateInProgress(true); setStatusUpdateMessage(''); // Clear message before action
+    if (!orderId || !VITE_API_BASE_URL) { setStatusUpdateMessage("Configuration error."); return; } 
+    setManualStatusUpdateInProgress(true); setStatusUpdateMessage(''); 
     try {
         const token = await currentUser.getIdToken(true);
         const statusApiUrl = `${VITE_API_BASE_URL}/orders/${orderId}/status`;
         const response = await fetch(statusApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ status: newStatus }) });
-        const responseData = await response.json().catch(() => null); // Gracefully handle non-JSON response
+        const responseData = await response.json().catch(() => null); 
         if (!response.ok) { let err = responseData?.details || responseData?.error || `HTTP error ${response.status}`; if(response.status===401||response.status===403) {err="Unauthorized. Please log in again."; navigate('/login');} throw new Error(err); }
         setStatusUpdateMessage(`Order status successfully updated to '${newStatus}'.`);
-        const ac = new AbortController(); await fetchOrderAndSuppliers(ac.signal, false); // Refresh data
+        const ac = new AbortController(); await fetchOrderAndSuppliers(ac.signal, false); 
     } catch (err) { setStatusUpdateMessage(`Error updating status: ${err.message}`);
     } finally { setManualStatusUpdateInProgress(false); }
   };
@@ -463,28 +461,24 @@ function OrderDetail() {
     setProcessing(true); setProcessError(null); setProcessSuccess(false); setProcessSuccessMessage(''); setProcessedPOsInfo([]); setStatusUpdateMessage('');
 
     let payloadAssignments = [];
-    const currentOriginalLineItems = orderData?.line_items || [];
-
+    
     if (isMultiSupplierMode) {
-        const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id); // Get unique, non-empty supplier IDs
+        const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id); 
         
-        // Check if any items exist to be assigned
-        if (currentOriginalLineItems.length > 0) {
+        if (originalLineItems.length > 0) {
             if (assignedSupplierIds.length === 0) {
                 setProcessError("Multi-Supplier Mode: Assign items to at least one supplier.");
                 setProcessing(false); return;
             }
-            // Check if all original items are assigned
-            const allOriginalItemsAssigned = currentOriginalLineItems.every(item => !!lineItemAssignments[item.line_item_id]);
+            const allOriginalItemsAssigned = originalLineItems.every(item => !!lineItemAssignments[item.line_item_id]);
             if (!allOriginalItemsAssigned) {
                 setProcessError("Multi-Supplier Mode: Assign all original items to a supplier.");
                 setProcessing(false); return;
             }
         }
 
-
         for (const supId of assignedSupplierIds) {
-            const itemsForThisSupplier = currentOriginalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supId);
+            const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supId);
             if (itemsForThisSupplier.length > 0) {
                 let itemCostValidationError = null;
                 const poLineItems = itemsForThisSupplier.map(item => {
@@ -492,10 +486,10 @@ function OrderDetail() {
                     const costFloat = parseFloat(costStr);
                     if (costStr === undefined || costStr === '' || isNaN(costFloat) || costFloat < 0) {
                         itemCostValidationError = `Missing or invalid unit cost for SKU ${item.original_sku || 'N/A'} (Supplier: ${suppliers.find(s=>s.id===parseInt(supId,10))?.name}).`;
-                        return null; // Invalid item, will be filtered out
+                        return null; 
                     }
                     let descriptionForPo = multiSupplierItemDescriptions[item.line_item_id];
-                    if (descriptionForPo === undefined) { // Fallback if not set
+                    if (descriptionForPo === undefined) { 
                         descriptionForPo = item.hpe_po_description || item.line_item_name || `${item.original_sku || ''}${cleanPullSuffix}`;
                     }
                     if (!String(descriptionForPo).trim()) {
@@ -504,16 +498,15 @@ function OrderDetail() {
                     }
                     return {
                         original_order_line_item_id: item.line_item_id,
-                        sku: item.hpe_option_pn || item.original_sku, // Prefer HPE Option PN if available
+                        sku: item.hpe_option_pn || item.original_sku, 
                         description: String(descriptionForPo).trim(),
                         quantity: item.quantity,
                         unit_cost: costFloat.toFixed(2),
-                        condition: 'New', // Assuming 'New' condition
+                        condition: 'New', 
                     };
-                }).filter(Boolean); // Remove nulls from validation errors
+                }).filter(Boolean); 
 
                 if (itemCostValidationError) { setProcessError(itemCostValidationError); setProcessing(false); return; }
-                // This check might be redundant if itemCostValidationError is comprehensive
                 if (poLineItems.length !== itemsForThisSupplier.length && itemsForThisSupplier.length > 0) {
                     setProcessError("One or more items for a supplier had validation errors (e.g., missing cost/description)."); 
                     setProcessing(false); return; 
@@ -523,12 +516,10 @@ function OrderDetail() {
                 const currentPoWeight = shipmentDetailsForThisPo.weight;
                 const currentPoMethod = shipmentDetailsForThisPo.method;
 
-                // Validate weight only if a shipping method is selected
                 if (currentPoMethod && (!currentPoWeight || parseFloat(currentPoWeight) <= 0)) {
                     setProcessError(`Invalid/missing weight for PO to ${suppliers.find(s=>s.id === parseInt(supId, 10))?.name} when a shipping method is selected.`);
                     setProcessing(false); return;
                 }
-                // Validate method only if weight is entered (implies shipping)
                 if (!currentPoMethod && currentPoWeight && parseFloat(currentPoWeight) > 0) {
                     setProcessError(`Shipping method required for PO to ${suppliers.find(s=>s.id === parseInt(supId, 10))?.name} when weight is provided.`);
                     setProcessing(false); return;
@@ -539,29 +530,29 @@ function OrderDetail() {
                     payment_instructions: poNotesBySupplier[supId] || "",
                     po_line_items: poLineItems,
                     total_shipment_weight_lbs: currentPoWeight ? parseFloat(currentPoWeight).toFixed(1) : null,
-                    shipment_method: currentPoMethod || null // Send null if no method selected
+                    shipment_method: currentPoMethod || null 
                 });
             }
         }
-        // Ensure there are assignments only if there were items to begin with
-        if (payloadAssignments.length === 0 && currentOriginalLineItems.length > 0) {
+        if (payloadAssignments.length === 0 && originalLineItems.length > 0) {
              setProcessError("No items were successfully assigned or configured for PO generation.");
              setProcessing(false); return;
         }
-    } else { // Single Supplier Mode
+    } else { 
         const singleSelectedSupId = selectedMainSupplierTrigger;
         if (!singleSelectedSupId || singleSelectedSupId === MULTI_SUPPLIER_MODE_VALUE) {
             setProcessError("Please select a supplier."); setProcessing(false); return;
         }
-        // Only require weight and method if there are items to process
-        if (currentOriginalLineItems.length > 0) {
+        // Use purchaseItemsRef.current for validation in single supplier mode as it reflects user edits
+        const currentPurchaseItems = purchaseItemsRef.current; 
+        if (currentPurchaseItems.length > 0) { // Validate shipping only if there are items in the PO form
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight."); setProcessing(false); return; }
             if (!shipmentMethod) { setProcessError("Please select a shipment method."); setProcessing(false); return; }
         }
 
         let itemValidationError = null;
-        const finalPurchaseItems = purchaseItemsRef.current.map((item, index) => {
+        const finalPurchaseItems = currentPurchaseItems.map((item, index) => {
             const quantityInt = parseInt(item.quantity, 10); const costFloat = parseFloat(item.unit_cost);
             if (isNaN(quantityInt) || quantityInt <= 0) { itemValidationError = `Item #${index + 1}: Quantity must be > 0.`; return null; }
             if (item.unit_cost === undefined || item.unit_cost === '' || isNaN(costFloat) || costFloat < 0) { itemValidationError = `Item #${index + 1}: Unit cost is invalid.`; return null; }
@@ -571,31 +562,27 @@ function OrderDetail() {
         }).filter(Boolean);
 
         if (itemValidationError) { setProcessError(itemValidationError); setProcessing(false); return; }
-        // This condition allows processing even if original order had no items (e.g. manual PO)
-        if (finalPurchaseItems.length === 0 && currentOriginalLineItems.length > 0) { 
+        // This condition means if there were original items, the PO form must also result in items.
+        // If there were no original items, it's okay for finalPurchaseItems to be empty (e.g. manual PO without items, if backend supports)
+        if (finalPurchaseItems.length === 0 && originalLineItems.length > 0) { 
             setProcessError("No valid line items for PO. Please check quantities, costs, SKUs, and descriptions."); 
             setProcessing(false); return; 
         }
         
-        // Add to payload if there are items, or if it's a manual PO (no original items but user might have added some - though current UI doesn't support adding new items from scratch)
-        // The key is that finalPurchaseItems could be empty if the original order had no items.
-        // If original order had items, finalPurchaseItems must not be empty.
-        // If original order had no items, finalPurchaseItems will also be empty, and that's OK for a zero-item PO if allowed by backend.
-        // For now, assuming a PO needs items if the original order had items.
-        if (finalPurchaseItems.length > 0 || currentOriginalLineItems.length === 0) {
+        // Only create an assignment if there are items in the PO form OR if there were no original items (manual PO scenario)
+        if (finalPurchaseItems.length > 0 || originalLineItems.length === 0) {
              payloadAssignments.push({
                 supplier_id: parseInt(singleSelectedSupId, 10),
                 payment_instructions: singleOrderPoNotes,
-                total_shipment_weight_lbs: (currentOriginalLineItems.length > 0 || finalPurchaseItems.length > 0) ? parseFloat(shipmentWeight).toFixed(1) : null, // Only send weight if items
-                shipment_method: (currentOriginalLineItems.length > 0 || finalPurchaseItems.length > 0) ? shipmentMethod : null, // Only send method if items
+                // Send shipping details only if there are items in the final PO
+                total_shipment_weight_lbs: finalPurchaseItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null, 
+                shipment_method: finalPurchaseItems.length > 0 ? shipmentMethod : null, 
                 po_line_items: finalPurchaseItems
             });
         }
     }
     
-    // Final check on payloadAssignments
-    // If original order had items, then payloadAssignments should not be empty.
-    if (payloadAssignments.length === 0 && currentOriginalLineItems.length > 0 ) {
+    if (payloadAssignments.length === 0 && originalLineItems.length > 0 ) {
         setProcessError("No data to create Purchase Orders. Check item assignments and details.");
         setProcessing(false); return;
     }
@@ -618,61 +605,35 @@ function OrderDetail() {
         setProcessedPOsInfo(Array.isArray(responseData.processed_purchase_orders) ? responseData.processed_purchase_orders : []); 
         
         const ac = new AbortController(); 
-        await fetchOrderAndSuppliers(ac.signal, true); // Refresh order data post-processing
+        await fetchOrderAndSuppliers(ac.signal, true); 
     } catch (err) {
         setProcessError(err.message || "An unexpected error occurred during processing.");
-        setProcessSuccess(false); // Ensure success is false on error
-        setProcessedPOsInfo([]); // Clear any PO info on error
+        setProcessSuccess(false); 
+        setProcessedPOsInfo([]); 
     } finally {
         setProcessing(false);
     }
   };
 
-
-  // ... (rest of the component, including the return statement)
-  // WITHIN the return statement, update the links:
-
-  // For item.original_sku:
-  // <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Brokerbin: ${item.original_sku}`} onClick={(e) => handleBrokerbinLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
-  // BECOMES:
-  // <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.original_sku}`} onClick={(e) => handlePartNumberLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
-
-  // For lineItemSpares[item.line_item_id]:
-  // <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handleBrokerbinLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a>
-  // BECOMES:
-  // <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a>
-
-  // For item.hpe_option_pn:
-  // <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handleBrokerbinLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a>
-  // BECOMES:
-  // <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a>
-
-
   if (authLoading) return <div className="loading-message">Loading session...</div>;
   if (!currentUser) return <div className="order-detail-container" style={{ textAlign: 'center', marginTop: '50px' }}><h2>Order Details</h2><p className="error-message">Please <Link to="/login">log in</Link>.</p></div>;
-  // Show loading only if not already showing process success and orderData is not yet loaded.
   if (loading && !orderData && !processSuccess) return <div className="loading-message">Loading order details...</div>; 
   if (error) return <div className="error-message">Error: {error}</div>;
   
-  const order = orderData?.order; // Use optional chaining for safety
-  const originalLineItems = orderData?.line_items || [];
+  const order = orderData?.order; 
 
-  // If not processing successfully and order details are still missing, show not found.
   if (!order && !processSuccess) { 
       return <p style={{ textAlign: 'center', marginTop: '20px' }}>Order details not found or error loading.</p>;
   }
 
   const isActuallyProcessed = order?.status?.toLowerCase() === 'processed';
   const isActuallyCompletedOffline = order?.status?.toLowerCase() === 'completed offline';
-  // Display processing form if not showing a new success message AND order isn't already processed/completed.
   const canDisplayProcessingForm = !processSuccess && !(isActuallyProcessed || isActuallyCompletedOffline);
   const disableAllActions = processing || manualStatusUpdateInProgress;
-  // Disable form fields if already processed/completed, or general actions disabled, or new success message shown.
   const disableEditableFormFields = isActuallyProcessed || isActuallyCompletedOffline || disableAllActions || processSuccess;
 
-
   let displayOrderDate = 'N/A';
-  if (order?.order_date) try { displayOrderDate = new Date(order.order_date).toLocaleDateString(); } catch (e) { /* ignore date parsing error */ }
+  if (order?.order_date) try { displayOrderDate = new Date(order.order_date).toLocaleDateString(); } catch (e) { /* ignore */ }
   const displayCustomerShippingMethod = formatShippingMethod(order?.customer_shipping_method);
 
   return (
@@ -683,14 +644,13 @@ function OrderDetail() {
           <button title="Copy Order ID" onClick={() => handleCopyToClipboard(order?.bigcommerce_order_id)} className="copy-button" disabled={!order?.bigcommerce_order_id}>📋</button>
           {clipboardStatus && <span className="clipboard-status">{clipboardStatus}</span>}
         </h2>
-        {order && ( // Only show status if order object exists
+        {order && ( 
             <span className={`order-status-badge status-${(order.status || 'unknown').toLowerCase().replace(/\s+/g, '-')}`}>
             {order.status || 'Unknown'}
             </span>
         )}
       </div>
 
-      {/* Prioritize processError and processSuccess messages over statusUpdateMessage */}
       {statusUpdateMessage && !processError && !processSuccess && (
           <div className={statusUpdateMessage.toLowerCase().includes("error") ? "error-message" : "success-message"} style={{ marginTop: '10px', marginBottom: '10px' }}>
               {statusUpdateMessage}
@@ -712,7 +672,6 @@ function OrderDetail() {
                 const supplierForPO = suppliers.find(s => s.id === poInfo.supplier_id);
                 const supplierName = supplierForPO ? supplierForPO.name : `ID: ${poInfo.supplier_id}`;
                 const poTitle = `PO #${poInfo.po_number} sent to ${supplierName}`;
-                
                 const hasAnyPdf = poInfo.po_pdf_gcs_uri || poInfo.packing_slip_gcs_uri || poInfo.label_gcs_uri;
 
                 return (
@@ -720,26 +679,11 @@ function OrderDetail() {
                         <p className="po-number-title">{poTitle}</p>
                         {hasAnyPdf ? (
                             <div className="pdf-links-wrapper">
-                                {poInfo.po_pdf_gcs_uri && (
-                                    <a href={poInfo.po_pdf_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
-                                    {/* Removed img tag for pdfIconUrl as it's not defined */}
-                                     View PO
-                                    </a>
-                                )}
-                                {poInfo.packing_slip_gcs_uri && (
-                                    <a href={poInfo.packing_slip_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
-                                     View Packing Slip
-                                    </a>
-                                )}
-                                {poInfo.label_gcs_uri && (
-                                    <a href={poInfo.label_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
-                                     View Label
-                                    </a>
-                                )}
+                                {poInfo.po_pdf_gcs_uri && ( <a href={poInfo.po_pdf_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link"> View PO </a> )}
+                                {poInfo.packing_slip_gcs_uri && ( <a href={poInfo.packing_slip_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link"> View Packing Slip </a> )}
+                                {poInfo.label_gcs_uri && ( <a href={poInfo.label_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link"> View Label </a> )}
                             </div>
-                        ) : (
-                            <p className="no-documents-note">No PDF document links available for this PO.</p>
-                        )}
+                        ) : ( <p className="no-documents-note">No PDF document links available for this PO.</p> )}
                     </div>
                 );
               })}
@@ -748,7 +692,6 @@ function OrderDetail() {
         </div>
       )}
 
-      {/* Display Order Information only if not showing the success message AND orderData/order exists */}
       {orderData && order && !processSuccess && (
        <section className="order-info card">
         <h3>Order Information</h3>
@@ -761,24 +704,10 @@ function OrderDetail() {
         {originalLineItems.map((item) => (
             <p key={`orig-item-${item.line_item_id}`} className="order-info-sku-line">
                 <span>({item.quantity || 0}) </span>
-                {/* MODIFIED LINK BELOW */}
                 <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.original_sku}`} onClick={(e) => handlePartNumberLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
-                
                 {loadingSpares && item.hpe_pn_type === 'option' && !lineItemSpares[item.line_item_id] && <span className="loading-text"> (loading spare...)</span>}
-                
-                {lineItemSpares[item.line_item_id] && (
-                    <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>(
-                        {/* MODIFIED LINK BELOW */}
-                        <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a>
-                    )</span>
-                )}
-                
-                {item.hpe_option_pn && String(item.hpe_option_pn).trim() !== String(item.original_sku).trim() && String(item.hpe_option_pn).trim() !== lineItemSpares[item.line_item_id] && (
-                    <span>{' ('}
-                        {/* MODIFIED LINK BELOW */}
-                        <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a>
-                    {')'}</span>
-                )}
+                {lineItemSpares[item.line_item_id] && ( <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>( <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a> )</span> )}
+                {item.hpe_option_pn && String(item.hpe_option_pn).trim() !== String(item.original_sku).trim() && String(item.hpe_option_pn).trim() !== lineItemSpares[item.line_item_id] && ( <span>{' ('} <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a> {')'}</span> )}
                 <span> @ ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
             </p>
         ))}
@@ -789,11 +718,23 @@ function OrderDetail() {
         <section className="supplier-mode-selection card">
         <h3>Begin Order Fulfillment</h3>
         <div className="form-grid">
-            <label htmlFor="mainSupplierTrigger"></label> {/* Consider adding "Select Supplier Mode:" or similar text */}
-            <select id="mainSupplierTrigger" value={selectedMainSupplierTrigger} onChange={handleMainSupplierTriggerChange} disabled={disableAllActions || suppliers.length === 0}>
+            <label htmlFor="mainSupplierTrigger" style={{ marginRight: '8px' }}>Supplier Mode:</label> 
+            <select 
+                id="mainSupplierTrigger" 
+                value={selectedMainSupplierTrigger} 
+                onChange={handleMainSupplierTriggerChange} 
+                disabled={disableAllActions || suppliers.length === 0}
+                style={{ flexGrow: 1 }}
+            >
                 <option value="">-- Select Supplier --</option>
-                <option value={MULTI_SUPPLIER_MODE_VALUE}>** Use Multiple Suppliers **</option>
-                {(suppliers || []).map(supplier => (<option key={supplier.id} value={supplier.id}>{supplier.name || 'Unnamed Supplier'}</option>))}
+                {originalLineItems.length > 1 && ( 
+                    <option value={MULTI_SUPPLIER_MODE_VALUE}>** Use Multiple Suppliers **</option>
+                )}
+                {(suppliers || []).map(supplier => (
+                    <option key={supplier.id} value={supplier.id}>
+                        {supplier.name || 'Unnamed Supplier'}
+                    </option>
+                ))}
             </select>
         </div>
       </section>
@@ -810,7 +751,7 @@ function OrderDetail() {
               <div className="purchase-items-grid">
                 <h4>Items to Purchase:</h4>
                 <div className="item-header-row"><span>Purchase SKU</span><span>Description</span><span>Qty</span><span>Unit Cost</span></div>
-                {purchaseItems.map((item, index) => ( 
+                {purchaseItemsRef.current.map((item, index) => ( // Use purchaseItemsRef.current for rendering
                      <div key={`po-item-${item.original_order_line_item_id || index}`} className="item-row">
                         <div><label className="mobile-label" htmlFor={`sku-${index}`}>SKU:</label><input id={`sku-${index}`} type="text" value={item.skuInputValue || ''} onChange={(e) => handlePurchaseItemChange(index, 'sku', e.target.value)} placeholder="SKU" required disabled={disableEditableFormFields} title={item.original_sku ? `Original: ${item.original_sku}` : ''} className="sku-input" /></div>
                         <div><label className="mobile-label" htmlFor={`desc-${index}`}>Desc:</label><textarea id={`desc-${index}`} value={item.description || ''} onChange={(e) => handlePurchaseItemChange(index, 'description', e.target.value)} placeholder="Desc" rows={2} disabled={disableEditableFormFields} className="description-textarea" /></div>
@@ -826,11 +767,11 @@ function OrderDetail() {
               <h3>Shipment Information</h3>
               <div className="form-grid">
                 <label htmlFor="shipmentMethod">Method:</label>
-                <select id="shipmentMethod" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={purchaseItems.length > 0}> {/* Required only if items exist */}
+                <select id="shipmentMethod" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={purchaseItemsRef.current.length > 0}> 
                     {SHIPPING_METHODS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
                 <label htmlFor="shipmentWeight">Weight (lbs):</label>
-                <input type="number" id="shipmentWeight" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={purchaseItems.length > 0} disabled={disableEditableFormFields} /> {/* Required only if items exist */}
+                <input type="number" id="shipmentWeight" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={purchaseItemsRef.current.length > 0} disabled={disableEditableFormFields} /> 
               </div>
             </section>
              <div className="order-actions">
@@ -857,9 +798,9 @@ function OrderDetail() {
                 ))}
             </section>
 
-            {[...new Set(Object.values(lineItemAssignments))].filter(id => id).map(supplierId => { // Iterate over unique assigned supplier IDs
+            {[...new Set(Object.values(lineItemAssignments))].filter(id => id).map(supplierId => { 
                 const supplier = suppliers.find(s => s.id === parseInt(supplierId, 10));
-                if (!supplier) return null; // Should not happen if IDs are from selection
+                if (!supplier) return null; 
                 const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supplierId);
                 return (
                     <section key={supplierId} className="supplier-po-draft card">
@@ -867,35 +808,14 @@ function OrderDetail() {
                         <div className="purchase-items-grid multi-supplier-items">
                             {itemsForThisSupplier.map(item => (
                                 <div key={`multi-item-${item.line_item_id}`} className="item-row-multi">
-                                    <div className="item-info-multi">
-                                        Qty {item.quantity} of {item.original_sku || 'N/A'}
-                                    </div>
+                                    <div className="item-info-multi"> Qty {item.quantity} of {item.original_sku || 'N/A'} </div>
                                     <div className="item-description-multi">
                                         <label className="mobile-label" htmlFor={`desc-multi-${item.line_item_id}`}>Description:</label>
-                                        <textarea
-                                            id={`desc-multi-${item.line_item_id}`}
-                                            value={multiSupplierItemDescriptions[item.line_item_id] || ''}
-                                            onChange={(e) => handleMultiSupplierItemDescriptionChange(item.line_item_id, e.target.value)}
-                                            placeholder="Item Description for PO"
-                                            rows={2} // Keep rows consistent
-                                            disabled={disableAllActions}
-                                            className="description-textarea-multi" // Ensure styling is applied
-                                        />
+                                        <textarea id={`desc-multi-${item.line_item_id}`} value={multiSupplierItemDescriptions[item.line_item_id] || ''} onChange={(e) => handleMultiSupplierItemDescriptionChange(item.line_item_id, e.target.value)} placeholder="Item Description for PO" rows={2} disabled={disableAllActions} className="description-textarea-multi" />
                                     </div>
                                     <div className="item-cost-multi">
                                       <label htmlFor={`cost-multi-${item.line_item_id}`} className="mobile-label">Unit Cost:</label>
-                                      <input
-                                          id={`cost-multi-${item.line_item_id}`} // Unique ID
-                                          type="number"
-                                          value={multiSupplierItemCosts[item.line_item_id] || ''}
-                                          onChange={(e) => handleMultiSupplierItemCostChange(item.line_item_id, e.target.value)}
-                                          step="0.01"
-                                          min="0"
-                                          placeholder="0.00"
-                                          required // Cost is required per item
-                                          disabled={disableAllActions}
-                                          className="price-input"
-                                      />
+                                      <input id={`cost-multi-${item.line_item_id}`} type="number" value={multiSupplierItemCosts[item.line_item_id] || ''} onChange={(e) => handleMultiSupplierItemCostChange(item.line_item_id, e.target.value)} step="0.01" min="0" placeholder="0.00" required disabled={disableAllActions} className="price-input" />
                                     </div>
                                 </div>
                             ))}
@@ -904,29 +824,14 @@ function OrderDetail() {
                             <h5>Shipment Details for this PO (Optional - for Label Generation)</h5>
                             <div className="form-group">
                                 <label htmlFor={`shipMethod-multi-${supplierId}`}>Method:</label>
-                                <select
-                                    id={`shipMethod-multi-${supplierId}`}
-                                    value={multiSupplierShipmentDetails[supplierId]?.method || ''} // Default to empty if not set, allowing "-- No Label"
-                                    onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'method', e.target.value)}
-                                    disabled={disableAllActions}
-                                >
+                                <select id={`shipMethod-multi-${supplierId}`} value={multiSupplierShipmentDetails[supplierId]?.method || ''} onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'method', e.target.value)} disabled={disableAllActions} >
                                     <option value="">-- No Label / Method --</option>
                                     {SHIPPING_METHODS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                                 </select>
                             </div>
                             <div className="form-group">
                                 <label htmlFor={`shipWeight-multi-${supplierId}`}>Weight (lbs):</label>
-                                <input
-                                    id={`shipWeight-multi-${supplierId}`}
-                                    type="number"
-                                    value={multiSupplierShipmentDetails[supplierId]?.weight || ''}
-                                    onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'weight', e.target.value)}
-                                    step="0.1"
-                                    min="0.1"
-                                    placeholder="e.g., 5.0"
-                                    disabled={disableAllActions || !multiSupplierShipmentDetails[supplierId]?.method} // Disable if no method selected
-                                    className="price-input" 
-                                />
+                                <input id={`shipWeight-multi-${supplierId}`} type="number" value={multiSupplierShipmentDetails[supplierId]?.weight || ''} onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'weight', e.target.value)} step="0.1" min="0.1" placeholder="e.g., 5.0" disabled={disableAllActions || !multiSupplierShipmentDetails[supplierId]?.method} className="price-input" />
                             </div>
                         </div>
                         <div className="form-grid">
@@ -945,19 +850,17 @@ function OrderDetail() {
       )}
 
       <div className="manual-actions-section" style={{marginTop: "20px"}}>
-           {/* Only show "Mark as Completed Offline" if order status is international_manual or pending AND not already processed/completed */}
            {order && (order.status?.toLowerCase() === 'international_manual' || order.status?.toLowerCase() === 'pending') && !isActuallyProcessed && !isActuallyCompletedOffline && (
               <button onClick={() => handleManualStatusUpdate('Completed Offline')} className="btn btn-gradient btn-shadow-lift btn-success manual-action-button-specifics" disabled={disableAllActions}>
                   {manualStatusUpdateInProgress && (order.status?.toLowerCase() === 'international_manual' || order.status?.toLowerCase() === 'pending') ? 'Updating...' : 'Mark as Completed Offline'}
               </button>
           )}
-           {/* Only show "Process Manually (Set to Pending)" if order status is 'new' AND not already processed/completed */}
            {order && order.status?.toLowerCase() === 'new' && !isActuallyProcessed && !isActuallyCompletedOffline && (
               <div style={{ marginTop: '10px', textAlign: 'center' }}>
                   <a href="#" onClick={(e) => { e.preventDefault(); if (!disableAllActions) handleManualStatusUpdate('pending');}}
                       className={`link-button ${(manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new') ? 'link-button-updating' : ''}`}
                       style={{ fontSize: '0.9em', color: !(manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new') ? 'var(--text-secondary)' : undefined }}
-                      aria-disabled={disableAllActions || (manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new')}> {/* More specific disabled state */}
+                      aria-disabled={disableAllActions || (manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new')}> 
                       {(manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new') ? 'Updating...' : 'Or, Process Manually (Set to Pending)'}
                   </a>
               </div>
@@ -965,13 +868,11 @@ function OrderDetail() {
       </div>
 
       <div className="order-actions" style={{ marginTop: '20px', textAlign: 'center' }}>
-          {/* Show "BACK TO DASHBOARD" if new success message OR if already processed/completed */}
           {(isActuallyProcessed || isActuallyCompletedOffline || processSuccess) && (
-              <button type="button" onClick={() => navigate('/')} className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics" disabled={disableAllActions && !processSuccess}> {/* Disable only if general actions are disabled AND no new success */}
+              <button type="button" onClick={() => navigate('/')} className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics" disabled={disableAllActions && !processSuccess}> 
                   BACK TO DASHBOARD
               </button>
           )}
-          {/* Show "already processed" message ONLY if it's actually processed/completed AND no NEW success message is being shown */}
           {(isActuallyProcessed || isActuallyCompletedOffline) && !processSuccess && (
               <div style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>
                   This order has been {order.status?.toLowerCase()} and no further automated actions are available.
