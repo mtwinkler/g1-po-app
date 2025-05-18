@@ -129,6 +129,30 @@ SHIP_FROM_ZIP = os.getenv("SHIP_FROM_ZIP")
 SHIP_FROM_COUNTRY = os.getenv("SHIP_FROM_COUNTRY", "US") 
 SHIP_FROM_PHONE = os.getenv("SHIP_FROM_PHONE")
 
+# --- FedEx API Credentials ---
+FEDEX_CLIENT_ID_SANDBOX = os.getenv("FEDEX_CLIENT_ID_SANDBOX")
+FEDEX_CLIENT_SECRET_SANDBOX = os.getenv("FEDEX_CLIENT_SECRET_SANDBOX")
+FEDEX_ACCOUNT_NUMBER_SANDBOX = os.getenv("FEDEX_ACCOUNT_NUMBER_SANDBOX") # Your company's FedEx account
+FEDEX_API_BASE_URL_SANDBOX = os.getenv("FEDEX_API_BASE_URL_SANDBOX", "https://apis-sandbox.fedex.com")
+
+FEDEX_CLIENT_ID_PRODUCTION = os.getenv("FEDEX_CLIENT_ID_PRODUCTION")
+FEDEX_CLIENT_SECRET_PRODUCTION = os.getenv("FEDEX_CLIENT_SECRET_PRODUCTION")
+FEDEX_ACCOUNT_NUMBER_PRODUCTION = os.getenv("FEDEX_ACCOUNT_NUMBER_PRODUCTION") # Your company's FedEx account
+FEDEX_API_BASE_URL_PRODUCTION = os.getenv("FEDEX_API_BASE_URL_PRODUCTION", "https://apis.fedex.com")
+
+# Determine active FedEx credentials (similar to how you might do for other services)
+IS_PRODUCTION_ENV = os.getenv('FLASK_ENV') == 'production' # Or your preferred way to check env
+
+ACTIVE_FEDEX_CLIENT_ID = FEDEX_CLIENT_ID_PRODUCTION if IS_PRODUCTION_ENV else FEDEX_CLIENT_ID_SANDBOX
+ACTIVE_FEDEX_CLIENT_SECRET = FEDEX_CLIENT_SECRET_PRODUCTION if IS_PRODUCTION_ENV else FEDEX_CLIENT_SECRET_SANDBOX
+ACTIVE_FEDEX_ACCOUNT_NUMBER = FEDEX_ACCOUNT_NUMBER_PRODUCTION if IS_PRODUCTION_ENV else FEDEX_ACCOUNT_NUMBER_SANDBOX
+ACTIVE_FEDEX_API_BASE_URL = FEDEX_API_BASE_URL_PRODUCTION if IS_PRODUCTION_ENV else FEDEX_API_BASE_URL_SANDBOX
+
+if not all([ACTIVE_FEDEX_CLIENT_ID, ACTIVE_FEDEX_CLIENT_SECRET, ACTIVE_FEDEX_ACCOUNT_NUMBER, ACTIVE_FEDEX_API_BASE_URL]):
+    print("WARN APP_SETUP: FedEx API credentials not fully configured for the active environment.")
+else:
+    print(f"DEBUG APP_SETUP: FedEx API configured for {'Production' if IS_PRODUCTION_ENV else 'Sandbox'} environment.")
+
 GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
 COMPANY_LOGO_GCS_URI = os.getenv("COMPANY_LOGO_GCS_URI") 
 if COMPANY_LOGO_GCS_URI:
@@ -557,12 +581,19 @@ def ingest_orders():
                     
                     # Initialize variables for parsed freight info
                     parsed_customer_carrier = None
-                    parsed_customer_selected_service = None
+                    parsed_customer_selected_ups_service = None # Renaming for clarity
                     parsed_customer_ups_account_num = None
                     is_bill_to_customer_ups_acct = False
-                    
+                    parsed_customer_ups_account_zipcode = None # Added from your v11.0 doc for UPS
+
+                    # New FedEx variables
+                    parsed_customer_selected_fedex_service = None
+                    parsed_customer_fedex_account_num = None
+                    is_bill_to_customer_fedex_acct = False
+                    parsed_customer_fedex_account_zipcode = None # Placeholder
+
                     raw_customer_message = bc_order_summary.get('customer_message', '')
-                    customer_notes_for_db = raw_customer_message 
+                    customer_notes_for_db = raw_customer_message
 
                     freight_delimiter_present = "|| Carrier:" in raw_customer_message and "|| Account#:" in raw_customer_message
 
@@ -570,32 +601,41 @@ def ingest_orders():
                         print(f"DEBUG INGEST: Found potential custom freight details in notes for BC Order {order_id_from_bc}", flush=True)
                         parts = raw_customer_message.split(' || ')
                         # The first part (parts[0]) is considered the user's actual comment.
-                        # customer_notes_for_db will remain the full raw_customer_message for now.
-                        
+                        # customer_notes_for_db will remain the full raw_customer_message for now,
+                        # or you might decide to strip the freight details if they are only for machine parsing.
+
                         temp_carrier = None
                         temp_service = None
                         temp_account = None
 
                         for part_idx, part_content in enumerate(parts):
                             if part_idx == 0: continue # Skip the actual user comment part for freight parsing
-                            if part_content.startswith("Carrier: "):
-                                temp_carrier = part_content.replace("Carrier: ", "").strip()
-                            elif part_content.startswith("Service: "):
-                                temp_service = part_content.replace("Service: ", "").strip()
-                            elif part_content.startswith("Account#: "):
-                                temp_account = part_content.replace("Account#: ", "").strip()
+                            
+                            content_lower = part_content.lower() # For case-insensitive matching of keys
+                            
+                            if content_lower.startswith("carrier:"):
+                                temp_carrier = part_content.split(":", 1)[1].strip()
+                            elif content_lower.startswith("service:"):
+                                temp_service = part_content.split(":", 1)[1].strip()
+                            elif content_lower.startswith("account#:"): # Match "Account#:"
+                                temp_account = part_content.split(":", 1)[1].strip()
                         
                         if temp_carrier and temp_account:
-                            parsed_customer_carrier = temp_carrier
-                            parsed_customer_selected_service = temp_service
+                            parsed_customer_carrier = temp_carrier # Store the general carrier
                             if "UPS" in temp_carrier.upper():
+                                parsed_customer_selected_ups_service = temp_service
                                 parsed_customer_ups_account_num = temp_account
                                 is_bill_to_customer_ups_acct = True
-                                print(f"INFO INGEST: Customer indicated use of their UPS account: {parsed_customer_ups_account_num} with service '{temp_service}' for BC Order {order_id_from_bc}", flush=True)
+                                print(f"INFO INGEST: Customer indicated UPS account: {parsed_customer_ups_account_num}, Service: '{temp_service}'' for BC Order {order_id_from_bc}", flush=True)
+                            elif "FEDEX" in temp_carrier.upper() or "FED EX" in temp_carrier.upper(): # Handle "FEDEX" or "FED EX"
+                                parsed_customer_selected_fedex_service = temp_service
+                                parsed_customer_fedex_account_num = temp_account
+                                is_bill_to_customer_fedex_acct = True
+                                print(f"INFO INGEST: Customer indicated FedEx account: {parsed_customer_fedex_account_num}, Service: '{temp_service}'' for BC Order {order_id_from_bc}", flush=True)
                             else:
-                                print(f"INFO INGEST: Customer indicated own freight account (Carrier: '{temp_carrier}', Account: '{temp_account}', Service: '{temp_service}'), not UPS. BC Order {order_id_from_bc}", flush=True)
+                                print(f"INFO INGEST: Customer indicated other freight account (Carrier: '{temp_carrier}', Account: '{temp_account}', Service: '{temp_service}'). BC Order {order_id_from_bc}", flush=True)
                         else:
-                            print(f"WARN INGEST: Custom freight details format issue for BC Order {order_id_from_bc}. Notes: '{raw_customer_message}'", flush=True)
+                            print(f"WARN INGEST: Custom freight details format issue (missing carrier or account) for BC Order {order_id_from_bc}. Notes: '{raw_customer_message}'", flush=True)
                     else: 
                         if customer_notes_for_db: 
                             sensitive_pattern = re.compile(r'\*{10}.*?\*{10}', re.DOTALL)
@@ -608,11 +648,14 @@ def ingest_orders():
                         text("""SELECT id, status, is_international, payment_method, 
                                       bigcommerce_order_tax, customer_notes,
                                       customer_selected_freight_service, customer_ups_account_number, 
-                                      is_bill_to_customer_account 
+                                      is_bill_to_customer_account, customer_ups_account_zipcode,
+                                      -- Add new FedEx columns here for selection
+                                      customer_selected_fedex_service, customer_fedex_account_number,
+                                      is_bill_to_customer_fedex_account, customer_fedex_account_zipcode
                               FROM orders WHERE bigcommerce_order_id = :bc_order_id"""),
                         {"bc_order_id": order_id_from_bc}
                     ).fetchone()
-
+                    
                     bc_total_tax = Decimal(bc_order_summary.get('total_tax', '0.00'))
                     bc_total_inc_tax = Decimal(bc_order_summary.get('total_inc_tax', '0.00'))
                     current_time_utc = datetime.now(timezone.utc)
@@ -633,12 +676,21 @@ def ingest_orders():
                         if existing_order_row.bigcommerce_order_tax != bc_total_tax: update_fields['bigcommerce_order_tax'] = bc_total_tax
                         if existing_order_row.customer_notes != customer_notes_for_db: update_fields['customer_notes'] = customer_notes_for_db
                         
-                        if existing_order_row.customer_selected_freight_service != parsed_customer_selected_service:
-                            update_fields['customer_selected_freight_service'] = parsed_customer_selected_service
+                        # UPS specific fields
+                        if existing_order_row.customer_selected_freight_service != parsed_customer_selected_ups_service: # Note: This field was generic, now UPS-specific
+                            update_fields['customer_selected_freight_service'] = parsed_customer_selected_ups_service
                         if existing_order_row.customer_ups_account_number != parsed_customer_ups_account_num:
                             update_fields['customer_ups_account_number'] = parsed_customer_ups_account_num
-                        if existing_order_row.is_bill_to_customer_account != is_bill_to_customer_ups_acct:
+                        if existing_order_row.is_bill_to_customer_account != is_bill_to_customer_ups_acct: # Note: This field was generic, now UPS-specific
                             update_fields['is_bill_to_customer_account'] = is_bill_to_customer_ups_acct
+
+                        # New FedEx specific fields
+                        if existing_order_row.customer_selected_fedex_service != parsed_customer_selected_fedex_service:
+                            update_fields['customer_selected_fedex_service'] = parsed_customer_selected_fedex_service
+                        if existing_order_row.customer_fedex_account_number != parsed_customer_fedex_account_num:
+                            update_fields['customer_fedex_account_number'] = parsed_customer_fedex_account_num
+                        if existing_order_row.is_bill_to_customer_fedex_account != is_bill_to_customer_fedex_acct:
+                            update_fields['is_bill_to_customer_fedex_account'] = is_bill_to_customer_fedex_acct
                         
                         if db_status not in finalized_or_manual_statuses:
                             new_app_status_by_ingest = 'international_manual' if is_international else 'new'
@@ -679,15 +731,42 @@ def ingest_orders():
                             "payment_method": bc_order_summary.get('payment_method'),
                             "created_at": current_time_utc,
                             "updated_at": current_time_utc,
-                            "customer_selected_freight_service": parsed_customer_selected_service,
+                            # UPS specific (previously generic, now UPS-specific)
+                            "customer_selected_freight_service": parsed_customer_selected_ups_service, # Was generic, now for UPS
                             "customer_ups_account_number": parsed_customer_ups_account_num,
-                            "is_bill_to_customer_account": is_bill_to_customer_ups_acct,
-                            "customer_ups_account_zipcode": None 
+                            "is_bill_to_customer_account": is_bill_to_customer_ups_acct, # Was generic, now for UPS
+                            "customer_ups_account_zipcode": None, # Explicitly set to None for new orders
+                            # New FedEx specific
+                            "customer_selected_fedex_service": parsed_customer_selected_fedex_service,
+                            "customer_fedex_account_number": parsed_customer_fedex_account_num,
+                            "is_bill_to_customer_fedex_account": is_bill_to_customer_fedex_acct,
+                            "customer_fedex_account_zipcode": None
                         }
+                        # Ensure all existing fields are present in order_values if you're not listing them all here
+                        # Example: copy existing fields
+                        order_values.update({
+                            "customer_company": customer_shipping_address.get('company'),
+                            "customer_name": f"{customer_shipping_address.get('first_name', '')} {customer_shipping_address.get('last_name', '')}".strip(),
+                            "customer_shipping_address_line1": customer_shipping_address.get('street_1'),
+                            "customer_shipping_address_line2": customer_shipping_address.get('street_2'),
+                            "customer_shipping_city": customer_shipping_address.get('city'),
+                            "customer_shipping_state": customer_shipping_address.get('state'),
+                            "customer_shipping_zip": customer_shipping_address.get('zip'),
+                            "customer_shipping_country": customer_shipping_address.get('country_iso2'),
+                            "customer_phone": customer_shipping_address.get('phone'),
+                            "customer_email": bc_order_summary.get('billing_address', {}).get('email', customer_shipping_address.get('email')),
+                            "customer_shipping_method": calculated_shipping_method_name,
+                            "order_date": datetime.strptime(bc_order_summary['date_created'], '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=timezone.utc) if bc_order_summary.get('date_created') else current_time_utc,
+                            "total_sale_price": bc_total_inc_tax,
+                            "bigcommerce_order_tax": bc_total_tax,
+                            "status": target_app_status,
+                            "is_international": is_international,
+                            "payment_method": bc_order_summary.get('payment_method'),
+                        })
                         order_table_cols = [sqlalchemy.column(c) for c in order_values.keys()]
                         insert_order_stmt = insert(sqlalchemy.table('orders', *order_table_cols)).values(order_values).returning(sqlalchemy.column('id'))
                         inserted_order_id = conn.execute(insert_order_stmt).scalar_one()
-                        print(f"DEBUG INGEST: Inserted new Order {order_id_from_bc} (App ID {inserted_order_id}), status: {target_app_status}, BillToCustUPS: {is_bill_to_customer_ups_acct}", flush=True)
+                        print(f"DEBUG INGEST: Inserted new Order {order_id_from_bc} (App ID {inserted_order_id}), status: {target_app_status}, BillToCustUPS: {is_bill_to_customer_ups_acct}, BillToCustFedEx: {is_bill_to_customer_fedex_acct}", flush=True)
                         inserted_count_this_run += 1
 
                         if products_list:
