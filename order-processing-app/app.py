@@ -1017,21 +1017,32 @@ def process_order(order_id):
                         gs_po_pdf_path_supplier = f"gs://{GCS_BUCKET_NAME}/{po_blob_name}"
                         po_blob = bucket.blob(po_blob_name); po_blob.upload_from_string(po_pdf_bytes, content_type='application/pdf')
                         db_conn.execute(text("UPDATE purchase_orders SET po_pdf_gcs_path = :path WHERE id = :id"), {"path": gs_po_pdf_path_supplier, "id": new_purchase_order_id})
-                        try: po_pdf_signed_url = po_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET")
-                        except Exception as e_sign_po: print(f"ERROR gen signed URL PO: {e_sign_po}", flush=True)
+                        
+                        cloud_run_service_account_email = "992027428168-compute@developer.gserviceaccount.com"
+                        try:
+                            po_pdf_signed_url = po_blob.generate_signed_url(
+                                version="v4",
+                                expiration=timedelta(minutes=60),
+                                method="GET",
+                                service_account_email=cloud_run_service_account_email, # Explicitly tell it which SA should sign
+                                access_token=None # Important to set to None when using service_account_email for this flow
+                            )
+                        except Exception as e_sign_po:
+                            print(f"ERROR gen signed URL PO: {e_sign_po}", flush=True)
+
                     if ps_pdf_bytes_supplier:
                         ps_blob_name = f"{common_prefix_supplier}/ps_{generated_po_number}_{ts_suffix}.pdf"
                         gs_ps_path_supplier = f"gs://{GCS_BUCKET_NAME}/{ps_blob_name}"
                         ps_blob = bucket.blob(ps_blob_name); ps_blob.upload_from_string(ps_pdf_bytes_supplier, content_type='application/pdf')
                         db_conn.execute(text("UPDATE purchase_orders SET packing_slip_gcs_path = :path WHERE id = :id"), {"path": gs_ps_path_supplier, "id": new_purchase_order_id})
-                        try: ps_signed_url_supplier = ps_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET")
+                        try: ps_signed_url_supplier = ps_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET",service_account_email=cloud_run_service_account_email, access_token=None)
                         except Exception as e_sign_ps: print(f"ERROR gen signed URL PS: {e_sign_ps}", flush=True)
                     if label_pdf_bytes_supplier and tracking_this_po:
                         label_blob_name = f"{common_prefix_supplier}/label_{tracking_this_po}_{ts_suffix}.pdf"
                         gs_label_path_supplier = f"gs://{GCS_BUCKET_NAME}/{label_blob_name}"
                         label_blob = bucket.blob(label_blob_name); label_blob.upload_from_string(label_pdf_bytes_supplier, content_type='application/pdf')
                         db_conn.execute(text("UPDATE shipments SET label_gcs_path = :path WHERE purchase_order_id = :po_id AND tracking_number = :track"), {"path": gs_label_path_supplier, "po_id": new_purchase_order_id, "track": tracking_this_po})
-                        try: label_signed_url_supplier = label_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET")
+                        try: label_signed_url_supplier = label_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET",service_account_email=cloud_run_service_account_email, access_token=None)
                         except Exception as e_sign_label: print(f"ERROR gen signed URL Label: {e_sign_label}", flush=True)
                 
                 attachments_to_supplier = []

@@ -224,44 +224,35 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
 
     payment_information_payload = {}
     if is_bill_recipient_flag and customer_ups_acct_num:
-        print(f"DEBUG UPS Payload (Payment): Billing to Recipient Account: {customer_ups_acct_num}", flush=True)
+        print(f"DEBUG UPS Payload (Payment): Attempting to Bill Third Party Account: {customer_ups_acct_num}", flush=True)
+        
+        # Get the ShipTo address details for the third-party billing validation
+        third_party_postal_code = str(order_data.get('customer_shipping_zip'))
+        third_party_country_code = str(order_data.get('customer_shipping_country', 'US')).upper()
+
         payment_information_payload = {
             "ShipmentCharge": {
-                "Type": "02",  # Bill Recipient/Consignee
-                "BillReceiver": {
+                "Type": "01",  # Using "01" as per UPS BillThirdParty example (implies Shipper bills to Third Party)
+                "BillThirdParty": {
                     "AccountNumber": str(customer_ups_acct_num),
-                    "Address": { # ADD THIS ADDRESS BLOCK
-                        # Use the specific ZIP for the customer's UPS account if you ever collect it.
-                        # For now, using the shipping destination ZIP is a common fallback.
-                        "PostalCode": str(order_data.get('customer_shipping_zip')) 
+                    "Address": {
+                        "PostalCode": third_party_postal_code,
+                        "CountryCode": third_party_country_code
                     }
+                    # You can add "Name" and "AttentionName" of the third party (customer) if needed,
+                    # though often AccountNumber, PostalCode, and CountryCode are key for validation.
+                    # "Name": order_data.get('customer_company', order_data.get('customer_name')),
+                    # "AttentionName": order_data.get('customer_name')
                 }
             }
         }
-        print(f"DEBUG UPS Payload (Payment): Added BillReceiver Address with PostalCode: {order_data.get('customer_shipping_zip')}", flush=True)
+        print(f"DEBUG UPS Payload (Payment): BillThirdParty using Account: {customer_ups_acct_num}, PostalCode: {third_party_postal_code}, Country: {third_party_country_code}", flush=True)
 
-        # UPS may require PostalCode for BillReceiver validation.
-        # If customer_ups_acct_zip is provided (from a dedicated field for their account zip), use it.
-        # Otherwise, you might fall back to the shipping destination zip.
-        # For now, only add if customer_ups_acct_zip is explicitly provided for the account.
-        if customer_ups_acct_zip:
-            payment_information_payload["ShipmentCharge"]["BillReceiver"]["Address"] = {
-                "PostalCode": str(customer_ups_acct_zip)
-            }
-            print(f"DEBUG UPS Payload (Payment): Using customer account ZIP {customer_ups_acct_zip} for BillReceiver validation.", flush=True)
-        # else:
-            # If testing reveals issues, you might consider adding:
-            # print(f"DEBUG UPS Payload (Payment): Customer account ZIP not provided for BillReceiver. UPS may use destination ZIP or require it.", flush=True)
-            # payment_information_payload["ShipmentCharge"]["BillReceiver"]["Address"] = {
-            #     "PostalCode": str(order_data.get('customer_shipping_zip')) # Using destination ZIP as a fallback
-            # }
-
-
-    else:
+    else: # Default to Bill Shipper
         print(f"DEBUG UPS Payload (Payment): Billing to Shipper Account: {UPS_ACCOUNT_NUMBER}", flush=True)
         payment_information_payload = {
             "ShipmentCharge": {
-                "Type": "01",  # Bill Shipper
+                "Type": "01",
                 "BillShipper": {"AccountNumber": UPS_ACCOUNT_NUMBER}
             }
         }
