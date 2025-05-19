@@ -1,53 +1,142 @@
 /* FormCommon.css */
 
-/* --- Root Variables (Ensure these are defined, ideally in a global :root scope) --- */
+/* --- Root Variables --- */
 :root {
-  --primary-color: #0056b3; /* Blue for primary actions */
+  /* Light Mode Defaults (from your existing file) */
+  --primary-color: #0056b3; 
   --primary-color-light: #e7f1fc;
   --primary-color-dark: #004085;
-  --secondary-color: #6c757d; /* Grey for secondary actions/links */
+  --secondary-color: #6c757d; 
   --secondary-color-dark: #5a6268;
-  --success-color: #28a745; /* Green */
+  --success-color: #28a745; 
   --success-color-dark: #218838;
-  --warning-color: #ffc107; /* Yellow */
+  --warning-color: #ffc107; 
   --warning-color-dark: #e0a800;
-  --danger-color: #dc3545; /* Red */
+  --danger-color: #dc3545; 
   --danger-color-dark: #c82333;
+  
   --text-color: #333;
   --text-light: #555;
   --text-on-primary: #fff;
-  --text-on-warning: #212529;
+  --text-on-warning: #212529; /* Dark text for light yellow button */
+
   --border-light: #eee;
-  --border-medium: #ced4da; /* Common border color for inputs */
-  --border-focus: #80bdff; /* Input focus border color */
-  --background-light: #f8f9fa;
-  --white: #fff;
+  --border-medium: #ced4da; 
+  --border-focus: #80bdff; 
+  
+  --background-light: #f8f9fa; /* General light background */
+  --white: #fff; /* Often used for card/container backgrounds in light mode */
+  
   --input-background: #fff;
+  --input-text-color: #333; /* Added for explicit input text color */
+  --input-border-color: var(--border-medium); /* Use existing variable */
+  --input-focus-border-color: var(--border-focus); /* Use existing variable */
   --input-disabled-background: #e9ecef;
+  --input-placeholder-color: #999; /* Added for placeholder */
+  --input-readonly-bg-color: #e9ecef; /* Same as disabled for light mode */
+
+
   --box-shadow-soft: 0 2px 4px rgba(0, 0, 0, 0.075);
   --box-shadow-focus: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+
+  /* Form Specific Variables (can alias or use directly) */
+  --form-page-bg: var(--white);
+  --form-page-border: var(--border-light);
+  --form-page-shadow: var(--box-shadow-soft);
+  --form-header-text-color: #002a5c; /* Your existing dark blue */
+  --form-header-border-color: var(--border-light);
+  --form-label-text-color: var(--text-light);
+
+  /* Message Colors (Light Mode) */
+  --form-message-loading-bg: #e9ecef;
+  --form-message-loading-text: var(--text-color);
+  --form-message-loading-border: #ced4da;
+  --form-message-error-bg: #f8d7da;
+  --form-message-error-text: #721c24;
+  --form-message-error-border: #f5c6cb;
+  --form-message-success-bg: #d4edda;
+  --form-message-success-text: #155724;
+  --form-message-success-border: #c3e6cb;
+  
+  --form-back-link-color: var(--primary-color-dark);
+  --form-back-link-hover-color: var(--primary-color);
 }
 
-/* --- Form Page Container (Similar to .dashboard-container) --- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Dark Mode Overrides */
+    --primary-color: #007bff; /* Brighter blue for dark mode if needed */
+    --primary-color-light: #3a8eff;
+    --primary-color-dark: #0056b3; /* Can remain same or adjust */
+    
+    --text-color: #e0e0e0;       /* Light text for dark backgrounds */
+    --text-light: #b0b0b0;     /* Lighter secondary text */
+    --text-on-primary: #ffffff;  /* Text on primary buttons */
+    --text-on-warning: #212529; /* Keep dark text on yellow buttons */
+
+    --border-light: #444444;    /* Darker subtle borders */
+    --border-medium: #555555;   /* Darker input borders */
+    --border-focus: #0096ff;    /* Adjusted focus color for dark */
+
+    --background-light: #1e1e1e; /* Dark page background */
+    --white: #2c2c2c;           /* Dark card/container background */
+
+    --input-background: #3a3a3a; /* Darker input background */
+    --input-text-color: #e0e0e0;   /* Light input text */
+    --input-border-color: var(--border-medium);
+    --input-focus-border-color: var(--border-focus);
+    --input-disabled-background: #383838; /* Darker disabled background */
+    --input-placeholder-color: #777;
+    --input-readonly-bg-color: #383838;
+
+
+    --box-shadow-soft: 0 2px 4px rgba(0, 0, 0, 0.25); /* Adjusted shadow for dark */
+    --box-shadow-focus: 0 0 0 0.2rem rgba(0, 150, 255, 0.35); /* Dark mode focus shadow */
+
+    /* Form Specific Variables (Dark Mode) */
+    --form-page-bg: var(--white); /* Uses the new dark --white */
+    --form-page-border: var(--border-light); /* Uses new dark --border-light */
+    --form-header-text-color: #90caff; /* Lighter blue for dark mode header */
+    --form-header-border-color: var(--border-light);
+    --form-label-text-color: var(--text-light);
+
+    /* Message Colors (Dark Mode) */
+    --form-message-loading-bg: #3a3a3a;
+    --form-message-loading-text: var(--text-color);
+    --form-message-loading-border: var(--border-medium);
+    --form-message-error-bg: #721c24; /* Keep darker red bg, ensure text has contrast */
+    --form-message-error-text: #f8d7da; /* Light text on dark red */
+    --form-message-error-border: #f5c6cb;
+    --form-message-success-bg: #155724; /* Keep darker green bg */
+    --form-message-success-text: #d4edda; /* Light text on dark green */
+    --form-message-success-border: #c3e6cb;
+
+    --form-back-link-color: #66bfff;
+    --form-back-link-hover-color: #80ceff;
+  }
+}
+
+/* --- Form Page Container --- */
 .form-page-container {
-  max-width: 700px; /* Adjusted for typical form width */
+  max-width: 700px; 
   margin: 30px auto;
   padding: 25px 30px;
-  background-color: var(--white);
-  border: 1px solid var(--border-light);
+  background-color: var(--form-page-bg); /* Use variable */
+  border: 1px solid var(--form-page-border); /* Use variable */
   border-radius: 8px;
-  box-shadow: var(--box-shadow-soft);
+  box-shadow: var(--form-page-shadow); /* Use variable */
+  color: var(--text-color); /* Use variable for default text color in container */
 }
 
-/* --- Form Title Styling (Similar to .dashboard-container h2) --- */
+/* --- Form Title Styling --- */
 .form-page-container h2 {
-  color: #002a5c; /* Dark blue from Dashboard */
+  color: var(--form-header-text-color); /* Use variable */
   margin-bottom: 25px;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--form-header-border-color); /* Use variable */
   padding-bottom: 15px;
   text-align: center;
   text-transform: uppercase;
-  font-size: 1.5em; /* Slightly adjusted for forms */
+  font-size: 1.5em; 
   font-weight: 600;
 }
 
@@ -60,8 +149,8 @@
 .form-page-container label {
   display: block;
   margin-bottom: 8px;
-  font-weight: 600; /* Bolder labels */
-  color: var(--text-light);
+  font-weight: 600; 
+  color: var(--form-label-text-color); /* Use variable */
   font-size: 0.95em;
 }
 
@@ -75,28 +164,42 @@
 .form-page-container select {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--border-medium);
+  border: 1px solid var(--input-border-color); /* Use variable */
   border-radius: 4px;
   box-sizing: border-box;
   font-size: 1em;
-  background-color: var(--input-background);
-  color: var(--text-color);
+  background-color: var(--input-background); /* Use variable */
+  color: var(--input-text-color); /* Use variable */
   transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
 }
 
 .form-page-container input:focus,
 .form-page-container textarea:focus,
 .form-page-container select:focus {
-  border-color: var(--border-focus);
+  border-color: var(--input-focus-border-color); /* Use variable */
   outline: 0;
-  box-shadow: var(--box-shadow-focus);
+  box-shadow: var(--box-shadow-focus); /* Use variable */
 }
 
 .form-page-container input::placeholder,
 .form-page-container textarea::placeholder {
-  color: #999;
+  color: var(--input-placeholder-color); /* Use variable */
   opacity: 1;
 }
+
+.form-page-container input:disabled,
+.form-page-container textarea:disabled,
+.form-page-container select:disabled {
+    background-color: var(--input-disabled-background);
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+.form-page-container input[readonly], /* Added from my version */
+.form-page-container textarea[readonly] {
+  background-color: var(--input-readonly-bg-color);
+  cursor: not-allowed;
+}
+
 
 /* --- Button Styling --- */
 .form-page-container .form-button {
@@ -106,8 +209,8 @@
   cursor: pointer;
   font-size: 1em;
   font-weight: 500;
-  text-decoration: none; /* For Link components styled as buttons */
-  display: inline-block; /* For Link components */
+  text-decoration: none; 
+  display: inline-block; 
   text-align: center;
   transition: background-color 0.2s ease, opacity 0.2s ease;
 }
@@ -116,7 +219,7 @@
   background-color: var(--primary-color);
   color: var(--text-on-primary);
 }
-.form-button.primary:hover {
+.form-button.primary:hover:not(:disabled) { /* Added :not(:disabled) */
   background-color: var(--primary-color-dark);
 }
 
@@ -124,7 +227,7 @@
   background-color: var(--secondary-color);
   color: var(--text-on-primary);
 }
-.form-button.secondary:hover {
+.form-button.secondary:hover:not(:disabled) { /* Added :not(:disabled) */
   background-color: var(--secondary-color-dark);
 }
 
@@ -132,20 +235,20 @@
   background-color: var(--success-color);
   color: var(--text-on-primary);
 }
-.form-button.success:hover {
+.form-button.success:hover:not(:disabled) { /* Added :not(:disabled) */
   background-color: var(--success-color-dark);
 }
 
 .form-button.warning {
   background-color: var(--warning-color);
-  color: var(--text-on-warning); /* Text color for yellow button */
+  color: var(--text-on-warning); 
 }
-.form-button.warning:hover {
+.form-button.warning:hover:not(:disabled) { /* Added :not(:disabled) */
   background-color: var(--warning-color-dark);
 }
 
 .form-button:disabled {
-  background-color: #ccc;
+  background-color: #ccc; /* Your existing disabled style */
   color: #666;
   cursor: not-allowed;
   opacity: 0.7;
@@ -155,8 +258,8 @@
 .form-actions {
   margin-top: 25px;
   display: flex;
-  gap: 10px; /* Space between buttons */
-  justify-content: center; /* Align buttons to the right by default */
+  gap: 10px; 
+  justify-content: center; 
 }
 .form-actions.center {
   justify-content: center;
@@ -164,9 +267,12 @@
 .form-actions.start {
  justify-content: flex-start;
 }
+.form-actions.end { /* Added from my version for right alignment */
+    justify-content: flex-end;
+}
 
 
-/* --- Message Styling (from Dashboard.css, slightly adapted) --- */
+/* --- Message Styling --- */
 .form-message {
   padding: 10px 15px;
   margin-top: 10px;
@@ -179,33 +285,34 @@
 }
 
 .form-message.loading {
-  background-color: #e9ecef;
-  color: var(--text-color);
-  border-color: #ced4da;
+  background-color: var(--form-message-loading-bg);
+  color: var(--form-message-loading-text);
+  border-color: var(--form-message-loading-border);
 }
 
 .form-message.error {
-  background-color: #f8d7da;
-  color: #721c24;
-  border-color: #f5c6cb;
+  background-color: var(--form-message-error-bg);
+  color: var(--form-message-error-text);
+  border-color: var(--form-message-error-border);
 }
 
 .form-message.success {
-  background-color: #d4edda;
-  color: #155724;
-  border-color: #c3e6cb;
+  background-color: var(--form-message-success-bg);
+  color: var(--form-message-success-text);
+  border-color: var(--form-message-success-border);
 }
 
 /* --- Back Link Styling --- */
 .form-back-link {
   display: inline-block;
   margin-bottom: 20px;
-  color: var(--primary-color-dark);
+  color: var(--form-back-link-color); /* Use new variable */
   text-decoration: none;
   font-size: 0.9em;
 }
 .form-back-link:hover {
   text-decoration: underline;
+  color: var(--form-back-link-hover-color); /* Use new variable */
 }
 
 /* Helper class for full width buttons if needed */

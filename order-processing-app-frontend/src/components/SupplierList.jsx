@@ -1,67 +1,49 @@
 // SupplierList.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import './SupplierList.css'; // Assuming you have styles for this list
-import { useAuth } from '../contexts/AuthContext'; // Import useAuth
+import './SupplierList.css'; 
+import { useAuth } from '../contexts/AuthContext'; 
 
 function SupplierList() {
-  const { currentUser, loading: authLoading } = useAuth(); // Get currentUser and auth loading state
+  const { currentUser, loading: authLoading, apiService } = useAuth(); // Use apiService
   const [suppliers, setSuppliers] = useState([]);
-  const [loading, setLoading] = useState(true); // For loading supplier data
+  const [loading, setLoading] = useState(true); 
   const [error, setError] = useState(null);
   const navigate = useNavigate();
-  const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+  // VITE_API_BASE_URL is not needed here as apiService handles it.
 
   const fetchSuppliers = useCallback(async (signal) => {
-    if (!currentUser) {
-      setSuppliers([]); // Clear data if no user
+    if (!currentUser || !apiService) { // Check for apiService
+      setSuppliers([]); 
       setLoading(false);
-      // setError("Please log in to view suppliers."); // Error will be set by useEffect or ProtectedRoute
+      setError(currentUser ? "API service is unavailable." : "Please log in to view suppliers.");
       return;
     }
     setLoading(true);
     setError(null);
-    const relativePath = '/suppliers';
-    const fullApiUrl = `${VITE_API_BASE_URL}${relativePath}`;
-    console.log("SupplierList.jsx: Fetching suppliers from:", fullApiUrl);
+    const relativePath = '/suppliers'; // API endpoint path
+    console.log("SupplierList.jsx: Fetching suppliers from API via apiService:", relativePath);
 
     try {
-      const token = await currentUser.getIdToken(true); // Get Firebase ID token
-      const response = await fetch(fullApiUrl, {
-        signal,
-        headers: {
-          'Authorization': `Bearer ${token}` // Add Authorization header
-        }
-      });
-      if (signal && signal.aborted) return;
-
-      if (!response.ok) {
-        let errorMsg = `Failed to load suppliers. Status: ${response.status}`;
-        if (response.status === 401 || response.status === 403) {
-            errorMsg = "Unauthorized to fetch suppliers. Your session might have expired.";
-            // navigate('/login'); // Optional: redirect if session truly expired
-        } else {
-            try { const errorData = await response.json(); errorMsg = errorData.message || errorData.error || errorMsg; } catch (e) {}
-        }
-        throw new Error(errorMsg);
-      }
-      const data = await response.json();
+      // Use apiService.get() which handles token and base URL
+      const data = await apiService.get(relativePath, {}, { signal }); 
       if (signal && signal.aborted) return;
       setSuppliers(data || []);
     } catch (err) {
       if (err.name !== 'AbortError') {
         console.error("Error fetching suppliers:", err);
-        setError(err.message);
+        // err.data.message or err.message should contain the error from apiService
+        setError(err.data?.message || err.message || "Failed to load suppliers.");
         setSuppliers([]);
       }
     } finally {
       if (!signal || !signal.aborted) setLoading(false);
     }
-  }, [VITE_API_BASE_URL, currentUser, navigate]); // Added currentUser and navigate
+  }, [currentUser, apiService]); // apiService added to dependencies
 
   useEffect(() => {
-    if (authLoading) { // Wait for Firebase auth state to resolve
-        setLoading(true); // Keep the list loading
+    if (authLoading) { 
+        setLoading(true); 
         return;
     }
     if (currentUser) {
@@ -69,36 +51,34 @@ function SupplierList() {
       fetchSuppliers(abortController.signal);
       return () => abortController.abort();
     } else {
-      // No user, clear data and stop loading, set appropriate error
       setSuppliers([]);
       setLoading(false);
       setError("Please log in to view suppliers.");
     }
-  }, [currentUser, authLoading, fetchSuppliers]); // Added authLoading
+  }, [currentUser, authLoading, fetchSuppliers]); 
 
   const handleRowClick = (supplierId) => {
-    if (currentUser) { // Only navigate if user is logged in
-        navigate(`/suppliers/edit/${supplierId}`);
+    if (currentUser) { 
+        // Corrected navigation path
+        navigate(`/utils/suppliers/edit/${supplierId}`); 
     } else {
-        setError("Please log in to edit suppliers."); // Should ideally not happen if page is protected
+        setError("Please log in to edit suppliers."); 
     }
   };
 
   const handleLinkClick = (e) => {
     if (!currentUser) {
-        e.preventDefault(); // Prevent navigation if not logged in
+        e.preventDefault(); 
         setError("Please log in to perform this action.");
         return;
     }
-    e.stopPropagation(); // Allow link navigation if user is logged in
+    e.stopPropagation(); 
   };
 
-  if (authLoading) { // Show a generic loading if auth state is not yet resolved
+  if (authLoading) { 
     return <div className="loading-message list-view-container">Loading session...</div>;
   }
 
-  // This page should be protected by ProtectedRoute,
-  // but these checks provide graceful UI if it's somehow rendered without a user.
   if (!currentUser && !authLoading) {
     return (
         <div className="list-view-container">
@@ -108,21 +88,19 @@ function SupplierList() {
     );
   }
   
-  // If user is logged in, but data is still loading for the first time
   if (loading && currentUser && suppliers.length === 0) {
     return <div className="loading-message list-view-container">Loading suppliers...</div>;
   }
 
-  // If there was an error fetching data (and user is logged in)
   if (error && currentUser) {
      return (
         <div className="list-view-container">
             <h2>Suppliers</h2>
             <div className="error-message">Error loading suppliers: {error}</div>
-            {/* Still show add button if error is just for fetching list, and user is logged in */}
             {currentUser && (
                  <div className="controls-container" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'center' }}>
-                    <Link to="/suppliers/add" className="add-new-button">Add New Supplier</Link>
+                    {/* Corrected link path */}
+                    <Link to="/utils/suppliers/add" className="add-new-button">Add New Supplier</Link>
                 </div>
             )}
         </div>
@@ -133,18 +111,19 @@ function SupplierList() {
     <div className="list-view-container">
       <h2>Suppliers</h2>
 
-      {currentUser && ( // Only show controls if user is logged in
+      {currentUser && ( 
         <div className="controls-container" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'center' }}>
-            <Link to="/suppliers/add" className="add-new-button">Add New Supplier</Link>
+            {/* Corrected link path */}
+            <Link to="/utils/suppliers/add" className="add-new-button">Add New Supplier</Link>
         </div>
       )}
 
-      {/* Show specific fetch error only if data hasn't loaded and it's not a "please log in" type error */}
       {error && suppliers.length === 0 && !loading && (!error.toLowerCase().includes("log in")) && <div className="error-message">Error: {error}</div>}
 
       {suppliers.length === 0 && !loading && !error ? (
-        <p className="empty-list-message">No suppliers found. <Link to="/suppliers/add">Add one now?</Link></p>
-      ) : suppliers.length > 0 && !error && ( // Ensure suppliers exist and no error
+        // Corrected link path
+        <p className="empty-list-message">No suppliers found. <Link to="/utils/suppliers/add">Add one now?</Link></p>
+      ) : suppliers.length > 0 && !error && ( 
         <div className="table-responsive-container">
           <table className="data-table">
             <thead>
@@ -183,7 +162,8 @@ function SupplierList() {
                         )}
                     </td>
                     <td data-label="Actions" className="supplier-actions-cell">
-                      <Link to={`/suppliers/edit/${supplier.id}`} onClick={handleLinkClick} className="action-link">
+                      {/* Corrected link path */}
+                      <Link to={`/utils/suppliers/edit/${supplier.id}`} onClick={handleLinkClick} className="action-link">
                         Edit
                       </Link>
                     </td>

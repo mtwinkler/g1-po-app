@@ -1,6 +1,7 @@
+// App.jsx
 import React from 'react';
-import './App.css'; // Assuming your global styles and utility card styles are here or imported by it
-import { Routes, Route, Link, Navigate } from 'react-router-dom';
+import './App.css'; 
+import { Routes, Route, Link, Navigate } from 'react-router-dom'; // Removed BrowserRouter as Router
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // --- Import Core Page/Component Views ---
@@ -10,27 +11,21 @@ import Login from './components/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 
 // --- Import Utilities Section Components ---
-// Ensure these paths are correct based on your project structure
 import StandaloneUpsLabel from './components/StandaloneUpsLabel';
-import UtilitiesLandingPage from './components/UtilitiesLandingPage'; // You need to create this file
-import SupplierList from './components/SupplierList'; // Main page for Supplier Management
-import HpeDescriptionList from './components/HpeDescriptionList'; // NEWimport HpeDescriptionForm from './components/HpeDescriptionForm';
+import UtilitiesLandingPage from './components/UtilitiesLandingPage'; 
+import SupplierList from './components/SupplierList'; 
+import HpeDescriptionList from './components/HpeDescriptionList'; 
 import HpeDescriptionForm from './components/HpeDescriptionForm';
 import EditHpeDescriptionForm from './components/EditHpeDescriptionForm';
-import QuickbooksSync from './components/QuickbooksSync'; // Page for QuickBooks Sync functionality
+import QuickbooksSync from './components/QuickbooksSync'; 
 
-// If you have separate pages for adding/editing suppliers or products,
-// you would import them here and add their routes as well.
-// For example:
-// import SupplierForm from './components/SupplierForm';
-// import EditSupplierForm from './components/EditSupplierForm';
-// import ProductMappingForm from './components/ProductMappingForm';
-// import EditProductMappingForm from './components/EditProductMappingForm';
-
+// --- MODIFICATION: Uncomment and ensure correct paths for Supplier Forms ---
+import SupplierForm from './components/SupplierForm';
+import EditSupplierForm from './components/EditSupplierForm'; // Assuming you will create this file
 
 // Main App content component
 function AppContent() {
-  const { currentUser, logout } = useAuth(); // logout function is available from context
+  const { currentUser, logout } = useAuth(); 
 
   return (
     <div className="App">
@@ -40,13 +35,11 @@ function AppContent() {
             <Link to="/dashboard">Orders</Link> |{' '}
             <Link to="/dashboard/sales">Daily Sales</Link> |{' '}
             <Link to="/utilities">Utilities</Link>
-            {/* 
-            // Example Logout Button - uncomment and style if needed
             <button
               onClick={async () => {
                 try {
                   await logout();
-                  // Navigation to /login will be handled by ProtectedRoute
+                  // Navigation to /login will be handled by ProtectedRoute or similar logic
                 } catch (e) {
                   console.error("Logout failed", e);
                 }
@@ -55,7 +48,7 @@ function AppContent() {
                 marginLeft: '20px', 
                 background: 'none', 
                 border: 'none', 
-                color: 'var(--text-nav-link)', // Ensure CSS var is defined
+                color: 'var(--text-nav-link, white)', // Added fallback color
                 cursor: 'pointer', 
                 textDecoration: 'underline', 
                 padding: '0', 
@@ -64,7 +57,6 @@ function AppContent() {
             >
               Logout
             </button>
-            */}
           </>
         )}
         {!currentUser && (
@@ -136,19 +128,37 @@ function AppContent() {
               </ProtectedRoute>
             } 
           />
+
+          {/* --- MODIFICATION: Supplier CRUD Routes --- */}
+          {/* Route to list all suppliers - path adjusted to match common pattern */}
           <Route 
-            path="/admin/suppliers" 
+            path="/utils/suppliers" 
             element={ 
               <ProtectedRoute>
                 <SupplierList />
               </ProtectedRoute>
             } 
           />
-          {/* 
-            If you have separate pages for adding/editing suppliers, add routes like:
-            <Route path="/admin/suppliers/add" element={<ProtectedRoute><SupplierForm /></ProtectedRoute>} />
-            <Route path="/admin/suppliers/edit/:supplierId" element={<ProtectedRoute><EditSupplierForm /></ProtectedRoute>} />
-          */}
+          {/* Route to the form for adding a new supplier */}
+          <Route 
+            path="/utils/suppliers/add"
+            element={
+              <ProtectedRoute>
+                <SupplierForm />
+              </ProtectedRoute>
+            } 
+          />
+          {/* Route to the form for editing an existing supplier */}
+          <Route 
+            path="/utils/suppliers/edit/:supplierId"
+            element={
+              <ProtectedRoute>
+                <EditSupplierForm />
+              </ProtectedRoute> 
+            } 
+          />
+          {/* --- End Supplier CRUD Routes --- */}
+
           <Route 
             path="/admin/hpe-descriptions" 
             element={
@@ -162,7 +172,7 @@ function AppContent() {
               element={<ProtectedRoute><HpeDescriptionForm /></ProtectedRoute>} 
           />
           <Route 
-              path="/admin/hpe-descriptions/edit/:optionPnParam" // Ensure param name matches useParams
+              path="/admin/hpe-descriptions/edit/:optionPnParam" 
               element={<ProtectedRoute><EditHpeDescriptionForm /></ProtectedRoute>} 
           />
 
@@ -183,19 +193,19 @@ function AppContent() {
           />
         </Routes>
       </div>
-      {/* 
-        If you use a pdfIcon for preloading, ensure the path is correct (e.g., from public folder or imported)
-        <img src="/pdf-icon.png" alt="preload pdf icon" style={{ width: 1, height: 1, opacity: 0, position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }} /> 
-      */}
     </div>
   );
 }
 
-// Wrapper App component that includes AuthProvider
 function App() {
   return (
+    // Router should wrap AppContent if AppContent uses routing features like Link, Routes, useAuth for nav
+    // However, typically Router is at the very top level.
+    // If AuthProvider doesn't depend on Router, this is fine.
+    // If AuthProvider *does* use navigate or other router hooks, Router needs to be outside AuthProvider.
+    // For now, assuming AuthProvider is independent or this structure is intended.
     <AuthProvider>
-      <AppContent />
+        <AppContent />
     </AuthProvider>
   );
 }

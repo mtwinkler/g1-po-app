@@ -16,19 +16,17 @@ function UtilitiesLandingPage() {
           <p>Quickly generate ad-hoc UPS shipping labels for miscellaneous shipments.</p>
         </Link>
 
-        {/* Assuming QuickbooksSync.jsx now has a default export, even if placeholder */}
         <Link to="/utils/quickbooks-sync" className="utility-card">
           <h2>QuickBooks Integration</h2>
           <p>Sync Purchase Orders and Sales Orders to QuickBooks Desktop.</p>
         </Link>
 
-        {/* --- UPDATED: Supplier Management is now an active link --- */}
-        <Link to="/admin/suppliers" className="utility-card">
+        {/* --- MODIFICATION: Updated link to match App.jsx route --- */}
+        <Link to="/utils/suppliers" className="utility-card">
           <h2>Supplier Management</h2>
           <p>Add, view, edit, and manage supplier information and contacts.</p>
         </Link>
 
-        {/* --- UPDATED: Product Management is now an active link --- */}
         <Link to="/admin/hpe-descriptions" className="utility-card">
           <h2>Custom Product Descriptions</h2>
           <p>Manage PO descriptions for HPE Option PNs.</p>

@@ -37,15 +37,17 @@ const formatShippingMethod = (methodString) => {
   }
   const lowerMethod = methodString.toLowerCase().trim();
 
+  // Prioritize more specific matches first
   if (lowerMethod.includes('next day air early a.m.') || lowerMethod.includes('next day air early am') || lowerMethod.includes('next day air e')) return 'UPS Next Day Air Early A.M.';
   if (lowerMethod.includes('next day air') || lowerMethod.includes('nda')) return 'UPS Next Day Air';
   if (lowerMethod.includes('2nd day air') || lowerMethod.includes('second day air')) return 'UPS 2nd Day Air';
-  if (lowerMethod.includes('ground')) return 'UPS Ground';
+  if (lowerMethod.includes('ground')) return 'UPS Ground'; // General ground match
   if (lowerMethod.includes('worldwide expedited')) return 'UPS Worldwide Expedited';
   if (lowerMethod.includes('worldwide express')) return 'UPS Worldwide Express';
   if (lowerMethod.includes('worldwide saver')) return 'UPS Worldwide Saver';
-  if (lowerMethod.includes('free shipping')) return 'UPS Ground';
+  if (lowerMethod.includes('free shipping')) return 'UPS Ground'; // Default free shipping
 
+  // Exact matches for common UPS services (can be redundant if covered above, but safe)
   if (lowerMethod === 'ups ground') return 'UPS Ground';
   if (lowerMethod === 'ups 2nd day air') return 'UPS 2nd Day Air';
   if (lowerMethod === 'ups next day air') return 'UPS Next Day Air';
@@ -54,13 +56,16 @@ const formatShippingMethod = (methodString) => {
   if (lowerMethod === 'ups worldwide express') return 'UPS Worldwide Express';
   if (lowerMethod === 'ups worldwide saver') return 'UPS Worldwide Saver';
   
+  // Fallback for BigCommerce style "(Service Name)"
   const bcMatch = methodString.match(/\(([^)]+)\)/);
   if (bcMatch && bcMatch[1]) {
     const extracted = bcMatch[1].trim();
-    const innerFormatted = formatShippingMethod(extracted);
-    return innerFormatted !== 'N/A' ? innerFormatted : extracted;
+    const innerFormatted = formatShippingMethod(extracted); // Recursive call for the extracted part
+    // Return the formatted version if it's a known service, otherwise the extracted part
+    return innerFormatted !== 'N/A' ? innerFormatted : extracted; 
   }
-  return String(methodString).trim();
+
+  return String(methodString).trim(); // Default to the original string, trimmed
 };
 
 const MULTI_SUPPLIER_MODE_VALUE = "_MULTI_SUPPLIER_MODE_";
@@ -80,7 +85,8 @@ function OrderDetail() {
   const { orderId } = useParams();
   const { currentUser, loading: authLoading, apiService } = useAuth();
   const navigate = useNavigate();
-  const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+  // VITE_API_BASE_URL is not directly used in this component after apiService integration
+  // const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL; 
 
   const [orderData, setOrderData] = useState(null);
   const [suppliers, setSuppliers] = useState([]);
@@ -95,6 +101,7 @@ function OrderDetail() {
   const [statusUpdateMessage, setStatusUpdateMessage] = useState('');
   const [manualStatusUpdateInProgress, setManualStatusUpdateInProgress] = useState(false);
 
+  // *** MODIFICATION: Use purchaseItems directly as state, not via refs for rendering/updates ***
   const [purchaseItems, setPurchaseItems] = useState([]);
   const [shipmentMethod, setShipmentMethod] = useState('UPS Ground');
   const [shipmentWeight, setShipmentWeight] = useState('');
@@ -113,10 +120,7 @@ function OrderDetail() {
   const [lineItemSpares, setLineItemSpares] = useState({});
   const [loadingSpares, setLoadingSpares] = useState(false);
 
-  const setPurchaseItemsRef = useRef(setPurchaseItems);
-  useEffect(() => { setPurchaseItemsRef.current = setPurchaseItems; }, [setPurchaseItems]);
-  const purchaseItemsRef = useRef(purchaseItems);
-  useEffect(() => { purchaseItemsRef.current = purchaseItems; }, [purchaseItems]);
+  // Removed setPurchaseItemsRef and purchaseItemsRef and their useEffects
 
   const cleanPullSuffix = " - clean pull";
   const originalLineItems = orderData?.line_items || [];
@@ -190,13 +194,14 @@ function OrderDetail() {
                     original_order_line_item_id: item.line_item_id,
                     sku: item.hpe_option_pn || item.original_sku || '',
                     description: (item.hpe_po_description || item.line_item_name || '') + ( (item.hpe_po_description || item.line_item_name || '').endsWith(cleanPullSuffix) ? '' : cleanPullSuffix),
-                    skuInputValue: item.hpe_option_pn || item.original_sku || '',
+                    skuInputValue: item.hpe_option_pn || item.original_sku || '', // Keep this for direct input binding
                     quantity: item.quantity || 1, unit_cost: '', condition: 'New',
                     original_sku: item.original_sku, hpe_option_pn: item.hpe_option_pn,
                     original_name: item.line_item_name, hpe_po_description: item.hpe_po_description,
                     hpe_pn_type: item.hpe_pn_type,
                 }));
-                setPurchaseItemsRef.current(initialItemsForPoForm);
+                // *** MODIFICATION: Use setPurchaseItems directly ***
+                setPurchaseItems(initialItemsForPoForm);
 
                 const initialMultiDesc = {};
                 fetchedOrderData.line_items.forEach(item => {
@@ -207,7 +212,9 @@ function OrderDetail() {
                 });
                 setMultiSupplierItemDescriptions(initialMultiDesc);
             } else {
-                setPurchaseItemsRef.current([]); setMultiSupplierItemDescriptions({});
+                 // *** MODIFICATION: Use setPurchaseItems directly ***
+                setPurchaseItems([]); 
+                setMultiSupplierItemDescriptions({});
             }
         } else if (fetchedOrderData?.order) { 
             const orderDetails = fetchedOrderData.order;
@@ -234,7 +241,7 @@ function OrderDetail() {
     } finally {
         if (!signal || !signal.aborted) setLoading(false);
     }
-  }, [orderId, cleanPullSuffix, currentUser, apiService]);
+  }, [orderId, cleanPullSuffix, currentUser, apiService]); // setPurchaseItems removed as it's stable
 
   useEffect(() => {
     if (authLoading) { setLoading(true); return; }
@@ -279,28 +286,39 @@ function OrderDetail() {
       try {
         const data = await apiService.get(`/lookup/description/${encodeURIComponent(String(debouncedSku).trim())}`);
         if (abortController.signal.aborted) return;
-        setPurchaseItemsRef.current(prevItems => { /* ... as before ... */
+        // *** MODIFICATION: Use setPurchaseItems directly ***
+        setPurchaseItems(prevItems => {
             const updatedItems = [...prevItems];
+            // Ensure the item exists and the input value hasn't changed since debounce started
             if (updatedItems[skuToLookup.index]?.skuInputValue === debouncedSku) { 
                 let newDescription = data.description;
-                if (newDescription && typeof newDescription === 'string' && !newDescription.endsWith(cleanPullSuffix)) newDescription += cleanPullSuffix;
-                else if (!newDescription) { 
+                if (newDescription && typeof newDescription === 'string' && !newDescription.endsWith(cleanPullSuffix)) {
+                    newDescription += cleanPullSuffix;
+                } else if (!newDescription) { 
+                    // If API returns no description, try to keep existing (if any) and add suffix
                     const existingDesc = (updatedItems[skuToLookup.index].description || "").replace(new RegExp(escapeRegExp(cleanPullSuffix) + "$"), "").trim();
                     newDescription = (existingDesc ? existingDesc + " " : "") + cleanPullSuffix.trim();
-                    if (newDescription.startsWith(" " + cleanPullSuffix.trim())) newDescription = cleanPullSuffix.trim(); 
+                    // Handle case where existingDesc was empty, to avoid leading space
+                    if (newDescription.startsWith(" " + cleanPullSuffix.trim())) {
+                        newDescription = cleanPullSuffix.trim();
+                    }
                 }
                 updatedItems[skuToLookup.index] = { ...updatedItems[skuToLookup.index], description: newDescription };
             }
             return updatedItems;
         });
-      } catch (error) { /* ... as before ... */ 
-        if (error.name !== 'AbortError' && error.status !== 401 && error.status !== 403) console.error("Error fetching description:", error);
-        else if (error.status === 401 || error.status === 403) console.error("Unauthorized to fetch SKU description.");
+      } catch (error) { 
+        if (error.name !== 'AbortError' && error.status !== 401 && error.status !== 403) {
+            console.error("Error fetching description:", error);
+        } else if (error.status === 401 || error.status === 403) {
+            console.error("Unauthorized to fetch SKU description.");
+            // Optionally, redirect to login or show a message
+        }
       }
     };
     fetchDescription();
     return () => abortController.abort();
-  }, [debouncedSku, skuToLookup.index, cleanPullSuffix, currentUser, isMultiSupplierMode, isG1OnsiteFulfillmentMode, apiService]); 
+  }, [debouncedSku, skuToLookup.index, cleanPullSuffix, currentUser, isMultiSupplierMode, isG1OnsiteFulfillmentMode, apiService]); // setPurchaseItems removed
   
   const handleMainSupplierTriggerChange = (e) => {
     const value = e.target.value;
@@ -323,13 +341,17 @@ function OrderDetail() {
 
     if (value === G1_ONSITE_FULFILLMENT_VALUE) {
         setIsG1OnsiteFulfillmentMode(true); setIsMultiSupplierMode(false);
-        setSingleOrderPoNotes(''); setPurchaseItemsRef.current([]);
+        setSingleOrderPoNotes(''); 
+        // *** MODIFICATION: Use setPurchaseItems directly ***
+        setPurchaseItems([]);
         setLineItemAssignments({}); setPoNotesBySupplier({});
         setMultiSupplierItemCosts({}); setMultiSupplierItemDescriptions({});
         setMultiSupplierShipmentDetails({});
     } else if (value === MULTI_SUPPLIER_MODE_VALUE) {
         setIsG1OnsiteFulfillmentMode(false); setIsMultiSupplierMode(true);
-        setSingleOrderPoNotes(''); setPurchaseItemsRef.current([]);
+        setSingleOrderPoNotes(''); 
+        // *** MODIFICATION: Use setPurchaseItems directly ***
+        setPurchaseItems([]);
         const initialMultiDesc = {};
         if (originalLineItems) {
             originalLineItems.forEach(item => {
@@ -342,8 +364,8 @@ function OrderDetail() {
         setMultiSupplierItemDescriptions(initialMultiDesc);
         setLineItemAssignments({}); setPoNotesBySupplier({});
         setMultiSupplierItemCosts({}); 
-        const newMultiShipDetails = {}; // Initialize for existing assignments if any
-        Object.keys(lineItemAssignments).forEach(itemId => { // Iterate current assignments
+        const newMultiShipDetails = {}; 
+        Object.keys(lineItemAssignments).forEach(itemId => { 
             const supId = lineItemAssignments[itemId];
             if (supId && !newMultiShipDetails[supId]) {
                 newMultiShipDetails[supId] = { method: defaultMethodForThisMode, weight: '' };
@@ -362,8 +384,12 @@ function OrderDetail() {
                 original_sku: item.original_sku, hpe_option_pn: item.hpe_option_pn, original_name: item.line_item_name,
                 hpe_po_description: item.hpe_po_description, hpe_pn_type: item.hpe_pn_type,
             }));
-            setPurchaseItemsRef.current(initialItemsForPoForm);
-        } else { setPurchaseItemsRef.current([]); }
+            // *** MODIFICATION: Use setPurchaseItems directly ***
+            setPurchaseItems(initialItemsForPoForm);
+        } else { 
+            // *** MODIFICATION: Use setPurchaseItems directly ***
+            setPurchaseItems([]); 
+        }
         setLineItemAssignments({}); setPoNotesBySupplier({});
         setMultiSupplierItemCosts({}); setMultiSupplierItemDescriptions({});
         setMultiSupplierShipmentDetails({});
@@ -416,14 +442,22 @@ function OrderDetail() {
   };
 
   const handlePurchaseItemChange = (index, field, value) => {
-    setPurchaseItemsRef.current(prevItems => {
+    // *** MODIFICATION: Use setPurchaseItems directly ***
+    setPurchaseItems(prevItems => {
         const items = [...prevItems];
         if (items[index]) {
             items[index] = { ...items[index], [field]: value };
-            if (field === 'sku') {
+            // If the SKU field itself is being changed, update skuInputValue for direct binding
+            // and also the main 'sku' (which might be used for logic/API calls).
+            // Then, trigger the debounced lookup.
+            if (field === 'sku') { // This logic was specific to 'sku' field, now it's 'skuInputValue'
+                console.warn("Developer Note: 'sku' field was changed, but input is bound to 'skuInputValue'. Review logic if 'sku' is still needed separately.");
+                // Assuming the input is for 'skuInputValue' based on JSX
+                // This case might not be hit if input is bound to skuInputValue
+            } else if (field === 'skuInputValue') {
                 const trimmedSku = String(value).trim();
-                items[index].sku = trimmedSku; 
                 items[index].skuInputValue = trimmedSku; 
+                items[index].sku = trimmedSku; // Also update the logical 'sku' if they should be in sync
                 setSkuToLookup({ index, sku: trimmedSku });
             }
         }
@@ -497,14 +531,14 @@ function OrderDetail() {
     setProcessSuccessMessage(''); setProcessedPOsInfo([]); setStatusUpdateMessage('');
 
     let payloadAssignments = [];
-    if (isG1OnsiteFulfillmentMode) { /* ... as before ... */ 
+    if (isG1OnsiteFulfillmentMode) { 
         if (originalLineItems.length > 0) { 
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight for G1 Onsite Fulfillment."); setProcessing(false); return; }
             if (!shipmentMethod) { setProcessError("Please select a shipment method for G1 Onsite Fulfillment."); setProcessing(false); return; }
         }
         payloadAssignments.push({ supplier_id: G1_ONSITE_FULFILLMENT_VALUE, payment_instructions: "G1 Onsite Fulfillment", po_line_items: [], total_shipment_weight_lbs: originalLineItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null, shipment_method: originalLineItems.length > 0 ? shipmentMethod : null });
-    } else if (isMultiSupplierMode) { /* ... as before ... */ 
+    } else if (isMultiSupplierMode) { 
         const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id); 
         if (originalLineItems.length > 0) {
             if (assignedSupplierIds.length === 0) { setProcessError("Multi-Supplier Mode: Assign items to at least one supplier."); setProcessing(false); return; }
@@ -514,7 +548,7 @@ function OrderDetail() {
             const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supId);
             if (itemsForThisSupplier.length > 0) {
                 let itemCostValidationError = null;
-                const poLineItems = itemsForThisSupplier.map(item => { /* ... validation logic ... */
+                const poLineItems = itemsForThisSupplier.map(item => { 
                     const costStr = multiSupplierItemCosts[item.line_item_id]; const costFloat = parseFloat(costStr);
                     if (costStr === undefined || costStr === '' || isNaN(costFloat) || costFloat < 0) { itemCostValidationError = `Missing/invalid unit cost for SKU ${item.original_sku || 'N/A'} (Supplier: ${suppliers.find(s=>s.id===parseInt(supId,10))?.name}).`; return null; }
                     let descriptionForPo = multiSupplierItemDescriptions[item.line_item_id];
@@ -531,23 +565,24 @@ function OrderDetail() {
             }
         }
         if (payloadAssignments.length === 0 && originalLineItems.length > 0) { setProcessError("No items assigned for PO generation in multi-supplier mode."); setProcessing(false); return; }
-    } else { /* Single regular supplier - ... as before ... */ 
+    } else { 
         const singleSelectedSupId = selectedMainSupplierTrigger;
         if (!singleSelectedSupId || singleSelectedSupId === MULTI_SUPPLIER_MODE_VALUE) { setProcessError("Please select a supplier."); setProcessing(false); return; }
-        const currentPurchaseItems = purchaseItemsRef.current; 
+        // *** MODIFICATION: Use purchaseItems (state) directly ***
+        const currentPurchaseItems = purchaseItems; 
         if (currentPurchaseItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight."); setProcessing(false); return; }
             if (!shipmentMethod) { setProcessError("Please select a shipment method."); setProcessing(false); return; }
         }
         let itemValidationError = null;
-        const finalPurchaseItems = currentPurchaseItems.map((item, index) => { /* ... validation ... */
+        const finalPurchaseItems = currentPurchaseItems.map((item, index) => { 
             const quantityInt = parseInt(item.quantity, 10); const costFloat = parseFloat(item.unit_cost);
             if (isNaN(quantityInt) || quantityInt <= 0) { itemValidationError = `Item #${index + 1}: Quantity > 0.`; return null; }
             if (item.unit_cost === undefined || item.unit_cost === '' || isNaN(costFloat) || costFloat < 0) { itemValidationError = `Item #${index + 1}: Unit cost invalid.`; return null; }
-            if (!String(item.sku).trim()) { itemValidationError = `Item #${index + 1}: SKU required.`; return null; }
+            if (!String(item.skuInputValue).trim()) { itemValidationError = `Item #${index + 1}: SKU required.`; return null; } // Validate skuInputValue
             if (!String(item.description).trim()) { itemValidationError = `Item #${index + 1}: Description required.`; return null; }
-            return { original_order_line_item_id: item.original_order_line_item_id, sku: String(item.sku).trim(), description: String(item.description).trim(), quantity: quantityInt, unit_cost: costFloat.toFixed(2), condition: item.condition || 'New' };
+            return { original_order_line_item_id: item.original_order_line_item_id, sku: String(item.skuInputValue).trim(), description: String(item.description).trim(), quantity: quantityInt, unit_cost: costFloat.toFixed(2), condition: item.condition || 'New' };
         }).filter(Boolean);
         if (itemValidationError) { setProcessError(itemValidationError); setProcessing(false); return; }
         if (finalPurchaseItems.length === 0 && originalLineItems.length > 0) { setProcessError("No valid line items for PO."); setProcessing(false); return; }
@@ -701,13 +736,27 @@ function OrderDetail() {
               <div className="purchase-items-grid">
                 <h4>Items to Purchase:</h4>
                 <div className="item-header-row"><span>Purchase SKU</span><span>Description</span><span>Qty</span><span>Unit Cost</span></div>
-                {purchaseItemsRef.current.map((item, index) => ( 
+                {/* *** MODIFICATION: Use purchaseItems (state) directly for mapping *** */}
+                {purchaseItems.map((item, index) => ( 
                      <div key={`po-item-${item.original_order_line_item_id || index}`} className="item-row">
-                        <div><label className="mobile-label" htmlFor={`sku-${index}`}>SKU:</label><input id={`sku-${index}`} type="text" value={item.skuInputValue || ''} onChange={(e) => handlePurchaseItemChange(index, 'sku', e.target.value)} placeholder="SKU" required disabled={disableEditableFormFields} title={item.original_sku ? `Original: ${item.original_sku}` : ''} className="sku-input" /></div>
-                        <div><label className="mobile-label" htmlFor={`desc-${index}`}>Desc:</label><textarea id={`desc-${index}`} value={item.description || ''} onChange={(e) => handlePurchaseItemChange(index, 'description', e.target.value)} placeholder="Desc" rows={2} disabled={disableEditableFormFields} className="description-textarea" /></div>
+                        <div>
+                            <label className="mobile-label" htmlFor={`sku-${index}`}>SKU:</label>
+                            {/* Bind to item.skuInputValue, onChange updates skuInputValue and triggers debounce via item.sku */}
+                            <input id={`sku-${index}`} type="text" value={item.skuInputValue || ''} onChange={(e) => handlePurchaseItemChange(index, 'skuInputValue', e.target.value)} placeholder="SKU" required disabled={disableEditableFormFields} title={item.original_sku ? `Original: ${item.original_sku}` : ''} className="sku-input" />
+                        </div>
+                        <div>
+                            <label className="mobile-label" htmlFor={`desc-${index}`}>Desc:</label>
+                            <textarea id={`desc-${index}`} value={item.description || ''} onChange={(e) => handlePurchaseItemChange(index, 'description', e.target.value)} placeholder="Desc" rows={2} disabled={disableEditableFormFields} className="description-textarea" />
+                        </div>
                         <div className="qty-cost-row">
-                            <div><label className="mobile-label" htmlFor={`qty-${index}`}>Qty:</label><input id={`qty-${index}`} type="number" value={item.quantity || 1} onChange={(e) => handlePurchaseItemChange(index, 'quantity', e.target.value)} min="1" required disabled={disableEditableFormFields} className="qty-input" /></div>
-                            <div><label className="mobile-label" htmlFor={`cost-${index}`}>Cost:</label><input id={`cost-${index}`} type="number" value={item.unit_cost || ''} onChange={(e) => handlePurchaseItemChange(index, 'unit_cost', e.target.value)} step="0.01" min="0" placeholder="0.00" required disabled={disableEditableFormFields} className="price-input" /></div>
+                            <div>
+                                <label className="mobile-label" htmlFor={`qty-${index}`}>Qty:</label>
+                                <input id={`qty-${index}`} type="number" value={item.quantity || 1} onChange={(e) => handlePurchaseItemChange(index, 'quantity', e.target.value)} min="1" required disabled={disableEditableFormFields} className="qty-input" />
+                            </div>
+                            <div>
+                                <label className="mobile-label" htmlFor={`cost-${index}`}>Cost:</label>
+                                <input id={`cost-${index}`} type="number" value={item.unit_cost || ''} onChange={(e) => handlePurchaseItemChange(index, 'unit_cost', e.target.value)} step="0.01" min="0" placeholder="0.00" required disabled={disableEditableFormFields} className="price-input" />
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -717,11 +766,11 @@ function OrderDetail() {
               <h3>Shipment Information</h3>
               <div className="form-grid">
                 <label htmlFor="shipmentMethodSingle">Method:</label>
-                <select id="shipmentMethodSingle" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={purchaseItemsRef.current.length > 0}> 
+                <select id="shipmentMethodSingle" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={purchaseItems.length > 0}> 
                     {SHIPPING_METHODS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
                 <label htmlFor="shipmentWeightSingle">Weight (lbs):</label>
-                <input type="number" id="shipmentWeightSingle" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={purchaseItemsRef.current.length > 0} disabled={disableEditableFormFields} /> 
+                <input type="number" id="shipmentWeightSingle" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={purchaseItems.length > 0} disabled={disableEditableFormFields} /> 
               </div>
             </section>
              <div className="order-actions">

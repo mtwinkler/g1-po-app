@@ -1,11 +1,11 @@
 // SupplierForm.jsx
-import React, { useState, useEffect } from 'react'; // Added useEffect
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import './SupplierForm.css'; // Assuming you have styles for this form
-import { useAuth } from '../contexts/AuthContext'; // Import useAuth
+import './SupplierForm.css'; 
+import { useAuth } from '../contexts/AuthContext'; 
 
 function SupplierForm() {
-  const { currentUser, loading: authLoading } = useAuth(); // Get currentUser and auth loading state
+  const { currentUser, loading: authLoading, apiService } = useAuth(); 
   const [formData, setFormData] = useState({
     name: '', email: '', payment_terms: '', address_line1: '',
     address_line2: '', city: '', state: '', zip: '', country: '',
@@ -16,7 +16,6 @@ function SupplierForm() {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const navigate = useNavigate();
-  const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -25,59 +24,46 @@ function SupplierForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!currentUser) {
-        setError("Please log in to add a new supplier.");
+    if (!currentUser || !apiService) { 
+        setError("Please log in to add a new supplier. API service is unavailable.");
         return;
     }
     setSubmitting(true);
     setError(null);
     setSuccessMessage('');
 
-    const relativePath = '/suppliers';
-    const fullApiUrl = `${VITE_API_BASE_URL}${relativePath}`;
-    console.log("SupplierForm.jsx: Submitting POST to:", fullApiUrl);
+    const relativePath = '/suppliers'; 
+    console.log("SupplierForm.jsx: Submitting POST to API via apiService:", relativePath, "with data:", formData);
 
     try {
-      const token = await currentUser.getIdToken(true); // Get Firebase ID token
-      const response = await fetch(fullApiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Add Authorization header
-        },
-        body: JSON.stringify(formData),
-      });
-
-      const responseData = await response.json().catch(() => null); // Try to parse JSON even on error
-      if (!response.ok) {
-        let errorMsg = responseData?.message || `HTTP error! Status: ${response.status}`;
-        if (response.status === 401 || response.status === 403) {
-            errorMsg = "Unauthorized to add supplier. Please log in again.";
-            // navigate('/login'); // Optional: redirect
-        }
-        throw new Error(errorMsg);
-      }
-      setSuccessMessage('Supplier added successfully! Redirecting...');
-      setFormData({ // Clear form on success
+      const responseData = await apiService.post(relativePath, formData);
+      
+      setSuccessMessage(responseData?.message ||'Supplier added successfully! Redirecting...');
+      setFormData({ 
         name: '', email: '', payment_terms: '', address_line1: '',
         address_line2: '', city: '', state: '', zip: '', country: '',
         phone: '', contact_person: '', defaultponotes: ''
       });
       setTimeout(() => {
-        navigate('/suppliers');
+        // Corrected navigation path
+        navigate('/utils/suppliers'); 
       }, 1500);
     } catch (err) {
-      setError(err.message);
+      let errorMsg = err.data?.message || err.message || "An unexpected error occurred.";
+      if (err.status === 401 || err.status === 403) {
+          errorMsg = "Unauthorized to add supplier. Please log in again.";
+      }
+      setError(errorMsg);
+      console.error("Error submitting supplier form:", err);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Effect to clear messages if user logs out while on this page
   useEffect(() => {
     if (!authLoading && !currentUser) {
         setError("Please log in to access this page.");
-        setSuccessMessage(''); // Clear any previous success messages
+        setSuccessMessage(''); 
     }
   }, [currentUser, authLoading]);
 
@@ -86,7 +72,6 @@ function SupplierForm() {
     return <div className="form-page-container"><div className="form-message loading">Loading session...</div></div>;
   }
 
-  // This page should be protected by ProtectedRoute, but as an additional check:
   if (!currentUser) {
     return (
         <div className="form-page-container">
@@ -99,7 +84,8 @@ function SupplierForm() {
   return (
     <div className="form-page-container">
       <h2>Add New Supplier</h2>
-      <Link to="/suppliers" className="form-back-link">← Back to Suppliers List</Link>
+      {/* Corrected link path */}
+      <Link to="/utils/suppliers" className="form-back-link">← Back to Suppliers List</Link>
 
       {submitting && <div className="form-message loading">Submitting...</div>}
       {error && <div className="form-message error">Error: {error}</div>}
