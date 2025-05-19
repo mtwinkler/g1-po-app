@@ -456,7 +456,7 @@ def generate_fedex_label_raw(order_data, ship_from_address, total_weight_lbs, cu
         "recipients": [{"contact": {"personName": order_data.get('customer_name', 'N/A'), "companyName": order_data.get('customer_company', ''), "phoneNumber": (order_data.get('customer_phone') or "").replace('-', '').replace('(', '').replace(')', '').replace(' ', '')}, 
                        "address": {"streetLines": ship_to_street_lines, "city": order_data.get('customer_shipping_city'), "stateOrProvinceCode": ship_to_state_processed, "postalCode": str(order_data.get('customer_shipping_zip', '')), "countryCode": ship_to_country_code_upper, "residential": False }}],
         "shipDatestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d'), "serviceType": fedex_service_type_enum, "packagingType": "YOUR_PACKAGING", "pickupType": "DROPOFF_AT_FEDEX_LOCATION",
-        "shippingChargesPayment": payment_info, "labelSpecification": {"imageType": "PDF", "labelStockType": "PAPER_4X6"},
+        "shippingChargesPayment": payment_info, "labelSpecification": {"imageType": "PDF", "labelStockType": "PAPER_85X11_TOP_HALF_LABEL"},
         "requestedPackageLineItems": [{"weight": {"units": "LB", "value": round(float(max(0.1, total_weight_lbs)), 1)}, "customerReferences": [{"customerReferenceType": "CUSTOMER_REFERENCE", "value": str(order_data.get('bigcommerce_order_id', 'N/A'))}]}]}
     final_api_payload = {"labelResponseOptions": "LABEL", "requestedShipment": requested_shipment_payload, "accountNumber": {"value": str(FEDEX_SHIPPER_ACCOUNT_NUMBER)}}
     headers = {"Authorization": f"Bearer {access_token}", "X-locale": "en_US", "Content-Type": "application/json"}
@@ -637,62 +637,82 @@ if __name__ == '__main__':
     if ups_token: print("UPS OAuth Token (first 30):", ups_token[:30] + "...")
     else: print("Failed to get UPS OAuth Token.")
     print(f"\n--- Testing FedEx OAuth Token (Env: {FEDEX_API_ENVIRONMENT}) ---")
-    fedex_token = get_fedex_oauth_token()
-    if fedex_token: print("FedEx OAuth Token (first 30):", fedex_token[:30] + "...")
-    else: print("Failed to get FedEx OAuth Token.")
-    if FEDEX_API_ENVIRONMENT == "production" and fedex_token:
-        print("\n--- FedEx Bill SENDER PRODUCTION Smoke Test ---")
-        mock_order_data_smoke_test = {
-            'bigcommerce_order_id': f'SMOKETEST_FX_{int(datetime.now(timezone.utc).timestamp())}',
-            'customer_company': 'G1 Tech Smoke Test Recipient', 'customer_name': 'Smoke Test Receiver',
-            'customer_phone': '8005551212', 'customer_shipping_address_line1': '4916 S 184th Plaza',
-            'customer_shipping_address_line2': '', 'customer_shipping_city': 'Omaha',
-            'customer_shipping_state': 'NE', 'customer_shipping_zip': '68135',
-            'customer_shipping_country': 'US', 'customer_email': 'test@example.com',
-            'is_bill_to_customer_fedex_account': False, 'customer_fedex_account_number': None}
-        mock_ship_from_production = {
-            'name': os.getenv("SHIP_FROM_NAME"), 'contact_person': os.getenv("SHIP_FROM_CONTACT"),
-            'street_1': os.getenv("SHIP_FROM_STREET1"), 'street_2': os.getenv("SHIP_FROM_STREET2", ""),
-            'city': os.getenv("SHIP_FROM_CITY"), 'state': os.getenv("SHIP_FROM_STATE"),
-            'zip': os.getenv("SHIP_FROM_ZIP"), 'country': os.getenv("SHIP_FROM_COUNTRY", "US"),
-            'phone': os.getenv("SHIP_FROM_PHONE")}
-        if any(not mock_ship_from_production.get(key) for key in ['name', 'street_1', 'city', 'state', 'zip', 'country', 'phone']):
-            print("ERROR: FedEx Smoke Test ABORTED. Essential SHIP_FROM details missing in .env.")
+    fedex_token = get_fedex_oauth_token() # Ensure you get a fresh token
+
+    if fedex_token:
+        print(f"\n--- FedEx Priority Overnight Test ({FEDEX_API_ENVIRONMENT.upper()} Environment) ---")
+        
+        # --- CUSTOMIZE YOUR TEST ORDER DATA HERE ---
+        mock_order_data_priority_overnight = {
+            'bigcommerce_order_id': f'TEST_FX_PO_{int(datetime.now(timezone.utc).timestamp())}',
+            'customer_company': 'Test  Recipient Inc.', 
+            'customer_name': 'Pat Smith',
+            'customer_phone': '8001234567', # Use a valid format
+            'customer_shipping_address_line1': '4916 S 184th Plaza', # Recipient address
+            'customer_shipping_address_line2': '',       # Recipient address line 2 (optional)
+            'customer_shipping_city': 'Omaha',                 # Recipient city
+            'customer_shipping_state': 'NE',                      # Recipient state (e.g., 'CA' for California)
+            'customer_shipping_zip': '68135',                     # Recipient ZIP
+            'customer_shipping_country': 'US',                    # Recipient country (e.g., 'US')
+            'customer_email': 'pat.priority@example.com',
+            'is_bill_to_customer_fedex_account': False, # IMPORTANT: Set to False for Bill SENDER
+            'customer_fedex_account_number': None       # Not needed for Bill SENDER
+        }
+
+        # Ship From address is loaded from .env variables within the script
+        mock_ship_from_details = {
+            'name': os.getenv("SHIP_FROM_NAME"), 
+            'contact_person': os.getenv("SHIP_FROM_CONTACT"),
+            'street_1': os.getenv("SHIP_FROM_STREET1"), 
+            'street_2': os.getenv("SHIP_FROM_STREET2", ""),
+            'city': os.getenv("SHIP_FROM_CITY"), 
+            'state': os.getenv("SHIP_FROM_STATE"),
+            'zip': os.getenv("SHIP_FROM_ZIP"), 
+            'country': os.getenv("SHIP_FROM_COUNTRY", "US"),
+            'phone': os.getenv("SHIP_FROM_PHONE")
+        }
+
+        # Check if essential SHIP_FROM details are present
+        if any(not mock_ship_from_details.get(key) for key in ['name', 'street_1', 'city', 'state', 'zip', 'country', 'phone']):
+            print("ERROR: FedEx Priority Overnight Test ABORTED. Essential SHIP_FROM details missing in .env.")
         else:
-            service_to_test = "Fedex Ground"; weight_to_test = 1
-            print(f"\nAttempting Production FedEx Label (Bill SENDER - {service_to_test})")
-            pdf_bytes_fx, tracking_fx = generate_fedex_label(mock_order_data_smoke_test, mock_ship_from_production, weight_to_test, service_to_test)
+            service_to_test = "2 Day" # Your desired service
+            weight_to_test = 2  # Example weight in lbs
+
+            print(f"\nAttempting FedEx Label (Bill SENDER - {service_to_test}) in {FEDEX_API_ENVIRONMENT.upper()}")
+            
+            # Using generate_fedex_label which calls get_fedex_oauth_token and then generate_fedex_label_raw
+            # OR, if you already have a token and want to use the _raw function directly:
+            # pdf_bytes_fx, tracking_fx = generate_fedex_label_raw(
+            #                                 mock_order_data_priority_overnight, 
+            #                                 mock_ship_from_details, 
+            #                                 weight_to_test, 
+            #                                 service_to_test,
+            #                                 fedex_token # Pass the token here
+            #                             )
+
+            # Using the higher-level function that gets its own token:
+            pdf_bytes_fx, tracking_fx = generate_fedex_label(
+                                            mock_order_data_priority_overnight,
+                                            mock_ship_from_details,
+                                            weight_to_test,
+                                            service_to_test
+                                        )
+
             if pdf_bytes_fx and tracking_fx:
-                print(f"FedEx Production Smoke Test: SUCCESS! Tracking: {tracking_fx}"); fn = f"prod_fx_label_{tracking_fx}.pdf"
-                try: open(fn, "wb").write(pdf_bytes_fx); print(f"  Saved as {fn}")
-                except Exception as e: print(f"  Error writing file: {e}")
-            elif tracking_fx: print(f"FedEx Production Smoke Test: PARTIAL SUCCESS. Tracking: {tracking_fx}, but no PDF.")
-            else: print(f"FedEx Production Smoke Test: FAILED.")
-    elif FEDEX_API_ENVIRONMENT == "sandbox" and fedex_token:
-        print("\n--- FedEx Bill SENDER SANDBOX Test ---")
-        mock_order_data_sandbox = {
-            'bigcommerce_order_id': f'SANDBOX_FX_{int(datetime.now(timezone.utc).timestamp())}',
-            'customer_company': 'Sandbox Test Co', 'customer_name': 'Sandy Tester',
-            'customer_phone': '8005551234', 'customer_shipping_address_line1': '123 Test Street',
-            'customer_shipping_city': 'Beverly Hills', 'customer_shipping_state': 'CA', 
-            'customer_shipping_zip': '90210', 'customer_shipping_country': 'US',
-            'is_bill_to_customer_fedex_account': False}
-        mock_ship_from_sandbox = {
-            'name': os.getenv("SHIP_FROM_NAME"), 'contact_person': os.getenv("SHIP_FROM_CONTACT"),
-            'street_1': os.getenv("SHIP_FROM_STREET1"), 'street_2': os.getenv("SHIP_FROM_STREET2", ""),
-            'city': os.getenv("SHIP_FROM_CITY"), 'state': os.getenv("SHIP_FROM_STATE"),
-            'zip': os.getenv("SHIP_FROM_ZIP"), 'country': os.getenv("SHIP_FROM_COUNTRY", "US"),
-            'phone': os.getenv("SHIP_FROM_PHONE")}
-        if any(not mock_ship_from_sandbox.get(key) for key in ['name', 'street_1', 'city', 'state', 'zip', 'country', 'phone']):
-            print("ERROR: FedEx Sandbox Test ABORTED. Essential SHIP_FROM details missing in .env.")
-        else:
-            service_to_test_sb = "FEDEX_GROUND"; weight_to_test_sb = 1.5
-            print(f"\nAttempting Sandbox FedEx Label (Bill SENDER - {service_to_test_sb})")
-            pdf_bytes_fx_sb, tracking_fx_sb = generate_fedex_label_raw(mock_order_data_sandbox, mock_ship_from_sandbox, weight_to_test_sb, service_to_test_sb, fedex_token)
-            if pdf_bytes_fx_sb and tracking_fx_sb:
-                print(f"FedEx Sandbox Test: SUCCESS! Tracking: {tracking_fx_sb}"); fn_sb = f"sandbox_fx_label_{tracking_fx_sb}.pdf"
-                try: open(fn_sb, "wb").write(pdf_bytes_fx_sb); print(f"  Saved as {fn_sb}")
-                except Exception as e: print(f"  Error writing file: {e}")
-            elif tracking_fx_sb: print(f"FedEx Sandbox Test: PARTIAL SUCCESS. Tracking: {tracking_fx_sb}, but no PDF.")
-            else: print(f"FedEx Sandbox Test: FAILED.")
+                print(f"FedEx Priority Overnight Test: SUCCESS! Tracking: {tracking_fx}")
+                filename = f"{FEDEX_API_ENVIRONMENT}_fx_priority_label_{tracking_fx}.pdf"
+                try:
+                    with open(filename, "wb") as f:
+                        f.write(pdf_bytes_fx)
+                    print(f"  Label saved as {filename}")
+                except Exception as e:
+                    print(f"  Error writing label file: {e}")
+            elif tracking_fx:
+                print(f"FedEx Priority Overnight Test: PARTIAL SUCCESS. Tracking: {tracking_fx}, but no PDF label data.")
+            else:
+                print(f"FedEx Priority Overnight Test: FAILED.")
+    else:
+        print("Failed to get FedEx OAuth Token, cannot proceed with Priority Overnight test.")
+
     print("\n--- shipping_service.py standalone test finished ---")
