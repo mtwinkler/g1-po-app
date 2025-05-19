@@ -3,7 +3,8 @@
 import os
 import time 
 import traceback 
-from flask import Flask, jsonify, request, g
+from functools import wraps
+from flask import Flask, jsonify, request, g, current_app
 from flask_cors import CORS 
 import sqlalchemy
 from sqlalchemy import text 
@@ -269,37 +270,69 @@ def get_hpe_mapping_with_fallback(original_sku_from_order, db_conn):
                 sku_actually_mapped = sku_after_underscore
     return hpe_option_pn, hpe_pn_type, sku_actually_mapped
 
-from functools import wraps 
+
 def verify_firebase_token(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # --- Bypass token verification for OPTIONS preflight requests ---
+        if request.method == 'OPTIONS':
+            # Flask-CORS is expected to handle the actual OPTIONS response.
+            # This creates a default Flask response object that Flask-CORS can attach its headers to.
+            response = current_app.make_default_options_response()
+            return response
+
+        # --- Original Token Verification Logic ---
         auth_header = request.headers.get('Authorization')
         id_token = None
         if auth_header and auth_header.startswith('Bearer '):
             id_token = auth_header.split('Bearer ')[1]
+        
         if not id_token:
+            print("AUTH DECORATOR: No ID token found in Authorization header.")
             return jsonify({"error": "Unauthorized", "message": "Authorization token is missing."}), 401
+        
         try:
-            decoded_token = firebase_auth.verify_id_token(id_token)
+            # Verify the ID token while checking if the token is revoked.
+            decoded_token = firebase_auth.verify_id_token(id_token, check_revoked=True)
+            
+            # Store user information in Flask's application context `g` for this request
             g.user_uid = decoded_token.get('uid')
             g.user_email = decoded_token.get('email')
+            # You can store the whole decoded token if other parts are needed by routes
+            g.decoded_token = decoded_token 
+            
+            # Check for your custom claim 'isApproved'
             if not decoded_token.get('isApproved') == True: 
-                print(f"WARN AUTH: User {g.user_email} (UID: {g.user_uid}) is not approved. Decoded token claims: {decoded_token.get('isApproved')}")
+                print(f"WARN AUTH: User {g.user_email} (UID: {g.user_uid}) is not approved. 'isApproved' claim: {decoded_token.get('isApproved')}")
                 return jsonify({"error": "Forbidden", "message": "User not approved for this application."}), 403
+            
+            print(f"DEBUG AUTH: User {g.user_email} (UID: {g.user_uid}) approved and token verified.")
+
         except firebase_auth.RevokedIdTokenError:
-            print("ERROR AUTH: Firebase ID token has been revoked.")
-            return jsonify({"error": "Unauthorized", "message": "Token revoked."}), 401
+            # Token has been revoked. Inform the user to reauthenticate.
+            print(f"ERROR AUTH: Firebase ID token has been revoked for user associated with the token.")
+            return jsonify({"error": "Unauthorized", "message": "Token revoked. Please log in again."}), 401
         except firebase_auth.UserDisabledError:
-            user_identifier = g.user_uid if 'g' in globals() and hasattr(g, 'user_uid') else 'Unknown'
-            print(f"ERROR AUTH: Firebase user account (UID: {user_identifier}) is disabled.")
+            # Token belongs to a disabled user account.
+            user_identifier = g.user_uid if hasattr(g, 'user_uid') and g.user_uid else (decoded_token.get('uid') if 'decoded_token' in locals() and decoded_token else 'Unknown')
+            print(f"ERROR AUTH: Firebase user account (UID: {user_identifier}) associated with the token is disabled.")
             return jsonify({"error": "Unauthorized", "message": "User account disabled."}), 401
         except firebase_auth.InvalidIdTokenError as e:
+            # Token is invalid for other reasons (e.g., expired, malformed, wrong audience/issuer).
             print(f"ERROR AUTH: Firebase ID token is invalid: {e}")
             return jsonify({"error": "Unauthorized", "message": f"Token invalid: {e}"}), 401
+        except firebase_admin.exceptions.FirebaseError as e:
+            # Catch other Firebase Admin SDK specific errors during verification
+            print(f"ERROR AUTH: Firebase Admin SDK error during token verification: {e}")
+            traceback.print_exc()
+            return jsonify({"error": "Unauthorized", "message": "Token verification failed due to a Firebase error."}), 401
         except Exception as e: 
-            print(f"ERROR AUTH: General token verification failed: {e}")
+            # Catch any other unexpected errors during the process
+            print(f"ERROR AUTH: General unexpected exception during token verification: {e}")
             traceback.print_exc()
             return jsonify({"error": "Unauthorized", "message": f"General token verification error: {e}"}), 401
+        
+        # If all checks pass, proceed to the original route function
         return f(*args, **kwargs)
     return decorated_function
 
@@ -1355,147 +1388,267 @@ def delete_supplier(supplier_id):
 print("DEBUG APP_SETUP: Defined /api/suppliers/<id> DELETE route.")
 
 # === PRODUCT MAPPING CRUD ROUTES ===
-@app.route('/api/products', methods=['POST'])
+@app.route('/api/hpe-descriptions', methods=['POST', 'OPTIONS']) # <<< CRITICAL: Ensure 'POST' is here
 @verify_firebase_token
-def create_product_mapping():
-    print("Received request for POST /api/products")
-    if engine is None: return jsonify({"message": "Database engine not initialized."}), 500
-    conn, trans = None, None
+def create_hpe_description_mapping(): # The function that handles the creation
+    # The verify_firebase_token decorator should handle OPTIONS requests by returning
+    # current_app.make_default_options_response()
+    # So, if request.method is OPTIONS here, it would be unusual, but the decorator should have dealt with it.
+    # If you want to be absolutely certain within the route itself for OPTIONS:
+    # if request.method == 'OPTIONS':
+    #     return current_app.make_default_options_response() # Or just rely on the decorator
+
+    # --- Your existing logic for handling the POST request ---
+    print("Received request for POST /api/hpe-descriptions (HPE Description Mapping)")
+    if engine is None: 
+        return jsonify({"message": "Database engine not initialized."}), 500
+    
+    conn = None
+    trans = None
     try:
-        product_data = request.json
-        print(f"DEBUG CREATE_PRODUCT: Received data: {product_data}")
-        required_fields = ['sku', 'standard_description']
-        for field in required_fields:
-            if not product_data or field not in product_data or not product_data[field]:
-                print(f"DEBUG CREATE_PRODUCT: Missing required field: {field}")
-                return jsonify({"message": f"Missing required field: {field}"}), 400
-        sku, standard_description = product_data.get('sku'), product_data.get('standard_description')
-        conn = engine.connect(); trans = conn.begin()
-        insert_product_stmt = insert(sqlalchemy.table('products', sqlalchemy.column('sku'), sqlalchemy.column('standard_description'), sqlalchemy.column('created_at'), sqlalchemy.column('updated_at'))).values(sku=sku, standard_description=standard_description, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        result = conn.execute(insert_product_stmt.returning(sqlalchemy.column('id')))
-        inserted_product_id = result.fetchone()[0]
-        trans.commit(); print(f"DEBUG CREATE_PRODUCT: Inserted product mapping ID: {inserted_product_id}")
-        return jsonify({"message": "Product mapping created successfully", "product_id": inserted_product_id}), 201
+        data = request.json
+        print(f"DEBUG CREATE_HPE_DESC: Received data: {data}")
+        
+        option_pn = data.get('option_pn')
+        po_description = data.get('po_description')
+
+        if not option_pn or not po_description:
+            print(f"DEBUG CREATE_HPE_DESC: Missing required field: option_pn or po_description")
+            return jsonify({"message": "Missing required field: option_pn or po_description"}), 400
+        
+        conn = engine.connect()
+        trans = conn.begin()
+        
+        hpe_table = sqlalchemy.table('hpe_description_mappings', 
+                                     sqlalchemy.column('option_pn'), 
+                                     sqlalchemy.column('po_description'))
+        
+        insert_stmt = insert(hpe_table).values(
+            option_pn=option_pn, 
+            po_description=po_description
+        )
+        conn.execute(insert_stmt)
+        
+        trans.commit()
+        print(f"DEBUG CREATE_HPE_DESC: Inserted HPE Description Mapping for Option PN: {option_pn}")
+        return jsonify({"message": "HPE Description Mapping created successfully", "option_pn": option_pn, "po_description": po_description}), 201 # 201 Created is appropriate
+    
     except sqlalchemy.exc.IntegrityError as e:
         if conn and trans and trans.is_active: trans.rollback()
-        print(f"DEBUG CREATE_PRODUCT: Integrity Error: {e}")
-        return jsonify({"message": "Product mapping creation failed: Duplicate SKU.", "error_type": "IntegrityError"}), 409
+        print(f"DEBUG CREATE_HPE_DESC: Integrity Error: {e}")
+        if "duplicate key value violates unique constraint" in str(e).lower() and "hpe_description_mappings_pkey" in str(e).lower():
+            return jsonify({"message": f"Creation failed: Option PN '{option_pn}' already exists.", "error_type": "DuplicateOptionPN"}), 409 # 409 Conflict
+        return jsonify({"message": f"Database integrity error: {e.orig}", "error_type": "IntegrityError"}), 409
     except Exception as e:
         if conn and trans and trans.is_active: trans.rollback()
-        print(f"DEBUG CREATE_PRODUCT: Unexpected exception: {e}")
-        return jsonify({"message": f"Product mapping creation failed: {e}", "error_type": type(e).__name__}), 500
+        print(f"DEBUG CREATE_HPE_DESC: Unexpected exception: {e}")
+        traceback.print_exc()
+        return jsonify({"message": f"HPE Description Mapping creation failed: {str(e)}", "error_type": type(e).__name__}), 500
     finally:
-        if conn and not conn.closed: conn.close(); print("DEBUG CREATE_PRODUCT: DB connection closed.")
-print("DEBUG APP_SETUP: Defined /api/products POST route.")
+        if conn and not conn.closed: conn.close(); print("DEBUG CREATE_HPE_DESC: DB connection closed.")
+# Update print statement for clarity
+print("DEBUG APP_SETUP: Defined /api/hpe-descriptions POST route (for HPE Description Mappings).")
 
-@app.route('/api/products', methods=['GET'])
+
+@app.route('/api/hpe-descriptions', methods=['GET', 'OPTIONS'])
 @verify_firebase_token
-def list_product_mappings():
-    print("Received request for GET /api/products")
-    if engine is None: return jsonify({"message": "Database engine not initialized."}), 500
+def list_hpe_description_mappings():
+    if request.method == 'OPTIONS':
+        response = current_app.make_default_options_response()
+        return response
+
+    print("Received request for GET /api/hpe-descriptions (HPE Description Mappings)")
+    if engine is None: 
+        return jsonify({"error": "Database engine not initialized."}), 500
+
     conn = None
     try:
+        # --- Pagination Parameters ---
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 25, type=int)
+        if page < 1: page = 1
+        if per_page < 1: per_page = 1
+        if per_page > 100: per_page = 100 
+
+        offset = (page - 1) * per_page
+
+        # --- Filter Parameter (Option PN only) ---
+        filter_option_pn = request.args.get('filter_option_pn', None, type=str) # Get filter_option_pn
+
+        # --- Build SQL Query ---
+        base_query_fields = "SELECT option_pn, po_description FROM hpe_description_mappings"
+        count_query_fields = "SELECT COUNT(*) FROM hpe_description_mappings"
+        
+        where_clauses = []
+        query_params = {} # Parameters for the SQL query
+
+        if filter_option_pn and filter_option_pn.strip(): # Check if filter is provided and not just whitespace
+            where_clauses.append("option_pn ILIKE :filter_option_pn_param")
+            query_params["filter_option_pn_param"] = f"%{filter_option_pn.strip()}%" # Add wildcards for partial match
+        
+        where_sql = ""
+        if where_clauses:
+            where_sql = " WHERE " + " AND ".join(where_clauses) # "AND" is not needed if only one filter
+
+        # Full query for fetching data with pagination and filtering
+        # Add query_params that are always present for pagination
+        pagination_query_params = {"limit_param": per_page, "offset_param": offset}
+        
+        data_sql_str = f"{base_query_fields}{where_sql} ORDER BY option_pn LIMIT :limit_param OFFSET :offset_param"
+        # Combine filter params with pagination params for the data query
+        final_data_query_params = {**query_params, **pagination_query_params}
+        
+        data_query = sqlalchemy.text(data_sql_str)
+
+        # Query for total count of matching records (for pagination calculation)
+        count_sql_str = f"{count_query_fields}{where_sql}"
+        # Use only filter params for the count query
+        count_query = sqlalchemy.text(count_sql_str)
+
         conn = engine.connect()
-        query = sqlalchemy.text("SELECT * FROM products ORDER BY sku")
-        result = conn.execute(query)
-        product_mappings_list = [dict(row._mapping) for row in result]
-        for product_dict in product_mappings_list:
-            for key, value in product_dict.items():
-                 if isinstance(value, datetime): product_dict[key] = value.isoformat()
-        print(f"DEBUG LIST_PRODUCTS: Found {len(product_mappings_list)} product mappings.")
-        return jsonify(product_mappings_list), 200
+        
+        # Execute data query
+        result = conn.execute(data_query, final_data_query_params) # Use combined params
+        mappings_list = [convert_row_to_dict(row) for row in result]
+        
+        # Execute count query
+        total_count_result = conn.execute(count_query, query_params).scalar_one_or_none() # Use only filter params
+        total_items = total_count_result if total_count_result is not None else 0
+        
+        total_pages = (total_items + per_page - 1) // per_page if per_page > 0 else 0
+
+        print(f"DEBUG LIST_HPE_DESC: Page: {page}, PerPage: {per_page}, Offset: {offset}, TotalItems: {total_items}, TotalPages: {total_pages}, FilterOptionPN: '{filter_option_pn}'")
+        print(f"DEBUG LIST_HPE_DESC: Found {len(mappings_list)} HPE description mappings for this page.")
+        
+        return jsonify({
+            "mappings": make_json_safe(mappings_list),
+            "pagination": {
+                "currentPage": page,
+                "perPage": per_page,
+                "totalItems": total_items,
+                "totalPages": total_pages
+            }
+        }), 200
+
     except Exception as e:
-        print(f"DEBUG LIST_PRODUCTS: Unexpected exception: {e}")
-        return jsonify({"message": f"Error fetching product mappings: {e}", "error_type": type(e).__name__}), 500
+        print(f"ERROR LIST_HPE_DESC: Unexpected exception: {e}")
+        traceback.print_exc()
+        return jsonify({"error": f"Error fetching HPE description mappings: {str(e)}", "error_type": type(e).__name__}), 500
     finally:
-        if conn and not conn.closed: conn.close(); print("DEBUG LIST_PRODUCTS: DB connection closed.")
-print("DEBUG APP_SETUP: Defined /api/products GET route.")
+        if conn and not conn.closed: 
+            conn.close()
+            print("DEBUG LIST_HPE_DESC: DB connection closed.")
 
-@app.route('/api/products/<int:product_id>', methods=['GET'])
+@app.route('/api/hpe-descriptions/<path:mapping_id>', methods=['GET']) # mapping_id will be the option_pn (URL encoded)
 @verify_firebase_token
-def get_product_mapping(product_id):
-    print(f"Received request for GET /api/products/{product_id}")
+def get_hpe_description_mapping(mapping_id): # Renamed function, mapping_id is option_pn
+    # URL decoding is handled by Flask automatically for path parameters
+    option_pn_param = mapping_id 
+    print(f"Received request for GET /api/hpe-descriptions/{option_pn_param} (HPE Description Mapping)")
     if engine is None: return jsonify({"message": "Database engine not initialized."}), 500
     conn = None
     try:
         conn = engine.connect()
-        query = sqlalchemy.text("SELECT * FROM products WHERE id = :product_id")
-        result = conn.execute(query, {"product_id": product_id}).fetchone()
+        query = sqlalchemy.text("SELECT option_pn, po_description FROM hpe_description_mappings WHERE option_pn = :option_pn_param")
+        result = conn.execute(query, {"option_pn_param": option_pn_param}).fetchone()
         if result is None:
-            print(f"DEBUG GET_PRODUCT: Product mapping ID {product_id} not found.")
-            return jsonify({"message": f"Product mapping with ID {product_id} not found."}), 404
-        product_dict = dict(result._mapping)
-        for key, value in product_dict.items():
-            if isinstance(value, datetime): product_dict[key] = value.isoformat()
-        print(f"DEBUG GET_PRODUCT: Found product mapping ID: {product_id}.")
-        return jsonify(product_dict), 200
+            print(f"DEBUG GET_HPE_DESC: HPE Mapping with Option PN '{option_pn_param}' not found.")
+            return jsonify({"message": f"HPE Mapping with Option PN '{option_pn_param}' not found."}), 404
+        
+        mapping_dict = convert_row_to_dict(result)
+        print(f"DEBUG GET_HPE_DESC: Found HPE mapping for Option PN: {option_pn_param}.")
+        return jsonify(make_json_safe(mapping_dict)), 200
     except Exception as e:
-        print(f"DEBUG GET_PRODUCT: Unexpected exception: {e}")
-        return jsonify({"message": f"Error fetching product mapping: {e}", "error_type": type(e).__name__}), 500
+        print(f"DEBUG GET_HPE_DESC: Unexpected exception: {e}")
+        traceback.print_exc()
+        return jsonify({"message": f"Error fetching HPE mapping: {e}", "error_type": type(e).__name__}), 500
     finally:
-        if conn and not conn.closed: conn.close(); print(f"DEBUG GET_PRODUCT: DB conn closed for ID {product_id}.")
-print("DEBUG APP_SETUP: Defined /api/products/<id> GET route.")
+        if conn and not conn.closed: conn.close(); print(f"DEBUG GET_HPE_DESC: DB conn closed for Option PN {option_pn_param}.")
+# Update print statement
+print("DEBUG APP_SETUP: Defined /api/hpe-descriptions/<id> GET route (for HPE Description Mappings, id is option_pn).")
 
-@app.route('/api/products/<int:product_id>', methods=['PUT'])
+
+@app.route('/api/hpe-descriptions/<path:mapping_id>', methods=['PUT']) # mapping_id is option_pn
 @verify_firebase_token
-def update_product_mapping(product_id):
-    print(f"Received request for PUT /api/products/{product_id}")
+def update_hpe_description_mapping(mapping_id): # Renamed, mapping_id is option_pn
+    option_pn_param = mapping_id
+    print(f"Received request for PUT /api/hpe-descriptions/{option_pn_param} (HPE Description Mapping)")
     if engine is None: return jsonify({"message": "Database engine not initialized."}), 500
     conn, trans = None, None
     try:
-        product_data = request.json
-        print(f"DEBUG UPDATE_PRODUCT: Data for product ID {product_id}: {product_data}")
-        if not product_data: return jsonify({"message": "No update data provided."}), 400
-        conn = engine.connect(); trans = conn.begin()
-        existing_product = conn.execute(sqlalchemy.text("SELECT id FROM products WHERE id = :product_id"), {"product_id": product_id}).fetchone()
-        if not existing_product:
-            trans.rollback(); print(f"DEBUG UPDATE_PRODUCT: Product mapping ID {product_id} not found.")
-            return jsonify({"message": f"Product mapping with ID {product_id} not found."}), 404
-        update_fields, update_params = [], {"product_id": product_id, "updated_at": datetime.now(timezone.utc)}
-        allowed_fields = ['sku', 'standard_description']
-        for field in allowed_fields:
-            if field in product_data: update_fields.append(f"{field} = :{field}"); update_params[field] = product_data[field]
-        if not update_fields:
-             trans.rollback(); print(f"DEBUG UPDATE_PRODUCT: No valid fields for product ID {product_id}.")
-             return jsonify({"message": "No valid update fields provided."}), 400
-        update_query_text = f"UPDATE products SET {', '.join(update_fields)}, updated_at = :updated_at WHERE id = :product_id"
-        conn.execute(sqlalchemy.text(update_query_text), update_params)
-        trans.commit(); print(f"DEBUG UPDATE_PRODUCT: Updated product mapping ID: {product_id}")
-        return jsonify({"message": f"Product mapping with ID {product_id} updated successfully"}), 200
-    except sqlalchemy.exc.IntegrityError as e:
-        if conn and trans and trans.is_active: trans.rollback()
-        print(f"DEBUG UPDATE_PRODUCT: Integrity Error: {e}")
-        return jsonify({"message": f"Product mapping update failed: Duplicate SKU.", "error_type": "IntegrityError"}), 409
-    except Exception as e:
-        if conn and trans and trans.is_active: trans.rollback()
-        print(f"DEBUG UPDATE_PRODUCT: Unexpected exception: {e}")
-        return jsonify({"message": f"Product mapping update failed: {e}", "error_type": type(e).__name__}), 500
-    finally:
-        if conn and not conn.closed: conn.close(); print(f"DEBUG UPDATE_PRODUCT: DB conn closed for ID {product_id}.")
-print("DEBUG APP_SETUP: Defined /api/products/<id> PUT route.")
+        data = request.json
+        print(f"DEBUG UPDATE_HPE_DESC: Data for Option PN {option_pn_param}: {data}")
+        
+        new_po_description = data.get('po_description')
+        # Optional: Allow updating option_pn itself, though this is like changing a primary key.
+        # new_option_pn = data.get('option_pn') # If you want to allow changing the option_pn
 
-@app.route('/api/products/<int:product_id>', methods=['DELETE'])
+        if new_po_description is None: # Check if at least po_description is provided
+             return jsonify({"message": "No 'po_description' field provided for update."}), 400
+        
+        conn = engine.connect(); trans = conn.begin()
+        
+        # Check if mapping exists
+        check_sql = sqlalchemy.text("SELECT 1 FROM hpe_description_mappings WHERE option_pn = :option_pn_param")
+        exists = conn.execute(check_sql, {"option_pn_param": option_pn_param}).fetchone()
+        if not exists:
+            trans.rollback(); print(f"DEBUG UPDATE_HPE_DESC: HPE Mapping with Option PN {option_pn_param} not found.")
+            return jsonify({"message": f"HPE Mapping with Option PN {option_pn_param} not found."}), 404
+        
+        # For simplicity, only updating po_description.
+        # If option_pn can change, the SQL and logic would be more complex.
+        update_sql = sqlalchemy.text("UPDATE hpe_description_mappings SET po_description = :new_po_description WHERE option_pn = :option_pn_param")
+        update_params = {"new_po_description": new_po_description, "option_pn_param": option_pn_param}
+        
+        result = conn.execute(update_sql, update_params)
+        
+        if result.rowcount == 0: # Should not happen if exists check passed, but good for safety
+            trans.rollback()
+            print(f"DEBUG UPDATE_HPE_DESC: Update affected 0 rows for Option PN {option_pn_param}, though it existed.")
+            return jsonify({"message": f"HPE Mapping with Option PN {option_pn_param} found but not updated (no change or error)."}), 404
+
+
+        trans.commit(); print(f"DEBUG UPDATE_HPE_DESC: Updated HPE mapping for Option PN: {option_pn_param}")
+        return jsonify({"message": f"HPE Mapping for Option PN {option_pn_param} updated successfully"}), 200
+    
+    except Exception as e: # Catch generic exceptions too
+        if conn and trans and trans.is_active: trans.rollback()
+        print(f"DEBUG UPDATE_HPE_DESC: Unexpected exception: {e}")
+        traceback.print_exc()
+        return jsonify({"message": f"HPE Mapping update failed: {e}", "error_type": type(e).__name__}), 500
+    finally:
+        if conn and not conn.closed: conn.close(); print(f"DEBUG UPDATE_HPE_DESC: DB conn closed for Option PN {option_pn_param}.")
+# Update print statement
+print("DEBUG APP_SETUP: Defined /api/hpe-descriptions/<id> PUT route (for HPE Description Mappings, id is option_pn).")
+
+
+@app.route('/api/hpe-descriptions/<path:mapping_id>', methods=['DELETE']) # mapping_id is option_pn
 @verify_firebase_token
-def delete_product_mapping(product_id):
-    print(f"Received request for DELETE /api/products/{product_id}")
+def delete_hpe_description_mapping(mapping_id): # Renamed, mapping_id is option_pn
+    option_pn_param = mapping_id
+    print(f"Received request for DELETE /api/hpe-descriptions/{option_pn_param} (HPE Description Mapping)")
     if engine is None: return jsonify({"message": "Database engine not initialized."}), 500
     conn, trans = None, None
     try:
         conn = engine.connect(); trans = conn.begin()
-        result = conn.execute(sqlalchemy.text("DELETE FROM products WHERE id = :product_id"), {"product_id": product_id})
+        delete_sql = sqlalchemy.text("DELETE FROM hpe_description_mappings WHERE option_pn = :option_pn_param")
+        result = conn.execute(delete_sql, {"option_pn_param": option_pn_param})
+        
         if result.rowcount == 0:
-            trans.rollback(); print(f"DEBUG DELETE_PRODUCT: Product mapping ID {product_id} not found.")
-            return jsonify({"message": f"Product mapping with ID {product_id} not found."}), 404
-        trans.commit(); print(f"DEBUG DELETE_PRODUCT: Deleted product mapping ID: {product_id}")
-        return jsonify({"message": f"Product mapping with ID {product_id} deleted successfully"}), 200
+            trans.rollback(); print(f"DEBUG DELETE_HPE_DESC: HPE Mapping with Option PN {option_pn_param} not found.")
+            return jsonify({"message": f"HPE Mapping with Option PN {option_pn_param} not found."}), 404
+        
+        trans.commit(); print(f"DEBUG DELETE_HPE_DESC: Deleted HPE mapping for Option PN: {option_pn_param}")
+        return jsonify({"message": f"HPE Mapping for Option PN {option_pn_param} deleted successfully"}), 200
     except Exception as e:
         if conn and trans and trans.is_active: trans.rollback()
-        print(f"DEBUG DELETE_PRODUCT: Unexpected exception: {e}")
-        # Check for specific DB errors if needed, e.g., foreign key constraints
-        return jsonify({"message": f"Product mapping deletion failed: {e}", "error_type": type(e).__name__}), 500
+        print(f"DEBUG DELETE_HPE_DESC: Unexpected exception: {e}")
+        traceback.print_exc()
+        return jsonify({"message": f"HPE Mapping deletion failed: {e}", "error_type": type(e).__name__}), 500
     finally:
-        if conn and not conn.closed: conn.close(); print(f"DEBUG DELETE_PRODUCT: DB conn closed for ID {product_id}.")
-print("DEBUG APP_SETUP: Defined /api/products/<id> DELETE route.")
+        if conn and not conn.closed: conn.close(); print(f"DEBUG DELETE_HPE_DESC: DB conn closed for Option PN {option_pn_param}.")
+# Update print statement
+print("DEBUG APP_SETUP: Defined /api/hpe-descriptions/<id> DELETE route (for HPE Description Mappings, id is option_pn).")
 
 # === LOOKUP ROUTES ===
 @app.route('/api/lookup/description/<path:sku_value>', methods=['GET'])

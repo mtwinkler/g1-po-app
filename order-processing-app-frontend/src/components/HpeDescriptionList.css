@@ -221,3 +221,104 @@
     display: none; /* Hide "Actions:" pseudo-label */
   }
 }
+.add-and-filter-controls {
+  display: flex;
+  justify-content: space-between; /* Puts Add button on right, filters on left */
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap; /* Allow wrapping on smaller screens */
+}
+
+.filter-section {
+  display: flex;
+  align-items: center;
+  gap: 10px; /* Space between filter elements */
+  flex-grow: 1; /* Allow filter section to take available space */
+  margin-right: 20px; /* Space before Add New button */
+}
+
+.filter-input {
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.filter-button {
+  padding: 8px 15px !important; /* Use !important if base .btn styles override padding too much */
+  font-size: 0.9em !important;
+}
+.btn.btn-sm.filter-button { /* More specific selector if needed */
+    padding: 6px 12px;
+    font-size: 0.85em;
+}
+
+
+.pagination-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 20px;
+  padding: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+.pagination-controls button,
+.pagination-controls select {
+  margin: 0 5px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-medium);
+  background-color: var(--bg-card);
+  color: var(--primary-accent);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.pagination-controls button:disabled {
+  color: var(--text-secondary);
+  background-color: var(--bg-disabled);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.pagination-controls span {
+  margin: 0 10px;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+
+/* Responsive adjustments for filter and pagination controls if needed */
+@media (max-width: 768px) {
+  .add-and-filter-controls {
+    flex-direction: column;
+    align-items: stretch; /* Make items take full width */
+  }
+  .filter-section {
+    flex-direction: column;
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 10px; /* Space before Add New button when stacked */
+  }
+  .filter-input {
+    width: calc(100% - 22px); /* Account for padding and border */
+    margin-bottom: 5px;
+  }
+  .filter-button {
+     width: 100%;
+     margin-top: 5px;
+  }
+  .add-new-button {
+    /* width: 100%; */
+    text-align: center;
+  }
+  .pagination-controls {
+    flex-wrap: wrap; /* Allow pagination buttons to wrap */
+    font-size: 0.85em;
+  }
+  .pagination-controls button,
+  .pagination-controls select,
+  .pagination-controls span {
+    margin: 5px; /* Adjust margin for wrapped items */
+  }
+}

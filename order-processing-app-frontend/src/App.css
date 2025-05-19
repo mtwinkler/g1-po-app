@@ -1,7 +1,7 @@
 /* App.css */
 
 /* === Font Definitions === */
-
+/* Ensure @font-face for Eloquia is defined elsewhere, e.g., index.css or a global font CSS file */
 
 /* === GLOBAL CSS VARIABLES === */
 :root {
@@ -19,7 +19,7 @@
 
   --bg-page-lm: #f8f9fa;            /* Light page background */
   --bg-card-lm: #ffffff;            /* White card background */
-  --bg-card-alt-lm: #f1f3f5;      /* Slightly off-white for alternating cards in dark mode */ 
+  --bg-card-alt-lm: #f1f3f5;      /* Slightly off-white for alternating cards */ 
   --bg-nav-lm: #f0f0f0;             /* Light background for nav */
   --bg-input-lm: #ffffff;
   --bg-disabled-lm: #e9ecef;
@@ -45,31 +45,31 @@
   /* Button Gradient Variables - Light Mode */
   --btn-primary-gradient-start-lm: var(--primary-accent-lm); /* #007bff */
   --btn-primary-gradient-end-lm: color-mix(in srgb, var(--primary-accent-dark-lm) 80%, #000000 20%); /* Even darker blue */
-  --btn-success-gradient-start-lm: #66bb6a; /* Given green */
-  --btn-success-gradient-end-lm: #388e3c;  /* Darker solid green for gradient end */
+  --btn-success-gradient-start-lm: #66bb6a; 
+  --btn-success-gradient-end-lm: #388e3c;  
   --btn-text-lm: #ffffff;
 
 
   /* --- Dark Mode Defaults --- */
-  --primary-accent-dm: #4dabf7;      /* Lighter blue for dark mode links/accents */
+  --primary-accent-dm: #4dabf7;      
   --primary-accent-dark-dm: #1c7ed6; 
   
-  --text-main-dm: #e9ecef;           /* Light gray/off-white for main text */
-  --text-secondary-dm: #adb5bd;      /* Lighter gray for secondary text */
-  --text-on-primary-dm: #ffffff;    /* White text still works on blue backgrounds */
-  --text-nav-link-dm: #90caf9;       /* Lighter blue for nav links in dark mode */
+  --text-main-dm: #e9ecef;           
+  --text-secondary-dm: #adb5bd;      
+  --text-on-primary-dm: #ffffff;    
+  --text-nav-link-dm: #90caf9;       
 
-  --bg-page-dm: #121212;             /* Very dark gray/black for page background */
-  --bg-card-dm: #1e1e1e;             /* Dark gray for card backgrounds */
-  --bg-card-alt-dm: #2c2c2c;       /* Slightly different dark for alternating cards in dark mode */
-  --bg-nav-dm: #1a1a1a;             /* Dark background for nav */
+  --bg-page-dm: #121212;           
+  --bg-card-dm: #1e1e1e;             
+  --bg-card-alt-dm: #2c2c2c;       
+  --bg-nav-dm: #1a1a1a;             
   --bg-input-dm: #2c2c2c;
   --bg-disabled-dm: #383838;
 
-  --border-strong-dm: #495057;       /* Medium-dark gray border */
-  --border-medium-dm: #343a40;      /* Dark gray border */
-  --border-light-dm: #2c3034;        /* Very dark gray for subtle dividers */
-  --border-nav-dm: #343a40;          /* Nav border in dark mode */
+  --border-strong-dm: #495057;       
+  --border-medium-dm: #343a40;      
+  --border-light-dm: #2c3034;        
+  --border-nav-dm: #343a40;          
   --border-input-dm: #495057;
   
   /* Status Colors - Dark Mode */
@@ -85,10 +85,10 @@
   --status-text-dm: #ffffff;
 
   /* Button Gradient Variables - Dark Mode */
-  --btn-primary-gradient-start-dm: var(--primary-accent-dm); /* #4dabf7 */
-  --btn-primary-gradient-end-dm: color-mix(in srgb, var(--primary-accent-dark-dm) 80%, #000000 20%); /* Darker version of the accent */
+  --btn-primary-gradient-start-dm: var(--primary-accent-dm); 
+  --btn-primary-gradient-end-dm: color-mix(in srgb, var(--primary-accent-dark-dm) 80%, #000000 20%); 
   --btn-success-gradient-start-dm: #5cb85c; 
-  --btn-success-gradient-end-dm: #388e3c; /* Darker green for dark mode gradient end */
+  --btn-success-gradient-end-dm: #388e3c; 
   --btn-text-dm: #ffffff;
 
 
@@ -180,9 +180,9 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  align-items: flex-start; /* Align #root to the top */
-  background-color: var(--bg-page); /* Use CSS variable for background */
-  color: var(--text-main);       /* Use CSS variable for default text color */
+  align-items: flex-start; 
+  background-color: var(--bg-page); 
+  color: var(--text-main);       
 }
 
 #root {
@@ -191,10 +191,9 @@ body {
   margin: 0 auto;
   padding: 2rem;
   text-align: left;
-  box-sizing: border-box; /* Good practice */
+  box-sizing: border-box; 
 }
 
-/* Links globally */
 a {
   color: var(--primary-accent);
   text-decoration: none;
@@ -204,10 +203,8 @@ a:hover {
   text-decoration: underline;
 }
 
-/* Input and select elements globally (if you want consistent base styling) */
-/* This global style will be overridden by more specific button classes */
 input, button, textarea, select {
-  font-family: inherit; /* Inherit Eloquia font */
+  font-family: inherit; 
   font-size: 1em;
   color: var(--text-main);
   background-color: var(--bg-input);
@@ -234,7 +231,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .main-navigation a {
-  margin: 0 2px;
+  margin: 0 10px; /* Increased margin slightly for better spacing */
   font-weight: 600; 
   color: var(--text-nav-link); 
 }
@@ -263,7 +260,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .btn-gradient {
-  background-size: 150% auto; /* Increased size to allow more of the gradient to show on hover shift */
+  background-size: 150% auto; 
 }
 
 .btn-shadow-lift {
@@ -278,30 +275,26 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0,0,0,0.05);
 }
 
-/* Color Variants */
 .btn-primary.btn-gradient {
-  /* MODIFIED: Simpler gradient from start to a darker end */
   background-image: linear-gradient(to right bottom, 
                                     var(--btn-primary-gradient-start) 0%, 
                                     var(--btn-primary-gradient-end) 100%);
   color: var(--btn-text);
 }
 .btn-primary.btn-gradient:hover:not(:disabled) {
-  background-position: right center; /* Shifts the gradient to show more of the darker end */
+  background-position: right center; 
 }
 
 .btn-success.btn-gradient {
-  /* MODIFIED: Simpler gradient from start to a darker end */
   background-image: linear-gradient(to right bottom, 
                                     var(--btn-success-gradient-start) 0%, 
                                     var(--btn-success-gradient-end) 100%);
   color: var(--btn-text);
 }
 .btn-success.btn-gradient:hover:not(:disabled) {
-  background-position: right center; /* Shifts the gradient to show more of the darker end */
+  background-position: right center; 
 }
 
-/* Specific button sizes (optional) */
 .btn-lg {
   padding: 0.8em 1.5em;
   font-size: 1.1em;
@@ -312,7 +305,6 @@ input:focus, textarea:focus, select:focus {
   font-size: 0.9em;
 }
 
-/* Disabled state for all .btn types */
 .btn:disabled {
   background-image: none; 
   background-color: var(--bg-disabled);
@@ -321,6 +313,55 @@ input:focus, textarea:focus, select:focus {
   box-shadow: none;
   transform: none;
   opacity: 0.65;
+}
+
+/* === Utilities Page Styles === */
+.utilities-container {
+  padding: 1rem;
+}
+
+.utilities-container h1 {
+  text-align: center;
+  margin-bottom: 2rem;
+  margin-top: 0;
+  color: var(--primary-accent-dark);
+}
+
+.utilities-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); /* Responsive grid */
+  gap: 1.5rem; /* Space between cards */
+}
+
+.utility-card {
+  background-color: var(--bg-card);
+  color: var(--text-main); /* Ensure text inside card is readable */
+  border: 1px solid var(--border-medium);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: left;
+  text-decoration: none; /* Remove underline from Link component */
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.utility-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  color: var(--primary-accent-dark); /* Change text color on hover if desired */
+}
+
+.utility-card h2 {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  font-size: 1.4em;
+  color: var(--primary-accent-dark);
+}
+
+.utility-card p {
+  font-size: 0.95em;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 
@@ -334,8 +375,11 @@ input:focus, textarea:focus, select:focus {
     padding: 0.75rem 0;
   }
   .main-navigation a {
-    margin: 0 2px;
-    font-size: 0.95em;
+    margin: 0 5px; /* Adjusted margin */
+    font-size: 0.9em; /* Slightly smaller font for mobile nav */
+  }
+  .utilities-grid {
+    grid-template-columns: 1fr; /* Stack cards on smaller screens */
   }
 }
 

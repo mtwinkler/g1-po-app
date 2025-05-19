@@ -1,22 +1,36 @@
 import React from 'react';
-import './App.css';
+import './App.css'; // Assuming your global styles and utility card styles are here or imported by it
 import { Routes, Route, Link, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-// import pdfIcon from './assets/pdf-icon.png'; 
 
-// --- Import Components ---
+// --- Import Core Page/Component Views ---
 import Dashboard from './components/Dashboard';
-import SupplierList from './components/SupplierList';
-import SupplierForm from './components/SupplierForm';
-import EditSupplierForm from './components/EditSupplierForm';
 import OrderDetail from './components/OrderDetail';
 import Login from './components/Login';
 import ProtectedRoute from './components/ProtectedRoute';
-import StandaloneUpsLabel from './components/StandaloneUpsLabel'; // +++ ADD THIS IMPORT
+
+// --- Import Utilities Section Components ---
+// Ensure these paths are correct based on your project structure
+import StandaloneUpsLabel from './components/StandaloneUpsLabel';
+import UtilitiesLandingPage from './components/UtilitiesLandingPage'; // You need to create this file
+import SupplierList from './components/SupplierList'; // Main page for Supplier Management
+import HpeDescriptionList from './components/HpeDescriptionList'; // NEWimport HpeDescriptionForm from './components/HpeDescriptionForm';
+import HpeDescriptionForm from './components/HpeDescriptionForm';
+import EditHpeDescriptionForm from './components/EditHpeDescriptionForm';
+import QuickbooksSync from './components/QuickbooksSync'; // Page for QuickBooks Sync functionality
+
+// If you have separate pages for adding/editing suppliers or products,
+// you would import them here and add their routes as well.
+// For example:
+// import SupplierForm from './components/SupplierForm';
+// import EditSupplierForm from './components/EditSupplierForm';
+// import ProductMappingForm from './components/ProductMappingForm';
+// import EditProductMappingForm from './components/EditProductMappingForm';
+
 
 // Main App content component
 function AppContent() {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, logout } = useAuth(); // logout function is available from context
 
   return (
     <div className="App">
@@ -24,31 +38,33 @@ function AppContent() {
         {currentUser && (
           <>
             <Link to="/dashboard">Orders</Link> |{' '}
-            <Link to="/suppliers">Suppliers</Link> |{' '}
             <Link to="/dashboard/sales">Daily Sales</Link> |{' '}
-            <Link to="/utils/standalone-label-generator">UPS Label</Link> {/* +++ ADD NEW LINK */}
-            {/* <button
+            <Link to="/utilities">Utilities</Link>
+            {/* 
+            // Example Logout Button - uncomment and style if needed
+            <button
               onClick={async () => {
                 try {
                   await logout();
-                  // Navigate to login or rely on ProtectedRoute to redirect
+                  // Navigation to /login will be handled by ProtectedRoute
                 } catch (e) {
                   console.error("Logout failed", e);
                 }
               }}
-              style={{
-                marginLeft: '20px',
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-nav-link)', // Ensure this CSS variable is defined
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                padding: '0',
+              style={{ 
+                marginLeft: '20px', 
+                background: 'none', 
+                border: 'none', 
+                color: 'var(--text-nav-link)', // Ensure CSS var is defined
+                cursor: 'pointer', 
+                textDecoration: 'underline', 
+                padding: '0', 
                 fontSize: 'inherit'
               }}
             >
               Logout
-            </button> */}
+            </button>
+            */}
           </>
         )}
         {!currentUser && (
@@ -61,8 +77,7 @@ function AppContent() {
           {/* Public Login Route */}
           <Route path="/login" element={<Login />} />
 
-          {/* Protected Routes */}
-          {/* Route for the main dashboard (defaults to orders view) */}
+          {/* Protected Routes - Core Application */}
           <Route
             path="/"
             element={
@@ -79,7 +94,6 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
-          {/* New route for the Daily Sales view of the Dashboard */}
           <Route
             path="/dashboard/sales"
             element={
@@ -88,23 +102,24 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
-
-          {/* Supplier Routes */}
-          <Route path="/suppliers" element={<ProtectedRoute><SupplierList /></ProtectedRoute>} />
-          <Route path="/suppliers/add" element={<ProtectedRoute><SupplierForm /></ProtectedRoute>} />
-          <Route path="/suppliers/edit/:supplierId" element={<ProtectedRoute><EditSupplierForm /></ProtectedRoute>} />
-
-          {/* Product Mapping Routes - REMOVED as per request */}
-          {/*
-          <Route path="/products" element={<ProtectedRoute><ProductMappingList /></ProtectedRoute>} />
-          <Route path="/products/add" element={<ProtectedRoute><ProductMappingForm /></ProtectedRoute>} />
-          <Route path="/products/edit/:productId" element={<ProtectedRoute><EditProductMappingForm /></ProtectedRoute>} />
-          */}
-
-          {/* Order Detail Route */}
-          <Route path="/orders/:orderId" element={<ProtectedRoute><OrderDetail /></ProtectedRoute>} />
-
-          {/* +++ ADD NEW UTILITY ROUTE +++ */}
+          <Route 
+            path="/orders/:orderId" 
+            element={
+              <ProtectedRoute>
+                <OrderDetail />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Utilities Section Routes */}
+          <Route 
+            path="/utilities" 
+            element={
+              <ProtectedRoute>
+                <UtilitiesLandingPage />
+              </ProtectedRoute>
+            } 
+          />
           <Route 
             path="/utils/standalone-label-generator" 
             element={
@@ -113,34 +128,74 @@ function AppContent() {
               </ProtectedRoute>
             } 
           />
+          <Route 
+            path="/utils/quickbooks-sync" 
+            element={
+              <ProtectedRoute>
+                <QuickbooksSync />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/admin/suppliers" 
+            element={ 
+              <ProtectedRoute>
+                <SupplierList />
+              </ProtectedRoute>
+            } 
+          />
+          {/* 
+            If you have separate pages for adding/editing suppliers, add routes like:
+            <Route path="/admin/suppliers/add" element={<ProtectedRoute><SupplierForm /></ProtectedRoute>} />
+            <Route path="/admin/suppliers/edit/:supplierId" element={<ProtectedRoute><EditSupplierForm /></ProtectedRoute>} />
+          */}
+          <Route 
+            path="/admin/hpe-descriptions" 
+            element={
+              <ProtectedRoute>
+                <HpeDescriptionList />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+              path="/admin/hpe-descriptions/add" 
+              element={<ProtectedRoute><HpeDescriptionForm /></ProtectedRoute>} 
+          />
+          <Route 
+              path="/admin/hpe-descriptions/edit/:optionPnParam" // Ensure param name matches useParams
+              element={<ProtectedRoute><EditHpeDescriptionForm /></ProtectedRoute>} 
+          />
 
           {/* Catch-all Route for 404 Not Found */}
           <Route
             path="*"
             element={
               currentUser ? (
-                <div>Page not found. Go to <Link to="/dashboard">Dashboard</Link>.</div>
+                <div style={{textAlign: 'center', marginTop: '2rem'}}>
+                  <h2>Page Not Found</h2>
+                  <p>The page you are looking for does not exist.</p>
+                  <Link to="/dashboard" className="btn btn-primary btn-gradient btn-shadow-lift">Go to Dashboard</Link>
+                </div>
               ) : (
-                <Navigate to="/login" />
+                <Navigate to="/login" replace />
               )
             }
           />
         </Routes>
       </div>
-      <img src="{pdfIcon}" alt="preload pdf icon" style={{ width: 1, height: 1, opacity: 0, position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }} />
+      {/* 
+        If you use a pdfIcon for preloading, ensure the path is correct (e.g., from public folder or imported)
+        <img src="/pdf-icon.png" alt="preload pdf icon" style={{ width: 1, height: 1, opacity: 0, position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }} /> 
+      */}
     </div>
-    
   );
 }
 
 // Wrapper App component that includes AuthProvider
 function App() {
-  // console.log("VITE_API_BASE_URL from deployed app:", import.meta.env.VITE_API_BASE_URL);
-  // BrowserRouter should be in main.jsx/index.jsx
   return (
     <AuthProvider>
       <AppContent />
-      {/* Ensure BrowserRouter is wrapping this App component in your main.jsx or index.jsx file */}
     </AuthProvider>
   );
 }
