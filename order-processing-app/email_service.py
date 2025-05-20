@@ -2,6 +2,8 @@
 
 import os
 import base64
+import traceback
+import re
 import json # For parsing Postmark error responses if needed
 from datetime import datetime, timezone # Not directly used in send_po_email but good practice
 from dotenv import load_dotenv
@@ -204,22 +206,27 @@ def send_po_email(supplier_email, po_number, attachments):
 
 
 # --- CORRECTED FUNCTION DEFINITION ---
-def send_iif_batch_email(iif_content_string, batch_date_str, warning_message_html=None, custom_subject=None): # Ensure custom_subject=None is here
+def send_iif_batch_email(iif_content_string, batch_date_str, 
+                         warning_message_html=None, 
+                         custom_subject=None, 
+                         filename_prefix="IIF_Batch_"): # <<< MODIFIED: Added filename_prefix with default
     """
     Sends the daily IIF batch email using Postmark.
 
     Args:
         iif_content_string (str): The IIF file content as a string.
-        batch_date_str (str): The date string (YYYY-MM-DD) for the batch.
-        warning_message_html (str, optional): HTML formatted warning message
-                                               about mapping failures. Defaults to None.
+        batch_date_str (str): The date string (YYYY-MM-DD or other context like "OnDemand_...") for the batch.
+        warning_message_html (str, optional): HTML formatted warning message. Defaults to None.
+        custom_subject (str, optional): Overrides the default subject line. Defaults to None.
+        filename_prefix (str, optional): Prefix for the attached IIF filename.
+                                         Defaults to "IIF_Batch_".
     Returns:
-        bool: True if email sending was successful (or simulated), False otherwise.
+        bool: True if email sending was successful, False otherwise.
     """
-    print(f"DEBUG IIF_EMAIL: Attempting to send IIF batch email for date {batch_date_str}")
+    print(f"DEBUG IIF_EMAIL: Attempting to send IIF batch email for context: {batch_date_str}, prefix: {filename_prefix}")
     if EMAIL_SERVICE_PROVIDER != "postmark":
         print(f"DEBUG IIF_EMAIL: Email service provider is '{EMAIL_SERVICE_PROVIDER}', not Postmark. Skipping.")
-        return False # Indicate failure if not Postmark
+        return False
     if not PostmarkClient:
         print("ERROR IIF_EMAIL: PostmarkClient library is not available. IIF Email not sent.")
         return False
@@ -227,57 +234,92 @@ def send_iif_batch_email(iif_content_string, batch_date_str, warning_message_htm
         print("ERROR IIF_EMAIL: Postmark API key, sender, or QB recipient not configured. Skipping.")
         return False
 
-    client = PostmarkClient(server_token=EMAIL_API_KEY)
-    iif_filename = f"QB_POs_Batch_{batch_date_str.replace('-', '')}.iif"
-
-    # Prepare attachment
-    attachments = [{
-        "Name": iif_filename,
-        "Content": base64.b64encode(iif_content_string.encode('utf-8')).decode('utf-8'),
-        "ContentType": "application/iif" # Correct MIME type for IIF
-    }]
-
-    # Construct email body, including the warning if present
-    html_body_parts = []
-    text_body_parts = []
-
-    if warning_message_html:
-        html_body_parts.append(warning_message_html) # Add warning first
-        # Create a simple text version of the warning
-        # (This is basic, could be improved with regex or HTML parsing if needed)
-        text_warning = "WARNING: QuickBooks Item Mapping Failures occurred. See attached IIF and review mappings."
-        text_body_parts.append(text_warning)
-        text_body_parts.append("-" * 20) # Separator
-
-    # Add standard body text
-    standard_html_body = f"<p>Attached is the batch IIF file for Purchase Orders processed on {batch_date_str}.</p>"
-    standard_text_body = f"Attached is the batch IIF file for Purchase Orders processed on {batch_date_str}."
-    html_body_parts.append(standard_html_body)
-    text_body_parts.append(standard_text_body)
-
-    final_html_body = "\n".join(html_body_parts)
-    final_text_body = "\n".join(text_body_parts)
-
-    subject_to_send = custom_subject if custom_subject else f"{DAILY_IIF_EMAIL_SUBJECT_PREFIX} {batch_date_str}"
-
     try:
-        print(f"DEBUG IIF_EMAIL: Attempting to send IIF batch email for date {batch_date_str}")
+        client = PostmarkClient(server_token=EMAIL_API_KEY)
+        
+        # MODIFIED: Use filename_prefix and ensure batch_date_str (if it's a full timestamp string for on-demand) is handled
+        # For on-demand, batch_date_str might be like "OnDemand_AllPendingPOs_20230520_103045"
+        # For daily, it's "YYYY-MM-DD"
+        # We'll clean up the date part for the filename.
+        date_part_for_filename = batch_date_str.replace('-', '')
+        if "OnDemand" in batch_date_str: # Handle the longer on-demand string
+            try:
+                # Extract just the date if it's a complex string, or use a simplified version
+                # Example: "OnDemand_AllPendingPOs_20230520_103045" -> "20230520"
+                date_match = re.search(r'(\d{8})', batch_date_str) # Look for YYYYMMDD
+                if date_match:
+                    date_part_for_filename = date_match.group(1)
+                else: # Fallback for on-demand if no YYYYMMDD found, use a timestamp
+                    date_part_for_filename = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+            except Exception:
+                date_part_for_filename = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S') # Safest fallback
+
+        iif_filename = f"{filename_prefix}{date_part_for_filename}.iif"
+        print(f"DEBUG IIF_EMAIL: Attachment filename will be: {iif_filename}")
+
+        attachments = [{
+            "Name": iif_filename,
+            "Content": base64.b64encode(iif_content_string.encode('utf-8')).decode('utf-8'), # Changed from ascii to utf-8 for decode for safety
+            "ContentType": "application/iif" # Correct MIME type for IIF or text/plain
+        }]
+
+        html_body_parts = []
+        text_body_parts = []
+
+        if warning_message_html:
+            html_body_parts.append(warning_message_html)
+            text_warning = "WARNING: QuickBooks Item Mapping Failures occurred. See HTML email for details or check server logs."
+            text_body_parts.append(text_warning)
+            text_body_parts.append("-" * 20)
+
+        # For the email body, use the original batch_date_str for context
+        standard_html_body = f"<p>Attached is the batch IIF file for context: {batch_date_str}.</p>"
+        standard_text_body = f"Attached is the batch IIF file for context: {batch_date_str}."
+        html_body_parts.append(standard_html_body)
+        text_body_parts.append(standard_text_body)
+        html_body_parts.append("<p>Import this file into QuickBooks Desktop via File > Utilities > Import > IIF Files.</p>")
+        text_body_parts.append("Import this file into QuickBooks Desktop via File > Utilities > Import > IIF Files.")
+
+
+        final_html_body = "\n".join(html_body_parts)
+        final_text_body = "\n".join(text_body_parts)
+
+        # For subject line, use the original batch_date_str or a simplified date for readability
+        subject_date_context = batch_date_str
+        if "OnDemand" in custom_subject if custom_subject else False: # Check if it's an on-demand subject
+             subject_date_context = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')
+
+
+        subject_to_send = custom_subject if custom_subject else f"{DAILY_IIF_EMAIL_SUBJECT_PREFIX} {subject_date_context}"
+
+
+        print(f"DEBUG IIF_EMAIL: Attempting to send IIF batch email for context {batch_date_str}")
         response = client.emails.send(
             From=EMAIL_SENDER_ADDRESS,
             To=QUICKBOOKS_EMAIL_RECIPIENT,
-            Subject=subject_to_send, # MODIFIED to use subject_to_send
+            Subject=subject_to_send,
             HtmlBody=final_html_body,
-            TextBody=final_text_body, # Include a text part for clients that don't render HTML
+            TextBody=final_text_body,
             Attachments=attachments,
             MessageStream="outbound" # Or your specific stream
         )
-        print(f"INFO IIF_EMAIL: IIF Batch email for {batch_date_str} sent. MessageID: {response.get('MessageID') if isinstance(response, dict) else 'N/A'}")
-        return True
+        response_data = response # Assuming postmarker client returns a dict or object
+        if isinstance(response, dict) and response.get("ErrorCode") == 0: # Typical Postmark success
+            print(f"INFO IIF_EMAIL: IIF Batch email for {batch_date_str} sent. MessageID: {response.get('MessageID')}")
+            return True
+        # Handle cases where response might not be a dict or error code is different
+        elif hasattr(response, 'status_code') and response.status_code == 200: # For requests-like responses
+            print(f"INFO IIF_EMAIL: IIF Batch email for {batch_date_str} sent (status 200).")
+            return True
+        else:
+            print(f"ERROR IIF_EMAIL: Failed to send IIF Batch email. Response: {response_data}")
+            return False
+            
     except Exception as e:
         print(f"CRITICAL IIF_EMAIL: Failed to send IIF Batch email for {batch_date_str}: {e}")
-        import traceback
         traceback.print_exc()
         return False
+
 
 def send_sales_notification_email(recipient_email, subject, html_body, text_body, attachments):
     """

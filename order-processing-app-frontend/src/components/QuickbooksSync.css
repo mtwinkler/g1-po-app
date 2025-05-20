@@ -1,0 +1,84 @@
+@import './FormCommon.css'; 
+
+.quickbooks-sync-container {
+    padding: 20px; /* You might want a variable like --container-padding */
+    border: 1px solid var(--form-page-border, #ccc); /* Uses existing variable */
+    border-radius: var(--form-border-radius, 8px);   /* Using a common form radius, you defined 8px for form-page-container */
+    background-color: var(--form-page-bg, #f9f9f9); /* Uses existing variable */
+    color: var(--text-color, #333); /* Uses existing variable */
+    max-width: 600px;
+    margin: 20px auto;
+    text-align: center;
+    box-shadow: var(--form-page-shadow, 0 2px 4px rgba(0,0,0,0.1)); /* Uses existing variable */
+}
+
+.quickbooks-sync-container h2 {
+    color: var(--form-header-text-color, #333); /* Uses existing variable */
+    margin-bottom: 15px;
+    /* If you want a border like your other form headers:
+    border-bottom: 1px solid var(--form-header-border-color);
+    padding-bottom: 15px;
+    text-transform: uppercase;
+    font-size: 1.5em; 
+    font-weight: 600;
+    */
+}
+
+.quickbooks-sync-container p {
+    color: var(--text-light, #555); /* Uses existing variable */
+    line-height: 1.6;
+    margin-bottom: 20px;
+}
+
+.sync-button { /* This can use your .form-button.primary styles */
+    background-color: var(--primary-color);
+    color: var(--text-on-primary);
+    padding: 10px 20px;
+    border: none; /* Your .form-button has no border by default */
+    border-radius: 4px; /* Matches your .form-button */
+    cursor: pointer;
+    font-size: 1em; /* Matches your .form-button */
+    font-weight: 500; /* Matches your .form-button */
+    transition: background-color 0.2s ease, opacity 0.2s ease; /* Matches your .form-button */
+    display: inline-block; /* Matches your .form-button */
+    text-align: center; /* Matches your .form-button */
+}
+
+.sync-button:disabled {
+    background-color: #ccc; /* Your existing .form-button:disabled style */
+    color: #666;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.sync-button:hover:not(:disabled) {
+    background-color: var(--primary-color-dark); /* Matches your .form-button.primary:hover */
+}
+
+.sync-status { /* This can use your .form-message styles */
+    margin-top: 20px;
+    padding: 10px 15px; /* Matches your .form-message */
+    border-radius: 4px; /* Matches your .form-message */
+    font-weight: 500;   /* Matches your .form-message */
+    text-align: center; /* Matches your .form-message */
+    border: 1px solid transparent; /* Matches your .form-message */
+    font-size: 0.9em; /* Matches your .form-message */
+}
+
+.sync-status.success {
+    background-color: var(--form-message-success-bg); /* Uses existing variable */
+    color: var(--form-message-success-text);       /* Uses existing variable */
+    border-color: var(--form-message-success-border); /* Uses existing variable */
+}
+
+.sync-status.error {
+    background-color: var(--form-message-error-bg); /* Uses existing variable */
+    color: var(--form-message-error-text);       /* Uses existing variable */
+    border-color: var(--form-message-error-border); /* Uses existing variable */
+}
+
+.last-sync-time {
+    margin-top: 10px;
+    font-size: 0.9em;
+    color: var(--text-light, #777); /* Using --text-light as a "muted" color */
+}

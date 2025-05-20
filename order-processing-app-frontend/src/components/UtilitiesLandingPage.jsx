@@ -17,7 +17,7 @@ function UtilitiesLandingPage() {
         </Link>
 
         <Link to="/utils/quickbooks-sync" className="utility-card">
-          <h2>QuickBooks Integration</h2>
+          <h2>QuickBooks Data Sync</h2>
           <p>Sync Purchase Orders and Sales Orders to QuickBooks Desktop.</p>
         </Link>
 

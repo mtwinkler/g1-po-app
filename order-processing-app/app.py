@@ -1,23 +1,24 @@
 # app.py - Corrected Full Version with G1 Onsite Fulfillment & base64 import
 
 import os
-import time 
-import traceback 
+import time
+import traceback
 from functools import wraps
 from flask import Flask, jsonify, request, g, current_app
-from flask_cors import CORS 
+from flask_cors import CORS
 import sqlalchemy
-from sqlalchemy import text 
+from sqlalchemy import text
 from dotenv import load_dotenv
-from google.cloud.sql.connector import Connector as GcpSqlConnector 
+from google.cloud.sql.connector import Connector as GcpSqlConnector
 import requests
-from datetime import datetime, timezone, timedelta 
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.dialects.postgresql import insert
-from decimal import Decimal 
-import inspect 
+from decimal import Decimal
+import inspect
 import re
-import base64 # <--- ADDED IMPORT FOR BASE64
+import base64
 import sys
+import html
 
 # --- Firebase Admin SDK Imports ---
 import firebase_admin
@@ -558,7 +559,7 @@ def ingest_orders():
         print(f"DEBUG INGEST: Fetching orders with status ID {target_status_id} from {orders_list_endpoint}", flush=True)
 
         response = requests.get(orders_list_endpoint, headers=bc_headers, params=api_params)
-        response.raise_for_status() # Will raise an HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
         orders_list_from_bc = response.json()
 
         if not isinstance(orders_list_from_bc, list):
@@ -575,19 +576,28 @@ def ingest_orders():
                 print(f"DEBUG INGEST: Processing {len(orders_list_from_bc)} orders from BigCommerce.", flush=True)
                 for bc_order_summary in orders_list_from_bc:
                     order_id_from_bc = bc_order_summary.get('id')
+                    print(f"--- DEBUG INGEST FOR BC ORDER ID: {order_id_from_bc} ---")
+                    print(f"Raw bc_order_summary keys: {list(bc_order_summary.keys())}")
+                    if 'billing_address' in bc_order_summary:
+                        print(f"Billing Address from BC: {bc_order_summary['billing_address']}")
+                    else:
+                        print(f"WARN: 'billing_address' key NOT FOUND in bc_order_summary for order {order_id_from_bc}!")
+                    print(f"--- END DEBUG FOR BC ORDER ID: {order_id_from_bc} ---", flush=True)
+
+                    bc_billing_address = bc_order_summary.get('billing_address', {})
                     if order_id_from_bc is None:
                         print("WARN INGEST: Skipping order summary with missing 'id'.", flush=True)
                         continue
-                    
+
                     print(f"DEBUG INGEST: Processing BC Order ID: {order_id_from_bc}", flush=True)
-                    
+
                     shipping_addresses_list, products_list = [], []
                     is_international = False
                     calculated_shipping_method_name = 'N/A'
                     customer_shipping_address = {}
+                    bc_billing_address = bc_order_summary.get('billing_address', {}) # Get billing_address object
 
                     try:
-                        # Fetch shipping addresses
                         shipping_addr_url = f"{bc_api_base_url_v2}orders/{order_id_from_bc}/shippingaddresses"
                         shipping_res = requests.get(shipping_addr_url, headers=bc_headers)
                         shipping_res.raise_for_status()
@@ -600,7 +610,6 @@ def ingest_orders():
                         else:
                             print(f"WARN INGEST: No valid shipping address found for BC Order {order_id_from_bc}.", flush=True)
 
-                        # Fetch products
                         products_url = f"{bc_api_base_url_v2}orders/{order_id_from_bc}/products"
                         products_res = requests.get(products_url, headers=bc_headers)
                         products_res.raise_for_status()
@@ -611,136 +620,116 @@ def ingest_orders():
                     except requests.exceptions.RequestException as sub_req_e:
                         print(f"ERROR INGEST: Could not fetch sub-resources for BC Order {order_id_from_bc}: {sub_req_e}. Skipping this order.", flush=True)
                         continue
-                    
-                    # Initialize variables for parsed freight info
-                    parsed_customer_carrier = None
-                    parsed_customer_selected_ups_service = None # Renaming for clarity
-                    parsed_customer_ups_account_num = None
-                    is_bill_to_customer_ups_acct = False
-                    parsed_customer_ups_account_zipcode = None # Added from your v11.0 doc for UPS
 
-                    # New FedEx variables
-                    parsed_customer_selected_fedex_service = None
-                    parsed_customer_fedex_account_num = None
-                    is_bill_to_customer_fedex_acct = False
-                    parsed_customer_fedex_account_zipcode = None # Placeholder
+                    parsed_customer_carrier, parsed_customer_selected_ups_service, parsed_customer_ups_account_num = None, None, None
+                    is_bill_to_customer_ups_acct, parsed_customer_ups_account_zipcode = False, None
+                    parsed_customer_selected_fedex_service, parsed_customer_fedex_account_num = None, None
+                    is_bill_to_customer_fedex_acct, parsed_customer_fedex_account_zipcode = False, None
 
                     raw_customer_message = bc_order_summary.get('customer_message', '')
                     customer_notes_for_db = raw_customer_message
-
                     freight_delimiter_present = "|| Carrier:" in raw_customer_message and "|| Account#:" in raw_customer_message
 
                     if freight_delimiter_present:
                         print(f"DEBUG INGEST: Found potential custom freight details in notes for BC Order {order_id_from_bc}", flush=True)
                         parts = raw_customer_message.split(' || ')
-                        # The first part (parts[0]) is considered the user's actual comment.
-                        # customer_notes_for_db will remain the full raw_customer_message for now,
-                        # or you might decide to strip the freight details if they are only for machine parsing.
-
-                        temp_carrier = None
-                        temp_service = None
-                        temp_account = None
-
+                        temp_carrier, temp_service, temp_account = None, None, None
                         for part_idx, part_content in enumerate(parts):
-                            if part_idx == 0: continue # Skip the actual user comment part for freight parsing
-                            
-                            content_lower = part_content.lower() # For case-insensitive matching of keys
-                            
-                            if content_lower.startswith("carrier:"):
-                                temp_carrier = part_content.split(":", 1)[1].strip()
-                            elif content_lower.startswith("service:"):
-                                temp_service = part_content.split(":", 1)[1].strip()
-                            elif content_lower.startswith("account#:"): # Match "Account#:"
-                                temp_account = part_content.split(":", 1)[1].strip()
-                        
+                            if part_idx == 0: continue
+                            content_lower = part_content.lower()
+                            if content_lower.startswith("carrier:"): temp_carrier = part_content.split(":", 1)[1].strip()
+                            elif content_lower.startswith("service:"): temp_service = part_content.split(":", 1)[1].strip()
+                            elif content_lower.startswith("account#:"): temp_account = part_content.split(":", 1)[1].strip()
                         if temp_carrier and temp_account:
-                            parsed_customer_carrier = temp_carrier # Store the general carrier
+                            parsed_customer_carrier = temp_carrier
                             if "UPS" in temp_carrier.upper():
-                                parsed_customer_selected_ups_service = temp_service
-                                parsed_customer_ups_account_num = temp_account
-                                is_bill_to_customer_ups_acct = True
-                                print(f"INFO INGEST: Customer indicated UPS account: {parsed_customer_ups_account_num}, Service: '{temp_service}'' for BC Order {order_id_from_bc}", flush=True)
-                            elif "FEDEX" in temp_carrier.upper() or "FED EX" in temp_carrier.upper(): # Handle "FEDEX" or "FED EX"
-                                parsed_customer_selected_fedex_service = temp_service
-                                parsed_customer_fedex_account_num = temp_account
-                                is_bill_to_customer_fedex_acct = True
-                                print(f"INFO INGEST: Customer indicated FedEx account: {parsed_customer_fedex_account_num}, Service: '{temp_service}'' for BC Order {order_id_from_bc}", flush=True)
-                            else:
-                                print(f"INFO INGEST: Customer indicated other freight account (Carrier: '{temp_carrier}', Account: '{temp_account}', Service: '{temp_service}'). BC Order {order_id_from_bc}", flush=True)
-                        else:
-                            print(f"WARN INGEST: Custom freight details format issue (missing carrier or account) for BC Order {order_id_from_bc}. Notes: '{raw_customer_message}'", flush=True)
-                    else: 
-                        if customer_notes_for_db: 
-                            sensitive_pattern = re.compile(r'\*{10}.*?\*{10}', re.DOTALL)
-                            stripped_message = sensitive_pattern.sub('', customer_notes_for_db).strip()
-                            if customer_notes_for_db != stripped_message:
-                                print(f"DEBUG INGEST: Stripped sensitive pattern from customer notes for BC Order {order_id_from_bc}.", flush=True)
-                            customer_notes_for_db = stripped_message
-                    
+                                parsed_customer_selected_ups_service, parsed_customer_ups_account_num, is_bill_to_customer_ups_acct = temp_service, temp_account, True
+                                print(f"INFO INGEST: UPS account: {temp_account}, Service: '{temp_service}' for BC Order {order_id_from_bc}", flush=True)
+                            elif "FEDEX" in temp_carrier.upper() or "FED EX" in temp_carrier.upper():
+                                parsed_customer_selected_fedex_service, parsed_customer_fedex_account_num, is_bill_to_customer_fedex_acct = temp_service, temp_account, True
+                                print(f"INFO INGEST: FedEx account: {temp_account}, Service: '{temp_service}' for BC Order {order_id_from_bc}", flush=True)
+                            else: print(f"INFO INGEST: Other freight (Carrier: '{temp_carrier}', Account: '{temp_account}', Service: '{temp_service}'). BC Order {order_id_from_bc}", flush=True)
+                        else: print(f"WARN INGEST: Custom freight format issue for BC Order {order_id_from_bc}. Notes: '{raw_customer_message}'", flush=True)
+                    elif customer_notes_for_db:
+                        sensitive_pattern = re.compile(r'\*{10}.*?\*{10}', re.DOTALL)
+                        customer_notes_for_db = sensitive_pattern.sub('', customer_notes_for_db).strip()
+
+                    # ADDED all customer_billing_... columns and bc_shipping_cost_ex_tax to SELECT
                     existing_order_row = conn.execute(
-                        text("""SELECT id, status, is_international, payment_method, 
+                        text("""SELECT id, status, is_international, payment_method,
                                       bigcommerce_order_tax, customer_notes,
-                                      customer_selected_freight_service, customer_ups_account_number, 
+                                      customer_selected_freight_service, customer_ups_account_number,
                                       is_bill_to_customer_account, customer_ups_account_zipcode,
-                                      -- Add new FedEx columns here for selection
                                       customer_selected_fedex_service, customer_fedex_account_number,
-                                      is_bill_to_customer_fedex_account, customer_fedex_account_zipcode
+                                      is_bill_to_customer_fedex_account, customer_fedex_account_zipcode,
+                                      bc_shipping_cost_ex_tax,
+                                      customer_billing_first_name, customer_billing_last_name, customer_billing_company,
+                                      customer_billing_street_1, customer_billing_street_2, customer_billing_city,
+                                      customer_billing_state, customer_billing_zip, customer_billing_country,
+                                      customer_billing_country_iso2, customer_billing_phone
                               FROM orders WHERE bigcommerce_order_id = :bc_order_id"""),
                         {"bc_order_id": order_id_from_bc}
                     ).fetchone()
-                    
+
                     bc_total_tax = Decimal(bc_order_summary.get('total_tax', '0.00'))
                     bc_total_inc_tax = Decimal(bc_order_summary.get('total_inc_tax', '0.00'))
+                    bc_shipping_cost_from_api = Decimal(bc_order_summary.get('shipping_cost_ex_tax', '0.00'))
                     current_time_utc = datetime.now(timezone.utc)
-                    
+
                     if existing_order_row:
                         db_status = existing_order_row.status
                         print(f"DEBUG INGEST: Order {order_id_from_bc} exists (App ID: {existing_order_row.id}). DB status: '{db_status}'.", flush=True)
-                        
                         finalized_or_manual_statuses = ['Processed', 'Completed Offline', 'pending', 'RFQ Sent', 'international_manual']
                         if db_status in finalized_or_manual_statuses:
-                            print(f"DEBUG INGEST: Skipping updates for BC Order {order_id_from_bc} as its local status is '{db_status}'.", flush=True)
-                            ingested_count += 1
-                            continue
+                            print(f"DEBUG INGEST: Skipping updates for BC Order {order_id_from_bc} as local status is '{db_status}'.", flush=True)
+                            ingested_count += 1; continue
 
                         update_fields = {}
                         if existing_order_row.is_international != is_international: update_fields['is_international'] = is_international
                         if existing_order_row.payment_method != bc_order_summary.get('payment_method'): update_fields['payment_method'] = bc_order_summary.get('payment_method')
                         if existing_order_row.bigcommerce_order_tax != bc_total_tax: update_fields['bigcommerce_order_tax'] = bc_total_tax
                         if existing_order_row.customer_notes != customer_notes_for_db: update_fields['customer_notes'] = customer_notes_for_db
+                        if not hasattr(existing_order_row, 'bc_shipping_cost_ex_tax') or existing_order_row.bc_shipping_cost_ex_tax != bc_shipping_cost_from_api:
+                            update_fields['bc_shipping_cost_ex_tax'] = bc_shipping_cost_from_api
+
+                        # Update Billing Address Fields
+                        billing_fields_to_check = {
+                            'customer_billing_first_name': bc_billing_address.get('first_name'),
+                            'customer_billing_last_name': bc_billing_address.get('last_name'),
+                            'customer_billing_company': bc_billing_address.get('company'),
+                            'customer_billing_street_1': bc_billing_address.get('street_1'),
+                            'customer_billing_street_2': bc_billing_address.get('street_2'),
+                            'customer_billing_city': bc_billing_address.get('city'),
+                            'customer_billing_state': bc_billing_address.get('state'),
+                            'customer_billing_zip': bc_billing_address.get('zip'),
+                            'customer_billing_country': bc_billing_address.get('country'),
+                            'customer_billing_country_iso2': bc_billing_address.get('country_iso2'),
+                            'customer_billing_phone': bc_billing_address.get('phone')
+                        }
+                        for field_name, new_value in billing_fields_to_check.items():
+                            if not hasattr(existing_order_row, field_name) or getattr(existing_order_row, field_name) != new_value:
+                                update_fields[field_name] = new_value
                         
                         # UPS specific fields
-                        if existing_order_row.customer_selected_freight_service != parsed_customer_selected_ups_service: # Note: This field was generic, now UPS-specific
-                            update_fields['customer_selected_freight_service'] = parsed_customer_selected_ups_service
-                        if existing_order_row.customer_ups_account_number != parsed_customer_ups_account_num:
-                            update_fields['customer_ups_account_number'] = parsed_customer_ups_account_num
-                        if existing_order_row.is_bill_to_customer_account != is_bill_to_customer_ups_acct: # Note: This field was generic, now UPS-specific
-                            update_fields['is_bill_to_customer_account'] = is_bill_to_customer_ups_acct
+                        if existing_order_row.customer_selected_freight_service != parsed_customer_selected_ups_service: update_fields['customer_selected_freight_service'] = parsed_customer_selected_ups_service
+                        if existing_order_row.customer_ups_account_number != parsed_customer_ups_account_num: update_fields['customer_ups_account_number'] = parsed_customer_ups_account_num
+                        if existing_order_row.is_bill_to_customer_account != is_bill_to_customer_ups_acct: update_fields['is_bill_to_customer_account'] = is_bill_to_customer_ups_acct
+                        # FedEx specific fields
+                        if existing_order_row.customer_selected_fedex_service != parsed_customer_selected_fedex_service: update_fields['customer_selected_fedex_service'] = parsed_customer_selected_fedex_service
+                        if existing_order_row.customer_fedex_account_number != parsed_customer_fedex_account_num: update_fields['customer_fedex_account_number'] = parsed_customer_fedex_account_num
+                        if existing_order_row.is_bill_to_customer_fedex_account != is_bill_to_customer_fedex_acct: update_fields['is_bill_to_customer_fedex_account'] = is_bill_to_customer_fedex_acct
 
-                        # New FedEx specific fields
-                        if existing_order_row.customer_selected_fedex_service != parsed_customer_selected_fedex_service:
-                            update_fields['customer_selected_fedex_service'] = parsed_customer_selected_fedex_service
-                        if existing_order_row.customer_fedex_account_number != parsed_customer_fedex_account_num:
-                            update_fields['customer_fedex_account_number'] = parsed_customer_fedex_account_num
-                        if existing_order_row.is_bill_to_customer_fedex_account != is_bill_to_customer_fedex_acct:
-                            update_fields['is_bill_to_customer_fedex_account'] = is_bill_to_customer_fedex_acct
-                        
                         if db_status not in finalized_or_manual_statuses:
                             new_app_status_by_ingest = 'international_manual' if is_international else 'new'
-                            if db_status != new_app_status_by_ingest:
-                                print(f"DEBUG INGEST: Current status '{db_status}' for order {order_id_from_bc} needs update to '{new_app_status_by_ingest}'.", flush=True)
-                                update_fields['status'] = new_app_status_by_ingest
-                        
+                            if db_status != new_app_status_by_ingest: update_fields['status'] = new_app_status_by_ingest
                         if update_fields:
                             update_fields['updated_at'] = current_time_utc
                             set_clauses = [f"{key} = :{key}" for key in update_fields.keys()]
-                            update_stmt_str = f"UPDATE orders SET {', '.join(set_clauses)} WHERE id = :id"
-                            conn.execute(text(update_stmt_str), {"id": existing_order_row.id, **update_fields})
+                            conn.execute(text(f"UPDATE orders SET {', '.join(set_clauses)} WHERE id = :id"), {"id": existing_order_row.id, **update_fields})
                             print(f"DEBUG INGEST: Updated Order {order_id_from_bc} (App ID: {existing_order_row.id}). Fields: {list(update_fields.keys())}", flush=True)
                             updated_count_this_run += 1
-                        else:
-                            print(f"DEBUG INGEST: No updates needed for existing order {order_id_from_bc}.", flush=True)
-                    else: 
+                        else: print(f"DEBUG INGEST: No updates needed for existing order {order_id_from_bc}.", flush=True)
+                    else:
                         target_app_status = 'international_manual' if is_international else 'new'
                         order_values = {
                             "bigcommerce_order_id": order_id_from_bc,
@@ -753,99 +742,67 @@ def ingest_orders():
                             "customer_shipping_zip": customer_shipping_address.get('zip'),
                             "customer_shipping_country": customer_shipping_address.get('country_iso2'),
                             "customer_phone": customer_shipping_address.get('phone'),
-                            "customer_email": bc_order_summary.get('billing_address', {}).get('email', customer_shipping_address.get('email')),
+                            "customer_email": bc_billing_address.get('email', customer_shipping_address.get('email')), # Prioritize billing email
                             "customer_shipping_method": calculated_shipping_method_name,
                             "customer_notes": customer_notes_for_db,
                             "order_date": datetime.strptime(bc_order_summary['date_created'], '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=timezone.utc) if bc_order_summary.get('date_created') else current_time_utc,
                             "total_sale_price": bc_total_inc_tax,
                             "bigcommerce_order_tax": bc_total_tax,
-                            "status": target_app_status,
-                            "is_international": is_international,
+                            "bc_shipping_cost_ex_tax": bc_shipping_cost_from_api,
+                            "status": target_app_status, "is_international": is_international,
                             "payment_method": bc_order_summary.get('payment_method'),
-                            "created_at": current_time_utc,
-                            "updated_at": current_time_utc,
-                            # UPS specific (previously generic, now UPS-specific)
-                            "customer_selected_freight_service": parsed_customer_selected_ups_service, # Was generic, now for UPS
+                            "created_at": current_time_utc, "updated_at": current_time_utc,
+                            "customer_selected_freight_service": parsed_customer_selected_ups_service,
                             "customer_ups_account_number": parsed_customer_ups_account_num,
-                            "is_bill_to_customer_account": is_bill_to_customer_ups_acct, # Was generic, now for UPS
-                            "customer_ups_account_zipcode": None, # Explicitly set to None for new orders
-                            # New FedEx specific
+                            "is_bill_to_customer_account": is_bill_to_customer_ups_acct,
+                            "customer_ups_account_zipcode": None,
                             "customer_selected_fedex_service": parsed_customer_selected_fedex_service,
                             "customer_fedex_account_number": parsed_customer_fedex_account_num,
                             "is_bill_to_customer_fedex_account": is_bill_to_customer_fedex_acct,
-                            "customer_fedex_account_zipcode": None
+                            "customer_fedex_account_zipcode": None,
+                            # New Billing Address fields for insertion
+                            "customer_billing_first_name": bc_billing_address.get('first_name'),
+                            "customer_billing_last_name": bc_billing_address.get('last_name'),
+                            "customer_billing_company": bc_billing_address.get('company'),
+                            "customer_billing_street_1": bc_billing_address.get('street_1'),
+                            "customer_billing_street_2": bc_billing_address.get('street_2'),
+                            "customer_billing_city": bc_billing_address.get('city'),
+                            "customer_billing_state": bc_billing_address.get('state'),
+                            "customer_billing_zip": bc_billing_address.get('zip'),
+                            "customer_billing_country": bc_billing_address.get('country'),
+                            "customer_billing_country_iso2": bc_billing_address.get('country_iso2'),
+                            "customer_billing_phone": bc_billing_address.get('phone')
                         }
-                        # Ensure all existing fields are present in order_values if you're not listing them all here
-                        # Example: copy existing fields
-                        order_values.update({
-                            "customer_company": customer_shipping_address.get('company'),
-                            "customer_name": f"{customer_shipping_address.get('first_name', '')} {customer_shipping_address.get('last_name', '')}".strip(),
-                            "customer_shipping_address_line1": customer_shipping_address.get('street_1'),
-                            "customer_shipping_address_line2": customer_shipping_address.get('street_2'),
-                            "customer_shipping_city": customer_shipping_address.get('city'),
-                            "customer_shipping_state": customer_shipping_address.get('state'),
-                            "customer_shipping_zip": customer_shipping_address.get('zip'),
-                            "customer_shipping_country": customer_shipping_address.get('country_iso2'),
-                            "customer_phone": customer_shipping_address.get('phone'),
-                            "customer_email": bc_order_summary.get('billing_address', {}).get('email', customer_shipping_address.get('email')),
-                            "customer_shipping_method": calculated_shipping_method_name,
-                            "order_date": datetime.strptime(bc_order_summary['date_created'], '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=timezone.utc) if bc_order_summary.get('date_created') else current_time_utc,
-                            "total_sale_price": bc_total_inc_tax,
-                            "bigcommerce_order_tax": bc_total_tax,
-                            "status": target_app_status,
-                            "is_international": is_international,
-                            "payment_method": bc_order_summary.get('payment_method'),
-                        })
                         order_table_cols = [sqlalchemy.column(c) for c in order_values.keys()]
                         insert_order_stmt = insert(sqlalchemy.table('orders', *order_table_cols)).values(order_values).returning(sqlalchemy.column('id'))
                         inserted_order_id = conn.execute(insert_order_stmt).scalar_one()
-                        print(f"DEBUG INGEST: Inserted new Order {order_id_from_bc} (App ID {inserted_order_id}), status: {target_app_status}, BillToCustUPS: {is_bill_to_customer_ups_acct}, BillToCustFedEx: {is_bill_to_customer_fedex_acct}", flush=True)
+                        print(f"DEBUG INGEST: Inserted new Order {order_id_from_bc} (App ID {inserted_order_id})", flush=True)
                         inserted_count_this_run += 1
 
                         if products_list:
                             for item in products_list:
-                                if not isinstance(item, dict):
-                                     print(f"WARN INGEST: Skipping invalid item data for order {inserted_order_id}: {item}", flush=True)
-                                     continue
-                                sale_price_excl_tax = Decimal(item.get('price_ex_tax', '0.00'))
-                                line_item_values = {
-                                    "order_id": inserted_order_id,
-                                    "bigcommerce_line_item_id": item.get('id'),
-                                    "sku": item.get('sku'),
-                                    "name": item.get('name'),
-                                    "quantity": item.get('quantity'),
-                                    "sale_price": sale_price_excl_tax,
-                                    "created_at": current_time_utc,
-                                    "updated_at": current_time_utc
-                                }
-                                line_item_table_cols = [sqlalchemy.column(c) for c in line_item_values.keys()]
-                                conn.execute(insert(sqlalchemy.table('order_line_items', *line_item_table_cols)).values(line_item_values))
+                                if not isinstance(item, dict): print(f"WARN INGEST: Invalid item data for {inserted_order_id}: {item}", flush=True); continue
+                                li_values = {"order_id": inserted_order_id, "bigcommerce_line_item_id": item.get('id'), "sku": item.get('sku'), "name": item.get('name'), "quantity": item.get('quantity'), "sale_price": Decimal(item.get('price_ex_tax', '0.00')), "created_at": current_time_utc, "updated_at": current_time_utc}
+                                li_cols = [sqlalchemy.column(c) for c in li_values.keys()]
+                                conn.execute(insert(sqlalchemy.table('order_line_items', *li_cols)).values(li_values))
                             print(f"DEBUG INGEST: Inserted {len(products_list)} line items for new order {inserted_order_id}.", flush=True)
-                        else:
-                            print(f"WARN INGEST: No products found or processed for new BC Order {order_id_from_bc}.", flush=True)
+                        else: print(f"WARN INGEST: No products for new BC Order {order_id_from_bc}.", flush=True)
                     ingested_count += 1
             # Transaction commits here
-        print(f"INFO INGEST: Successfully processed {ingested_count} orders. Inserted: {inserted_count_this_run}, Updated: {updated_count_this_run}.", flush=True)
+        print(f"INFO INGEST: Processed {ingested_count} orders. Inserted: {inserted_count_this_run}, Updated: {updated_count_this_run}.", flush=True)
         return jsonify({"message": f"Processed {ingested_count} orders. Inserted {inserted_count_this_run} new. Updated {updated_count_this_run}."}), 200
     except requests.exceptions.RequestException as req_e:
-        error_message = f"BigCommerce API Request failed: {req_e}"
-        status_code_from_req_e = req_e.response.status_code if req_e.response is not None else 'N/A'
-        response_text_from_req_e = req_e.response.text if req_e.response is not None else 'N/A'
-        print(f"ERROR INGEST: {error_message}, Status: {status_code_from_req_e}, Response: {response_text_from_req_e[:500]}", flush=True)
-        traceback.print_exc(file=sys.stderr)
-        sys.stderr.flush()
-        return jsonify({"message": error_message, "status_code": status_code_from_req_e, "response_preview": response_text_from_req_e[:500]}), 500
+        error_msg = f"BC API Request failed: {req_e}"
+        status, resp_preview = (req_e.response.status_code, req_e.response.text[:500]) if req_e.response is not None else ('N/A', 'N/A')
+        print(f"ERROR INGEST: {error_msg}, Status: {status}, Response: {resp_preview}", flush=True); traceback.print_exc(file=sys.stderr); sys.stderr.flush()
+        return jsonify({"message": error_msg, "status_code": status, "response_preview": resp_preview}), 500
     except sqlalchemy.exc.SQLAlchemyError as db_e:
-        print(f"ERROR INGEST: Database error during ingestion: {db_e}", flush=True)
-        traceback.print_exc(file=sys.stderr)
-        sys.stderr.flush()
-        return jsonify({"message": f"Database error during order ingestion: {str(db_e)}", "error_type": type(db_e).__name__}), 500
+        print(f"ERROR INGEST: DB error: {db_e}", flush=True); traceback.print_exc(file=sys.stderr); sys.stderr.flush()
+        return jsonify({"message": f"DB error: {str(db_e)}", "error_type": type(db_e).__name__}), 500
     except Exception as e:
-        print(f"ERROR INGEST: Unexpected error during ingestion: {e}", flush=True)
-        traceback.print_exc(file=sys.stderr)
-        sys.stderr.flush()
-        return jsonify({"message": f"Unexpected error during order ingestion: {str(e)}", "error_type": type(e).__name__}), 500
-        
+        print(f"ERROR INGEST: Unexpected error: {e}", flush=True); traceback.print_exc(file=sys.stderr); sys.stderr.flush()
+        return jsonify({"message": f"Unexpected error: {str(e)}", "error_type": type(e).__name__}), 500
+    
 
 # === PROCESS ORDER ROUTE (MODIFIED FOR G1 ONSITE FULFILLMENT) ===
 @app.route('/api/orders/<int:order_id>/process', methods=['POST'])
@@ -1759,9 +1716,170 @@ def user_trigger_iif_for_today():
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
         return jsonify({"error": "An error occurred during user-triggered IIF generation.", "details": str(e)}), 500
+@app.route('/api/quickbooks/trigger-sync', methods=['POST'])
+@verify_firebase_token
+def trigger_quickbooks_sync_on_demand():
+    print("INFO QB_SYNC_ENDPOINT: Received request to trigger on-demand QuickBooks IIF generation.", flush=True)
+    try: # Outermost try for the entire function
+        if iif_generator is None:
+            print("ERROR QB_SYNC_ENDPOINT: iif_generator module not loaded.", flush=True)
+            return jsonify({"error": "IIF generation module not available at the server.", "details": "iif_generator is None"}), 500
+        if engine is None:
+            print("ERROR QB_SYNC_ENDPOINT: Database engine not initialized.", flush=True)
+            return jsonify({"error": "Database engine not available at the server.", "details": "engine is None"}), 500
 
-print("DEBUG APP_SETUP: Defined IIF trigger routes.") # This should be after all route definitions in this section
+        po_sync_success = False
+        po_sync_message = "PO sync not initiated."
+        sales_sync_success = False
+        sales_sync_message = "Sales sync not initiated."
+        
+        processed_po_db_ids_for_db_update = []
+        processed_sales_order_db_ids_for_db_update = []
+        db_update_error_message = None 
 
+        current_time_for_sync = datetime.now(timezone.utc)
+
+        # --- Process Purchase Orders ---
+        try:
+            print("INFO QB_SYNC_ENDPOINT: Generating IIF for ALL PENDING Purchase Orders...", flush=True)
+            po_iif_content, po_mapping_failures, po_ids_in_batch = iif_generator.generate_po_iif_content_for_date(engine, process_all_pending=True)
+            
+            if po_iif_content: 
+                if po_ids_in_batch: 
+                    if iif_generator.email_service:
+                        po_email_warning_html = None
+                        if po_mapping_failures:
+                            po_warn_lines = ['<p><strong><span style="color: red; font-size: 1.2em;">WARNING: QuickBooks Item Mapping Failures (Purchase Orders - On Demand)</span></strong></p><ul>']
+                            unique_po_fails = set()
+                            for f_po in po_mapping_failures:
+                                key_po = (f_po.get('po_number', 'N/A'), f_po.get('failed_sku', 'N/A'))
+                                if key_po not in unique_po_fails:
+                                    po_warn_lines.append(f"<li>PO: {html.escape(str(f_po.get('po_number','N/A')))}, SKU: {html.escape(str(f_po.get('failed_sku','N/A')))} (Desc: {html.escape(str(f_po.get('description','N/A')))})</li>")
+                                    unique_po_fails.add(key_po)
+                            po_warn_lines.append("</ul><hr>")
+                            po_email_warning_html = "\n".join(po_warn_lines)
+                        
+                        email_sent_po = iif_generator.email_service.send_iif_batch_email(
+                            iif_content_string=po_iif_content,
+                            batch_date_str=f"OnDemand_AllPendingPOs_{current_time_for_sync.strftime('%Y%m%d_%H%M%S')}",
+                            warning_message_html=po_email_warning_html,
+                            custom_subject=f"On-Demand All Pending POs IIF Batch - {current_time_for_sync.strftime('%Y-%m-%d %H:%M')}"
+                            # filename_prefix="OnDemand_AllPOs_" # <<< REMOVED THIS ARGUMENT
+                        )
+                        if email_sent_po:
+                            po_sync_success = True 
+                            processed_po_db_ids_for_db_update = po_ids_in_batch
+                            po_sync_message = f"Purchase Order IIF generation for {len(po_ids_in_batch)} pending item(s) successful and emailed."
+                        else:
+                            po_sync_success = False
+                            po_sync_message = f"Purchase Order IIF generated for {len(po_ids_in_batch)} items, but email FAILED."
+                    else: 
+                        print("WARN QB_SYNC_ENDPOINT: Email service not available for POs. IIF not emailed.", flush=True)
+                        po_sync_success = True 
+                        processed_po_db_ids_for_db_update = po_ids_in_batch 
+                        po_sync_message = f"Purchase Order IIF generated for {len(po_ids_in_batch)} items, but email service unavailable."
+                else: 
+                     po_sync_success = True
+                     po_sync_message = "No pending Purchase Orders found to process."
+            else: 
+                 po_sync_success = False
+                 po_sync_message = "Purchase Order IIF generation for all pending items failed (no IIF content returned from generator)."
+        except Exception as e_po:
+            print(f"ERROR QB_SYNC_ENDPOINT: Error during PO IIF processing block: {e_po}", flush=True)
+            traceback.print_exc(file=sys.stderr)
+            po_sync_success = False
+            po_sync_message = f"Error generating/processing PO IIF: {str(e_po)}"
+
+        # --- Process Sales Orders ---
+        try:
+            print("INFO QB_SYNC_ENDPOINT: Generating IIF for ALL PENDING Sales Orders/Invoices...", flush=True)
+            sales_iif_content, sales_mapping_failures, sales_ids_in_batch = iif_generator.generate_sales_iif_content_for_date(engine, process_all_pending=True)
+            
+            if sales_iif_content:
+                if sales_ids_in_batch:
+                    if iif_generator.email_service:
+                        sales_email_warning_html = None
+                        if sales_mapping_failures:
+                            sales_warn_lines = ['<p><strong><span style="color: red; font-size: 1.2em;">WARNING: QuickBooks Item Mapping Failures (Sales Orders - On Demand)</span></strong></p><ul>']
+                            unique_sales_fails = set()
+                            for f_sales in sales_mapping_failures:
+                                key_sales = (f_sales.get('original_sku', 'N/A_SKU'), f_sales.get('option_pn', 'N/A_PN'))
+                                if key_sales not in unique_sales_fails:
+                                    opt_pn_part_sales = f", OptionPN: {html.escape(str(f_sales.get('option_pn','N/A')))}" if 'option_pn' in f_sales and f_sales.get('option_pn') else ""
+                                    msg_sales = (f"Order: <strong>{html.escape(str(f_sales.get('bc_order_id','N/A')))}</strong>, Step: {html.escape(str(f_sales.get('failed_step','N/A')))}, SKU: <strong>{html.escape(str(f_sales.get('original_sku','N/A')))}</strong>{opt_pn_part_sales} (Name: {html.escape(str(f_sales.get('product_name','N/A')))})")
+                                    sales_warn_lines.append(f"<li>{msg_sales}</li>")
+                                    unique_sales_fails.add(key_sales)
+                            sales_warn_lines.append("</ul><hr>")
+                            sales_email_warning_html = "\n".join(sales_warn_lines)
+                        
+                        email_sent_sales = iif_generator.email_service.send_iif_batch_email(
+                            iif_content_string=sales_iif_content,
+                            batch_date_str=f"OnDemand_AllPendingSales_{current_time_for_sync.strftime('%Y%m%d_%H%M%S')}",
+                            warning_message_html=sales_email_warning_html,
+                            custom_subject=f"On-Demand All Pending Sales Orders IIF Batch - {current_time_for_sync.strftime('%Y-%m-%d %H:%M')}"
+                            # filename_prefix="OnDemand_AllSales_" # <<< REMOVED THIS ARGUMENT
+                        )
+                        if email_sent_sales:
+                            processed_sales_order_db_ids_for_db_update = sales_ids_in_batch
+                            sales_sync_success = True
+                            sales_sync_message = f"Sales Order IIF generation for {len(sales_ids_in_batch)} pending item(s) successful and emailed."
+                        else:
+                            sales_sync_success = False
+                            sales_sync_message = f"Sales Order IIF generated for {len(sales_ids_in_batch)} items, but email FAILED."
+                    else: 
+                        print("WARN QB_SYNC_ENDPOINT: Email service not available for Sales. IIF not emailed.", flush=True)
+                        sales_sync_success = True 
+                        processed_sales_order_db_ids_for_db_update = sales_ids_in_batch
+                        sales_sync_message = f"Sales Order IIF generated for {len(sales_ids_in_batch)} items, but email service unavailable."
+                else: 
+                    sales_sync_success = True
+                    sales_sync_message = "No pending Sales Orders found to process."
+            else: 
+                sales_sync_success = False
+                sales_sync_message = "Sales Order IIF generation for all pending items failed (no IIF content returned from generator)."
+        except Exception as e_sales:
+            print(f"ERROR QB_SYNC_ENDPOINT: Error during Sales IIF processing block: {e_sales}", flush=True)
+            traceback.print_exc(file=sys.stderr)
+            sales_sync_success = False
+            sales_sync_message = f"Error generating/processing Sales IIF: {str(e_sales)}"
+
+        # --- Database Status Updates ---
+        try:
+            with engine.connect() as conn:
+                with conn.begin():
+                    if po_sync_success and processed_po_db_ids_for_db_update: 
+                        print(f"INFO QB_SYNC_ENDPOINT: Updating status for {len(processed_po_db_ids_for_db_update)} POs.", flush=True)
+                        update_po_stmt = text("UPDATE purchase_orders SET qb_po_sync_status = 'synced', qb_po_synced_at = :now, qb_po_last_error = NULL WHERE id = ANY(:ids_array)")
+                        conn.execute(update_po_stmt, {"now": current_time_for_sync, "ids_array": processed_po_db_ids_for_db_update})
+                    
+                    if sales_sync_success and processed_sales_order_db_ids_for_db_update: 
+                        print(f"INFO QB_SYNC_ENDPOINT: Updating status for {len(processed_sales_order_db_ids_for_db_update)} Sales Orders.", flush=True)
+                        update_sales_stmt = text("UPDATE orders SET qb_sales_order_sync_status = 'synced', qb_sales_order_synced_at = :now, qb_sales_order_last_error = NULL WHERE id = ANY(:ids_array)")
+                        conn.execute(update_sales_stmt, {"now": current_time_for_sync, "ids_array": processed_sales_order_db_ids_for_db_update})
+                print("INFO QB_SYNC_ENDPOINT: Database status updates transaction committed (if any).", flush=True)
+        except Exception as e_db_update:
+            print(f"ERROR QB_SYNC_ENDPOINT: Error during database status updates: {e_db_update}", flush=True)
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush() 
+            db_update_error_message = f"IIFs may have been generated/emailed, BUT FAILED to update database sync statuses: {str(e_db_update)}"
+            
+        final_status_message = f"PO Sync: {po_sync_message} | Sales Sync: {sales_sync_message}"
+        if db_update_error_message:
+            final_status_message += f" | DB Update Status: {db_update_error_message}"
+        
+        overall_success = po_sync_success and sales_sync_success and (db_update_error_message is None)
+
+        print(f"INFO QB_SYNC_ENDPOINT: Finalizing response. Overall success: {overall_success}. Message: {final_status_message}", flush=True)
+        if overall_success:
+            return jsonify({"message": final_status_message, "po_status": po_sync_message, "sales_status": sales_sync_message}), 200
+        else:
+            return jsonify({"error": "One or more operations had issues. Check details.", "details": final_status_message, "po_status": po_sync_message, "sales_status": sales_sync_message}), 500
+
+    except Exception as e:
+        print(f"CRITICAL ERROR QB_SYNC_ENDPOINT: Unhandled exception in main route try-block: {e}", flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        return jsonify({"error": "An critical unexpected error occurred during the sync process.", "details": str(e)}), 500
 
 @app.route('/api/reports/daily-revenue', methods=['GET'])
 @verify_firebase_token 
