@@ -11,15 +11,27 @@ function UtilitiesLandingPage() {
       <h1>Application Utilities</h1>
       <div className="utilities-grid">
         
-        <Link to="/utils/standalone-label-generator" className="utility-card">
-          <h2>Standalone UPS Label Generator</h2>
-          <p>Quickly generate ad-hoc UPS shipping labels for miscellaneous shipments.</p>
-        </Link>
-
         <Link to="/utils/quickbooks-sync" className="utility-card">
           <h2>QuickBooks Data Sync</h2>
           <p>Sync Purchase Orders and Sales Orders to QuickBooks Desktop.</p>
         </Link>
+
+        <Link to="/utils/standalone-label-generator" className="utility-card">
+          <h2>Create UPS Shipment</h2>
+          <p>Quickly generate ad-hoc UPS shipping labels for miscellaneous shipments.</p>
+        </Link>
+
+        {/* --- NEW CARD FOR G1 LIVE CARTS --- */}
+        <a 
+          href="https://store-g6oxherh18.mybigcommerce.com/manage/analytics/carts" 
+          target="_blank" // Opens in a new tab
+          rel="noopener noreferrer" // Security best practice for target="_blank"
+          className="utility-card"
+        >
+          <h2>G1 Live Carts</h2>
+          <p>Shows carts currently active on the Global One Technology website.</p>
+        </a>
+        {/* --- END OF NEW CARD --- */}
 
         {/* --- MODIFICATION: Updated link to match App.jsx route --- */}
         <Link to="/utils/suppliers" className="utility-card">
@@ -28,7 +40,7 @@ function UtilitiesLandingPage() {
         </Link>
 
         <Link to="/admin/hpe-descriptions" className="utility-card">
-          <h2>Custom Product Descriptions</h2>
+          <h2>Manage Product Descriptions</h2>
           <p>Manage PO descriptions for HPE Option PNs.</p>
         </Link>
 

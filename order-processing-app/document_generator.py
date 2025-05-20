@@ -326,12 +326,12 @@ def _draw_packing_slip_footer(canvas, doc):
 
 
 # --- MODIFIED Function to Generate Packing Slip PDF ---
-def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping_separately, 
-                              logo_gcs_uri=None, is_g1_onsite_fulfillment=False): # <--- ADDED is_g1_onsite_fulfillment=False HERE
+def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping_separately,
+                              logo_gcs_uri=None, is_g1_onsite_fulfillment=False):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter,
                             leftMargin=0.75*inch, rightMargin=0.75*inch,
-                            topMargin=0.5*inch, bottomMargin=1.9*inch) # Ensure bottom margin accommodates footer
+                            topMargin=0.5*inch, bottomMargin=1.9*inch)
     styles = get_custom_styles()
     story = []
 
@@ -380,12 +380,18 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     ship_to_address_text = "<br/>".join(filter(None, ship_to_address_parts))
     ship_to_para = Paragraph(ship_to_address_text, styles['Normal_Helvetica'])
 
-    formatted_shipping_method = _format_shipping_method_for_display(order_data.get('customer_shipping_method', 'N/A'))
-    payment_method_text = escape(order_data.get('payment_method', 'N/A'))
+    # Use the helper for both shipping method and payment method
+    formatted_shipping_method_display = _format_shipping_method_for_display(order_data.get('customer_shipping_method', 'N/A'))
+    
+    # --- MODIFICATION FOR PAYMENT METHOD DISPLAY ---
+    raw_payment_method = order_data.get('payment_method', 'N/A')
+    formatted_payment_method_display = _format_shipping_method_for_display(raw_payment_method) # Reuse the same helper
+    # --- END MODIFICATION ---
+
     right_column_content = [
-        Paragraph(f"<b>Shipping Method:</b> {escape(formatted_shipping_method)}", styles['Normal_Helvetica_Right']),
+        Paragraph(f"<b>Shipping Method:</b> {escape(formatted_shipping_method_display)}", styles['Normal_Helvetica_Right']),
         Spacer(1, 0.05 * inch),
-        Paragraph(f"<b>Payment Method:</b> {payment_method_text}", styles['Normal_Helvetica_Right'])
+        Paragraph(f"<b>Payment Method:</b> {escape(formatted_payment_method_display)}", styles['Normal_Helvetica_Right']) # Use formatted version
     ]
     shipping_details_data = [
         [Paragraph("<b>Ship To:</b>", styles['H3_Helvetica']), ""],
@@ -475,7 +481,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
         story.append(items_table_separate)
 
     # Ensure it uses _draw_packing_slip_footer in doc.build as it was in your original file.
-    doc.build(story, onFirstPage=_draw_packing_slip_footer, onLaterPages=_draw_packing_slip_footer) # Ensure this line is correct
+    doc.build(story, onFirstPage=_draw_packing_slip_footer, onLaterPages=_draw_packing_slip_footer)
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes

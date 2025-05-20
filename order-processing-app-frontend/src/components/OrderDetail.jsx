@@ -55,14 +55,14 @@ const formatShippingMethod = (methodString) => {
   if (lowerMethod === 'ups worldwide expedited') return 'UPS Worldwide Expedited';
   if (lowerMethod === 'ups worldwide express') return 'UPS Worldwide Express';
   if (lowerMethod === 'ups worldwide saver') return 'UPS Worldwide Saver';
-  
+
   // Fallback for BigCommerce style "(Service Name)"
   const bcMatch = methodString.match(/\(([^)]+)\)/);
   if (bcMatch && bcMatch[1]) {
     const extracted = bcMatch[1].trim();
     const innerFormatted = formatShippingMethod(extracted); // Recursive call for the extracted part
     // Return the formatted version if it's a known service, otherwise the extracted part
-    return innerFormatted !== 'N/A' ? innerFormatted : extracted; 
+    return innerFormatted !== 'N/A' ? innerFormatted : extracted;
   }
 
   return String(methodString).trim(); // Default to the original string, trimmed
@@ -85,23 +85,21 @@ function OrderDetail() {
   const { orderId } = useParams();
   const { currentUser, loading: authLoading, apiService } = useAuth();
   const navigate = useNavigate();
-  // VITE_API_BASE_URL is not directly used in this component after apiService integration
-  // const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL; 
 
   const [orderData, setOrderData] = useState(null);
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [processing, setProcessing] = useState(false);
-  const [processSuccess, setProcessSuccess] = useState(false); 
-  const [processSuccessMessage, setProcessSuccessMessage] = useState(''); 
-  const [processedPOsInfo, setProcessedPOsInfo] = useState([]); 
+  const [processSuccess, setProcessSuccess] = useState(false);
+  const [processSuccessMessage, setProcessSuccessMessage] = useState('');
+  const [processedPOsInfo, setProcessedPOsInfo] = useState([]);
   const [processError, setProcessError] = useState(null);
   const [clipboardStatus, setClipboardStatus] = useState('');
   const [statusUpdateMessage, setStatusUpdateMessage] = useState('');
   const [manualStatusUpdateInProgress, setManualStatusUpdateInProgress] = useState(false);
+  const [seeQuotesStatus, setSeeQuotesStatus] = useState('');
 
-  // *** MODIFICATION: Use purchaseItems directly as state, not via refs for rendering/updates ***
   const [purchaseItems, setPurchaseItems] = useState([]);
   const [shipmentMethod, setShipmentMethod] = useState('UPS Ground');
   const [shipmentWeight, setShipmentWeight] = useState('');
@@ -120,17 +118,37 @@ function OrderDetail() {
   const [lineItemSpares, setLineItemSpares] = useState({});
   const [loadingSpares, setLoadingSpares] = useState(false);
 
-  // Removed setPurchaseItemsRef and purchaseItemsRef and their useEffects
-
   const cleanPullSuffix = " - clean pull";
   const originalLineItems = orderData?.line_items || [];
+
+  const handleSeeQuotesClick = async () => {
+    // Ensure orderData and the necessary order details are available
+    if (!orderData?.order?.bigcommerce_order_id) {
+      setSeeQuotesStatus('Error: Order number not available.');
+      setTimeout(() => setSeeQuotesStatus(''), 3000); // Clear message after 3 seconds
+      return;
+    }
+
+    const orderNumber = orderData.order.bigcommerce_order_id;
+    const searchPhrase = `Show me, in list format, the quoted prices received only today for Brokerbin RFQ and order number ${orderNumber}. Also include any comments included with the quotes. Disregard anything below "From: Global One Technology Group" in the emails. Note that "ea" is an abbreviation for each.`;
+
+    try {
+      await navigator.clipboard.writeText(searchPhrase);
+      setSeeQuotesStatus(`Gemini prompt copied!`);
+      setTimeout(() => setSeeQuotesStatus(''), 3000); // Clear message after 3 seconds
+    } catch (err) {
+      console.error('Failed to copy search phrase to clipboard:', err);
+      setSeeQuotesStatus('Error: Could not copy to clipboard. Please try manually.');
+      setTimeout(() => setSeeQuotesStatus(''), 5000); // Clear message after 5 seconds
+    }
+  };
 
   useEffect(() => {
     const currentLineItemsCount = originalLineItems.length;
     if (isMultiSupplierMode && currentLineItemsCount <= 1) {
-      setIsMultiSupplierMode(false); 
+      setIsMultiSupplierMode(false);
       if (selectedMainSupplierTrigger === MULTI_SUPPLIER_MODE_VALUE) {
-        setSelectedMainSupplierTrigger(''); 
+        setSelectedMainSupplierTrigger('');
       }
     }
   }, [originalLineItems.length, isMultiSupplierMode, selectedMainSupplierTrigger]);
@@ -139,11 +157,11 @@ function OrderDetail() {
     if (!currentUser) {
         setLoading(false); setOrderData(null); setSuppliers([]); return;
     }
-    setLoading(true); setError(null); 
-    
+    setLoading(true); setError(null);
+
     if (!isPostProcessRefresh) {
-        setProcessSuccess(false); setProcessSuccessMessage(''); 
-        setProcessedPOsInfo([]); setProcessError(null); 
+        setProcessSuccess(false); setProcessSuccessMessage('');
+        setProcessedPOsInfo([]); setProcessError(null);
     }
     setStatusUpdateMessage('');
 
@@ -155,8 +173,8 @@ function OrderDetail() {
         if (signal?.aborted) return;
 
         setOrderData(fetchedOrderData);
-        setSuppliers(fetchedSuppliers || []); 
-        
+        setSuppliers(fetchedSuppliers || []);
+
         if (!isPostProcessRefresh) {
             setLineItemSpares({});
             setMultiSupplierItemCosts({});
@@ -166,7 +184,7 @@ function OrderDetail() {
 
             if (fetchedOrderData?.order) {
                 const orderDetails = fetchedOrderData.order;
-                let determinedInitialShipMethod = 'UPS Ground'; 
+                let determinedInitialShipMethod = 'UPS Ground';
 
                 if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) {
                     const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_freight_service);
@@ -185,8 +203,8 @@ function OrderDetail() {
                         determinedInitialShipMethod = parsedOrderMethod;
                     }
                 }
-                setShipmentMethod(determinedInitialShipMethod); 
-                setOriginalCustomerShippingMethod(determinedInitialShipMethod); 
+                setShipmentMethod(determinedInitialShipMethod);
+                setOriginalCustomerShippingMethod(determinedInitialShipMethod);
             }
 
             if (fetchedOrderData?.line_items) {
@@ -194,13 +212,12 @@ function OrderDetail() {
                     original_order_line_item_id: item.line_item_id,
                     sku: item.hpe_option_pn || item.original_sku || '',
                     description: (item.hpe_po_description || item.line_item_name || '') + ( (item.hpe_po_description || item.line_item_name || '').endsWith(cleanPullSuffix) ? '' : cleanPullSuffix),
-                    skuInputValue: item.hpe_option_pn || item.original_sku || '', // Keep this for direct input binding
+                    skuInputValue: item.hpe_option_pn || item.original_sku || '',
                     quantity: item.quantity || 1, unit_cost: '', condition: 'New',
                     original_sku: item.original_sku, hpe_option_pn: item.hpe_option_pn,
                     original_name: item.line_item_name, hpe_po_description: item.hpe_po_description,
                     hpe_pn_type: item.hpe_pn_type,
                 }));
-                // *** MODIFICATION: Use setPurchaseItems directly ***
                 setPurchaseItems(initialItemsForPoForm);
 
                 const initialMultiDesc = {};
@@ -212,11 +229,10 @@ function OrderDetail() {
                 });
                 setMultiSupplierItemDescriptions(initialMultiDesc);
             } else {
-                 // *** MODIFICATION: Use setPurchaseItems directly ***
-                setPurchaseItems([]); 
+                setPurchaseItems([]);
                 setMultiSupplierItemDescriptions({});
             }
-        } else if (fetchedOrderData?.order) { 
+        } else if (fetchedOrderData?.order) {
             const orderDetails = fetchedOrderData.order;
             let determinedOriginalMethod = 'UPS Ground';
             if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) {
@@ -241,7 +257,7 @@ function OrderDetail() {
     } finally {
         if (!signal || !signal.aborted) setLoading(false);
     }
-  }, [orderId, cleanPullSuffix, currentUser, apiService]); // setPurchaseItems removed as it's stable
+  }, [orderId, cleanPullSuffix, currentUser, apiService]);
 
   useEffect(() => {
     if (authLoading) { setLoading(true); return; }
@@ -266,7 +282,7 @@ function OrderDetail() {
                     if (!trimmedOriginalSku) continue;
                     const spareData = await apiService.get(`/lookup/spare_part/${encodeURIComponent(trimmedOriginalSku)}`);
                     if (spareData.spare_sku) sparesMap[item.line_item_id] = String(spareData.spare_sku).trim();
-                } catch (err) { 
+                } catch (err) {
                     if (err.status !== 404) console.error(`Spare lookup exception for ${item.original_sku}:`, err);
                 }
             }
@@ -286,19 +302,15 @@ function OrderDetail() {
       try {
         const data = await apiService.get(`/lookup/description/${encodeURIComponent(String(debouncedSku).trim())}`);
         if (abortController.signal.aborted) return;
-        // *** MODIFICATION: Use setPurchaseItems directly ***
         setPurchaseItems(prevItems => {
             const updatedItems = [...prevItems];
-            // Ensure the item exists and the input value hasn't changed since debounce started
-            if (updatedItems[skuToLookup.index]?.skuInputValue === debouncedSku) { 
+            if (updatedItems[skuToLookup.index]?.skuInputValue === debouncedSku) {
                 let newDescription = data.description;
                 if (newDescription && typeof newDescription === 'string' && !newDescription.endsWith(cleanPullSuffix)) {
                     newDescription += cleanPullSuffix;
-                } else if (!newDescription) { 
-                    // If API returns no description, try to keep existing (if any) and add suffix
+                } else if (!newDescription) {
                     const existingDesc = (updatedItems[skuToLookup.index].description || "").replace(new RegExp(escapeRegExp(cleanPullSuffix) + "$"), "").trim();
                     newDescription = (existingDesc ? existingDesc + " " : "") + cleanPullSuffix.trim();
-                    // Handle case where existingDesc was empty, to avoid leading space
                     if (newDescription.startsWith(" " + cleanPullSuffix.trim())) {
                         newDescription = cleanPullSuffix.trim();
                     }
@@ -307,26 +319,25 @@ function OrderDetail() {
             }
             return updatedItems;
         });
-      } catch (error) { 
+      } catch (error) {
         if (error.name !== 'AbortError' && error.status !== 401 && error.status !== 403) {
             console.error("Error fetching description:", error);
         } else if (error.status === 401 || error.status === 403) {
             console.error("Unauthorized to fetch SKU description.");
-            // Optionally, redirect to login or show a message
         }
       }
     };
     fetchDescription();
     return () => abortController.abort();
-  }, [debouncedSku, skuToLookup.index, cleanPullSuffix, currentUser, isMultiSupplierMode, isG1OnsiteFulfillmentMode, apiService]); // setPurchaseItems removed
-  
+  }, [debouncedSku, skuToLookup.index, cleanPullSuffix, currentUser, isMultiSupplierMode, isG1OnsiteFulfillmentMode, apiService]);
+
   const handleMainSupplierTriggerChange = (e) => {
     const value = e.target.value;
     setSelectedMainSupplierTrigger(value);
-    setProcessError(null); setProcessSuccess(false); 
+    setProcessError(null); setProcessSuccess(false);
     setProcessSuccessMessage(''); setProcessedPOsInfo([]);
-    
-    let defaultMethodForThisMode = originalCustomerShippingMethod; 
+
+    let defaultMethodForThisMode = originalCustomerShippingMethod;
     if (orderData?.order?.is_bill_to_customer_account && orderData.order.customer_selected_freight_service) {
         const customerSelectedService = formatShippingMethod(orderData.order.customer_selected_freight_service);
         if (SHIPPING_METHODS_OPTIONS.some(opt => opt.value === customerSelectedService)) {
@@ -335,22 +346,20 @@ function OrderDetail() {
             console.warn(`OrderDetail: Customer's selected freight service "${orderData.order.customer_selected_freight_service}" (parsed as "${customerSelectedService}") not in options. Using original order default: ${originalCustomerShippingMethod}`);
         }
     }
-    
+
     setShipmentMethod(defaultMethodForThisMode);
-    setShipmentWeight(''); 
+    setShipmentWeight('');
 
     if (value === G1_ONSITE_FULFILLMENT_VALUE) {
         setIsG1OnsiteFulfillmentMode(true); setIsMultiSupplierMode(false);
-        setSingleOrderPoNotes(''); 
-        // *** MODIFICATION: Use setPurchaseItems directly ***
+        setSingleOrderPoNotes('');
         setPurchaseItems([]);
         setLineItemAssignments({}); setPoNotesBySupplier({});
         setMultiSupplierItemCosts({}); setMultiSupplierItemDescriptions({});
         setMultiSupplierShipmentDetails({});
     } else if (value === MULTI_SUPPLIER_MODE_VALUE) {
         setIsG1OnsiteFulfillmentMode(false); setIsMultiSupplierMode(true);
-        setSingleOrderPoNotes(''); 
-        // *** MODIFICATION: Use setPurchaseItems directly ***
+        setSingleOrderPoNotes('');
         setPurchaseItems([]);
         const initialMultiDesc = {};
         if (originalLineItems) {
@@ -363,16 +372,16 @@ function OrderDetail() {
         }
         setMultiSupplierItemDescriptions(initialMultiDesc);
         setLineItemAssignments({}); setPoNotesBySupplier({});
-        setMultiSupplierItemCosts({}); 
-        const newMultiShipDetails = {}; 
-        Object.keys(lineItemAssignments).forEach(itemId => { 
+        setMultiSupplierItemCosts({});
+        const newMultiShipDetails = {};
+        Object.keys(lineItemAssignments).forEach(itemId => {
             const supId = lineItemAssignments[itemId];
             if (supId && !newMultiShipDetails[supId]) {
                 newMultiShipDetails[supId] = { method: defaultMethodForThisMode, weight: '' };
             }
         });
         setMultiSupplierShipmentDetails(newMultiShipDetails);
-    } else { 
+    } else {
         setIsG1OnsiteFulfillmentMode(false); setIsMultiSupplierMode(false);
         const s = suppliers.find(sup => sup.id === parseInt(value, 10));
         setSingleOrderPoNotes(s?.defaultponotes || '');
@@ -384,11 +393,9 @@ function OrderDetail() {
                 original_sku: item.original_sku, hpe_option_pn: item.hpe_option_pn, original_name: item.line_item_name,
                 hpe_po_description: item.hpe_po_description, hpe_pn_type: item.hpe_pn_type,
             }));
-            // *** MODIFICATION: Use setPurchaseItems directly ***
             setPurchaseItems(initialItemsForPoForm);
-        } else { 
-            // *** MODIFICATION: Use setPurchaseItems directly ***
-            setPurchaseItems([]); 
+        } else {
+            setPurchaseItems([]);
         }
         setLineItemAssignments({}); setPoNotesBySupplier({});
         setMultiSupplierItemCosts({}); setMultiSupplierItemDescriptions({});
@@ -405,7 +412,7 @@ function OrderDetail() {
         setPoNotesBySupplier(prev => ({ ...prev, [supplierId]: s?.defaultponotes || '' }));
     }
     if (supplierId && isMultiSupplierMode && !multiSupplierShipmentDetails[supplierId]) {
-        let defaultMethodForThisPo = originalCustomerShippingMethod; 
+        let defaultMethodForThisPo = originalCustomerShippingMethod;
         if (orderData?.order?.is_bill_to_customer_account && orderData.order.customer_selected_freight_service) {
             const customerSelectedService = formatShippingMethod(orderData.order.customer_selected_freight_service);
             if (SHIPPING_METHODS_OPTIONS.some(opt => opt.value === customerSelectedService)) {
@@ -414,7 +421,7 @@ function OrderDetail() {
         }
         setMultiSupplierShipmentDetails(prev => ({
             ...prev,
-            [supplierId]: { method: defaultMethodForThisPo, weight: '' } 
+            [supplierId]: { method: defaultMethodForThisPo, weight: '' }
         }));
     }
   };
@@ -435,29 +442,21 @@ function OrderDetail() {
     setMultiSupplierShipmentDetails(prev => ({
         ...prev,
         [supplierId]: {
-            ...(prev[supplierId] || { method: originalCustomerShippingMethod, weight: '' }), 
+            ...(prev[supplierId] || { method: originalCustomerShippingMethod, weight: '' }),
             [field]: value
         }
     }));
   };
 
   const handlePurchaseItemChange = (index, field, value) => {
-    // *** MODIFICATION: Use setPurchaseItems directly ***
     setPurchaseItems(prevItems => {
         const items = [...prevItems];
         if (items[index]) {
             items[index] = { ...items[index], [field]: value };
-            // If the SKU field itself is being changed, update skuInputValue for direct binding
-            // and also the main 'sku' (which might be used for logic/API calls).
-            // Then, trigger the debounced lookup.
-            if (field === 'sku') { // This logic was specific to 'sku' field, now it's 'skuInputValue'
-                console.warn("Developer Note: 'sku' field was changed, but input is bound to 'skuInputValue'. Review logic if 'sku' is still needed separately.");
-                // Assuming the input is for 'skuInputValue' based on JSX
-                // This case might not be hit if input is bound to skuInputValue
-            } else if (field === 'skuInputValue') {
+            if (field === 'skuInputValue') {
                 const trimmedSku = String(value).trim();
-                items[index].skuInputValue = trimmedSku; 
-                items[index].sku = trimmedSku; // Also update the logical 'sku' if they should be in sync
+                items[index].skuInputValue = trimmedSku;
+                items[index].sku = trimmedSku;
                 setSkuToLookup({ index, sku: trimmedSku });
             }
         }
@@ -482,22 +481,22 @@ function OrderDetail() {
   };
 
   const handlePartNumberLinkClick = async (e, partNumber) => {
-    e.preventDefault(); 
+    e.preventDefault();
     if (orderData?.order?.bigcommerce_order_id) {
         await handleCopyToClipboard(orderData.order.bigcommerce_order_id);
     }
     if (!currentUser || !apiService) {
         setStatusUpdateMessage("Please log in to perform this action or API service is unavailable.");
-        return; 
+        return;
     }
     const currentOrderStatus = orderData?.order?.status?.toLowerCase();
     const trimmedPartNumberForStatusCheck = String(partNumber || '').trim();
     if (currentOrderStatus === 'new' && trimmedPartNumberForStatusCheck) {
       try {
-        setStatusUpdateMessage(''); 
+        setStatusUpdateMessage('');
         await apiService.post(`/orders/${orderId}/status`, { status: 'RFQ Sent' });
         const ac = new AbortController();
-        await fetchOrderAndSuppliers(ac.signal, false); 
+        await fetchOrderAndSuppliers(ac.signal, false);
         setStatusUpdateMessage(`Status updated to RFQ Sent for part: ${trimmedPartNumberForStatusCheck}`);
       } catch (err) {
         let errorMsg = err.data?.message || err.message || `Error updating status for part ${trimmedPartNumberForStatusCheck}`;
@@ -511,13 +510,13 @@ function OrderDetail() {
 
   const handleManualStatusUpdate = async (newStatus) => {
     if (!currentUser || !apiService) { setStatusUpdateMessage("Please log in or API service unavailable."); return; }
-    if (!orderId) { setStatusUpdateMessage("Order ID missing."); return; } 
-    setManualStatusUpdateInProgress(true); setStatusUpdateMessage(''); 
+    if (!orderId) { setStatusUpdateMessage("Order ID missing."); return; }
+    setManualStatusUpdateInProgress(true); setStatusUpdateMessage('');
     try {
         await apiService.post(`/orders/${orderId}/status`, { status: newStatus });
         setStatusUpdateMessage(`Order status successfully updated to '${newStatus}'.`);
-        const ac = new AbortController(); await fetchOrderAndSuppliers(ac.signal, false); 
-    } catch (err) { 
+        const ac = new AbortController(); await fetchOrderAndSuppliers(ac.signal, false);
+    } catch (err) {
         let errorMsg = err.data?.message || err.message || "Error updating status.";
         if (err.status === 401 || err.status === 403) { errorMsg = "Unauthorized. Please log in again."; navigate('/login'); }
         setStatusUpdateMessage(errorMsg);
@@ -527,19 +526,19 @@ function OrderDetail() {
   const handleProcessOrder = async (e) => {
     e.preventDefault();
     if (!currentUser || !apiService) { setProcessError("Please log in or API service unavailable."); return; }
-    setProcessing(true); setProcessError(null); setProcessSuccess(false); 
+    setProcessing(true); setProcessError(null); setProcessSuccess(false);
     setProcessSuccessMessage(''); setProcessedPOsInfo([]); setStatusUpdateMessage('');
 
     let payloadAssignments = [];
-    if (isG1OnsiteFulfillmentMode) { 
-        if (originalLineItems.length > 0) { 
+    if (isG1OnsiteFulfillmentMode) {
+        if (originalLineItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight for G1 Onsite Fulfillment."); setProcessing(false); return; }
             if (!shipmentMethod) { setProcessError("Please select a shipment method for G1 Onsite Fulfillment."); setProcessing(false); return; }
         }
         payloadAssignments.push({ supplier_id: G1_ONSITE_FULFILLMENT_VALUE, payment_instructions: "G1 Onsite Fulfillment", po_line_items: [], total_shipment_weight_lbs: originalLineItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null, shipment_method: originalLineItems.length > 0 ? shipmentMethod : null });
-    } else if (isMultiSupplierMode) { 
-        const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id); 
+    } else if (isMultiSupplierMode) {
+        const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id);
         if (originalLineItems.length > 0) {
             if (assignedSupplierIds.length === 0) { setProcessError("Multi-Supplier Mode: Assign items to at least one supplier."); setProcessing(false); return; }
             if (!originalLineItems.every(item => !!lineItemAssignments[item.line_item_id])) { setProcessError("Multi-Supplier Mode: Assign all original items to a supplier."); setProcessing(false); return; }
@@ -548,14 +547,14 @@ function OrderDetail() {
             const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supId);
             if (itemsForThisSupplier.length > 0) {
                 let itemCostValidationError = null;
-                const poLineItems = itemsForThisSupplier.map(item => { 
+                const poLineItems = itemsForThisSupplier.map(item => {
                     const costStr = multiSupplierItemCosts[item.line_item_id]; const costFloat = parseFloat(costStr);
                     if (costStr === undefined || costStr === '' || isNaN(costFloat) || costFloat < 0) { itemCostValidationError = `Missing/invalid unit cost for SKU ${item.original_sku || 'N/A'} (Supplier: ${suppliers.find(s=>s.id===parseInt(supId,10))?.name}).`; return null; }
                     let descriptionForPo = multiSupplierItemDescriptions[item.line_item_id];
                     if (descriptionForPo === undefined) descriptionForPo = item.hpe_po_description || item.line_item_name || `${item.original_sku || ''}${cleanPullSuffix}`;
                     if (!String(descriptionForPo).trim()) { itemCostValidationError = `Missing description for SKU ${item.original_sku || 'N/A'} (Supplier: ${suppliers.find(s=>s.id===parseInt(supId,10))?.name}).`; return null; }
                     return { original_order_line_item_id: item.line_item_id, sku: item.hpe_option_pn || item.original_sku, description: String(descriptionForPo).trim(), quantity: item.quantity, unit_cost: costFloat.toFixed(2), condition: 'New' };
-                }).filter(Boolean); 
+                }).filter(Boolean);
                 if (itemCostValidationError) { setProcessError(itemCostValidationError); setProcessing(false); return; }
                 if (poLineItems.length !== itemsForThisSupplier.length && itemsForThisSupplier.length > 0) { setProcessError("One or more items for a supplier had validation errors."); setProcessing(false); return; }
                 const shipmentDetailsForThisPo = multiSupplierShipmentDetails[supId] || {}; const currentPoWeight = shipmentDetailsForThisPo.weight; const currentPoMethod = shipmentDetailsForThisPo.method;
@@ -565,22 +564,21 @@ function OrderDetail() {
             }
         }
         if (payloadAssignments.length === 0 && originalLineItems.length > 0) { setProcessError("No items assigned for PO generation in multi-supplier mode."); setProcessing(false); return; }
-    } else { 
+    } else {
         const singleSelectedSupId = selectedMainSupplierTrigger;
         if (!singleSelectedSupId || singleSelectedSupId === MULTI_SUPPLIER_MODE_VALUE) { setProcessError("Please select a supplier."); setProcessing(false); return; }
-        // *** MODIFICATION: Use purchaseItems (state) directly ***
-        const currentPurchaseItems = purchaseItems; 
+        const currentPurchaseItems = purchaseItems;
         if (currentPurchaseItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight."); setProcessing(false); return; }
             if (!shipmentMethod) { setProcessError("Please select a shipment method."); setProcessing(false); return; }
         }
         let itemValidationError = null;
-        const finalPurchaseItems = currentPurchaseItems.map((item, index) => { 
+        const finalPurchaseItems = currentPurchaseItems.map((item, index) => {
             const quantityInt = parseInt(item.quantity, 10); const costFloat = parseFloat(item.unit_cost);
             if (isNaN(quantityInt) || quantityInt <= 0) { itemValidationError = `Item #${index + 1}: Quantity > 0.`; return null; }
             if (item.unit_cost === undefined || item.unit_cost === '' || isNaN(costFloat) || costFloat < 0) { itemValidationError = `Item #${index + 1}: Unit cost invalid.`; return null; }
-            if (!String(item.skuInputValue).trim()) { itemValidationError = `Item #${index + 1}: SKU required.`; return null; } // Validate skuInputValue
+            if (!String(item.skuInputValue).trim()) { itemValidationError = `Item #${index + 1}: SKU required.`; return null; }
             if (!String(item.description).trim()) { itemValidationError = `Item #${index + 1}: Description required.`; return null; }
             return { original_order_line_item_id: item.original_order_line_item_id, sku: String(item.skuInputValue).trim(), description: String(item.description).trim(), quantity: quantityInt, unit_cost: costFloat.toFixed(2), condition: item.condition || 'New' };
         }).filter(Boolean);
@@ -594,41 +592,41 @@ function OrderDetail() {
     try {
         const finalPayload = { assignments: payloadAssignments };
         const responseData = await apiService.post(`/orders/${orderId}/process`, finalPayload);
-        setProcessSuccess(true); 
-        setProcessSuccessMessage(responseData.message || "Order processed successfully!"); 
-        setProcessedPOsInfo(Array.isArray(responseData.processed_purchase_orders) ? responseData.processed_purchase_orders : []); 
-        const ac = new AbortController(); 
-        await fetchOrderAndSuppliers(ac.signal, true); 
+        setProcessSuccess(true);
+        setProcessSuccessMessage(responseData.message || "Order processed successfully!");
+        setProcessedPOsInfo(Array.isArray(responseData.processed_purchase_orders) ? responseData.processed_purchase_orders : []);
+        const ac = new AbortController();
+        await fetchOrderAndSuppliers(ac.signal, true);
     } catch (err) {
         let errorMsg = err.data?.error || err.data?.message || err.message || "Unexpected error during processing.";
         if (err.status === 401 || err.status === 403) { errorMsg = "Unauthorized. Please log in again."; navigate('/login'); }
         setProcessError(errorMsg);
-        setProcessSuccess(false); setProcessedPOsInfo([]); 
+        setProcessSuccess(false); setProcessedPOsInfo([]);
     } finally { setProcessing(false); }
   };
 
   if (authLoading) return <div className="loading-message">Loading session...</div>;
   if (!currentUser && !authLoading) return <div className="order-detail-container" style={{ textAlign: 'center', marginTop: '50px' }}><h2>Order Details</h2><p className="error-message">Please <Link to="/login">log in</Link>.</p></div>;
-  if (loading && !orderData && !processSuccess) return <div className="loading-message">Loading order details...</div>; 
+  if (loading && !orderData && !processSuccess) return <div className="loading-message">Loading order details...</div>;
   if (error && !loading) return <div className="error-message" style={{ margin: '20px', padding: '20px', border: '1px solid red' }}>Error: {error}</div>;
-  
-  const order = orderData?.order; 
 
-  if (!order && !processSuccess && !loading) { 
+  const order = orderData?.order;
+
+  if (!order && !processSuccess && !loading) {
       return <p style={{ textAlign: 'center', marginTop: '20px' }}>Order details not found or error loading.</p>;
   }
 
   const isActuallyProcessed = order?.status?.toLowerCase() === 'processed' || order?.status?.toLowerCase() === 'completed offline';
-  const canDisplayProcessingForm = !processSuccess && !isActuallyProcessed; 
+  const canDisplayProcessingForm = !processSuccess && !isActuallyProcessed;
   const disableAllActions = processing || manualStatusUpdateInProgress;
   const disableEditableFormFields = isActuallyProcessed || disableAllActions || processSuccess;
 
   let displayOrderDate = 'N/A';
   if (order?.order_date) try { displayOrderDate = new Date(order.order_date).toLocaleDateString(); } catch (e) { /* ignore */ }
-  
+
   const displayShipMethodInOrderInfo = formatShippingMethod(
-    (order?.is_bill_to_customer_account && order?.customer_selected_freight_service) 
-        ? order.customer_selected_freight_service 
+    (order?.is_bill_to_customer_account && order?.customer_selected_freight_service)
+        ? order.customer_selected_freight_service
         : order?.customer_shipping_method
   );
 
@@ -640,7 +638,7 @@ function OrderDetail() {
           <button title="Copy Order ID" onClick={() => handleCopyToClipboard(order?.bigcommerce_order_id)} className="copy-button" disabled={!order?.bigcommerce_order_id}>📋</button>
           {clipboardStatus && <span className="clipboard-status">{clipboardStatus}</span>}
         </h2>
-        {order && ( 
+        {order && (
             <span className={`order-status-badge status-${(order.status || 'unknown').toLowerCase().replace(/\s+/g, '-')}`}>
             {order.status || 'Unknown'}
             </span>
@@ -658,20 +656,91 @@ function OrderDetail() {
       {processSuccess && (
         <div className="process-success-container card">
           <p className="success-message-large">ORDER PROCESSED SUCCESSFULLY!</p>
-          {processSuccessMessage && processSuccessMessage !== "Order processed successfully!" && (
-            <p className="success-message-detail">{processSuccessMessage}</p>
+          
+          <div className="dashboard-link-container" style={{ marginTop: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)', textAlign: 'center' }}>
+            <a
+              href="https://store-g6oxherh18.mybigcommerce.com/manage/orders"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-info" 
+            >
+              G1 BC Order Dashboard
+            </a>
+          </div>
+
+          {processSuccessMessage && (
+            <p className="success-message-detail" style={{textAlign: 'center', marginBottom: 'var(--spacing-lg)'}}>{processSuccessMessage}</p>
+          )}
+
+          {processedPOsInfo && processedPOsInfo.length > 0 && (
+            <div className="processed-po-links">
+              <h4>Generated Documents/POs:</h4>
+              {processedPOsInfo.map((poInfo, index) => (
+                <div key={index} className="po-document-group">
+                  <p className="po-number-title">
+                    {poInfo.po_number === "_G1_ONSITE_FULFILLMENT_" // Using the constant for G1 Onsite PO Number
+                      ? `G1 Onsite Fulfillment (Order ID: ${order?.bigcommerce_order_id || orderId})`
+                      : `PO # ${poInfo.po_number}${poInfo.supplier_id && poInfo.supplier_id !== G1_ONSITE_FULFILLMENT_VALUE ? ` sent to ${suppliers.find(s => s.id === poInfo.supplier_id)?.name || 'Supplier'}` : ''}`
+                    }
+                    {poInfo.tracking_number && ` - Tracking: ${poInfo.tracking_number}`}
+                  </p>
+                  <div className="pdf-links-wrapper">
+                    {poInfo.po_pdf_gcs_uri && (
+                      <a href={poInfo.po_pdf_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
+                        View PO PDF
+                      </a>
+                    )}
+                    {poInfo.packing_slip_gcs_uri && (
+                      <a href={poInfo.packing_slip_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
+                        View Packing Slip PDF
+                      </a>
+                    )}
+                    {poInfo.label_gcs_uri && (
+                      <a href={poInfo.label_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
+                        View Label PDF
+                      </a>
+                    )}
+                  </div>
+                  {/* {(!poInfo.po_pdf_gcs_uri && !poInfo.packing_slip_gcs_uri && !poInfo.label_gcs_uri && poInfo.po_number !== "_G1_ONSITE_FULFILLMENT_") && (
+                     <p className="no-documents-note">No documents were generated or linked for this PO.</p>
+                  )} */}
+                   {poInfo.po_number === "_G1_ONSITE_FULFILLMENT_" && !poInfo.packing_slip_gcs_uri && !poInfo.label_gcs_uri && (
+                     <p className="no-documents-note">No documents were generated for this G1 Onsite Fulfillment.</p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
 
-      {orderData && order && !processSuccess && (
+      {orderData?.order?.status?.toLowerCase() === 'rfq sent' && orderData?.order?.bigcommerce_order_id && !isActuallyProcessed && !processSuccess && (
+        <section className="see-quotes-gmail-card card">
+         <div className="button-container-center">
+            <button
+              onClick={handleSeeQuotesClick}
+              className="btn btn-primary"
+              disabled={processing || manualStatusUpdateInProgress}
+            >
+              View Supplier Quotes Received
+            </button>
+          </div>
+          {seeQuotesStatus && (
+            <p className={`clipboard-status ${seeQuotesStatus.toLowerCase().includes('error') ? 'error-message-inline' : 'success-message-inline'} centered-status-message`}>
+              {seeQuotesStatus}
+            </p>
+          )}
+        </section>
+      )}
+
+      {orderData && order && !processSuccess && !isActuallyProcessed && ( /* Ensure forms don't show if already processed */
        <section className="order-info card">
         <h3>Order Information</h3>
         <div><strong>Rec'd:</strong> {displayOrderDate}</div>
         <div><strong>Customer:</strong> {order.customer_company || order.customer_name || 'N/A'}</div>
         <div><strong>Paid by:</strong> {order.payment_method || 'N/A'}</div>
         <div><strong>Ship:</strong> {displayShipMethodInOrderInfo} to {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
-        
+
         {order.is_bill_to_customer_account && order.customer_ups_account_number && (
           <div className="customer-ups-account-info">
             <strong>Bill Shipping To:</strong> Customer UPS Account # {order.customer_ups_account_number}
@@ -693,16 +762,16 @@ function OrderDetail() {
         ))}
       </section>
       )}
-  
+
      {canDisplayProcessingForm && (
         <section className="supplier-mode-selection card">
         <h3>Begin Order Fulfillment</h3>
         <div className="form-grid">
-            <label htmlFor="mainSupplierTrigger" style={{ marginRight: '8px' }}>Fulfillment Mode:</label> 
-            <select 
-                id="mainSupplierTrigger" 
-                value={selectedMainSupplierTrigger} 
-                onChange={handleMainSupplierTriggerChange} 
+            <label htmlFor="mainSupplierTrigger" style={{ marginRight: '8px' }}>Fulfillment Mode:</label>
+            <select
+                id="mainSupplierTrigger"
+                value={selectedMainSupplierTrigger}
+                onChange={handleMainSupplierTriggerChange}
                 disabled={disableAllActions || (suppliers.length === 0 && originalLineItems.length === 0) }
                 style={{ flexGrow: 1 }}
             >
@@ -712,7 +781,7 @@ function OrderDetail() {
                         {supplier.name || 'Unnamed Supplier'}
                     </option>
                 ))}
-                {originalLineItems.length > 1 && ( 
+                {originalLineItems.length > 1 && (
                     <option value={MULTI_SUPPLIER_MODE_VALUE}>** Use Multiple Suppliers **</option>
                 )}
                 {originalLineItems.length > 0 && (
@@ -724,7 +793,7 @@ function OrderDetail() {
      )}
 
       {/* Form for Single Regular Supplier PO */}
-      {canDisplayProcessingForm && !isMultiSupplierMode && !isG1OnsiteFulfillmentMode && selectedMainSupplierTrigger && 
+      {canDisplayProcessingForm && !isMultiSupplierMode && !isG1OnsiteFulfillmentMode && selectedMainSupplierTrigger &&
        selectedMainSupplierTrigger !== MULTI_SUPPLIER_MODE_VALUE && selectedMainSupplierTrigger !== G1_ONSITE_FULFILLMENT_VALUE && (
         <form onSubmit={handleProcessOrder} className={`processing-form ${disableEditableFormFields ? 'form-disabled' : ''}`}>
             <section className="purchase-info card">
@@ -736,12 +805,10 @@ function OrderDetail() {
               <div className="purchase-items-grid">
                 <h4>Items to Purchase:</h4>
                 <div className="item-header-row"><span>Purchase SKU</span><span>Description</span><span>Qty</span><span>Unit Cost</span></div>
-                {/* *** MODIFICATION: Use purchaseItems (state) directly for mapping *** */}
-                {purchaseItems.map((item, index) => ( 
+                {purchaseItems.map((item, index) => (
                      <div key={`po-item-${item.original_order_line_item_id || index}`} className="item-row">
                         <div>
                             <label className="mobile-label" htmlFor={`sku-${index}`}>SKU:</label>
-                            {/* Bind to item.skuInputValue, onChange updates skuInputValue and triggers debounce via item.sku */}
                             <input id={`sku-${index}`} type="text" value={item.skuInputValue || ''} onChange={(e) => handlePurchaseItemChange(index, 'skuInputValue', e.target.value)} placeholder="SKU" required disabled={disableEditableFormFields} title={item.original_sku ? `Original: ${item.original_sku}` : ''} className="sku-input" />
                         </div>
                         <div>
@@ -766,11 +833,11 @@ function OrderDetail() {
               <h3>Shipment Information</h3>
               <div className="form-grid">
                 <label htmlFor="shipmentMethodSingle">Method:</label>
-                <select id="shipmentMethodSingle" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={purchaseItems.length > 0}> 
+                <select id="shipmentMethodSingle" value={shipmentMethod} onChange={handleShipmentMethodChange} disabled={disableEditableFormFields} required={purchaseItems.length > 0}>
                     {SHIPPING_METHODS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
                 <label htmlFor="shipmentWeightSingle">Weight (lbs):</label>
-                <input type="number" id="shipmentWeightSingle" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={purchaseItems.length > 0} disabled={disableEditableFormFields} /> 
+                <input type="number" id="shipmentWeightSingle" value={shipmentWeight} onChange={handleShipmentWeightChange} step="0.1" min="0.1" placeholder="e.g., 5.0" required={purchaseItems.length > 0} disabled={disableEditableFormFields} />
               </div>
             </section>
              <div className="order-actions">
@@ -797,9 +864,9 @@ function OrderDetail() {
                     </div>
                 ))}
             </section>
-            {[...new Set(Object.values(lineItemAssignments))].filter(id => id).map(supplierId => { 
+            {[...new Set(Object.values(lineItemAssignments))].filter(id => id).map(supplierId => {
                 const supplier = suppliers.find(s => s.id === parseInt(supplierId, 10));
-                if (!supplier) return null; 
+                if (!supplier) return null;
                 const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supplierId);
                 return (
                     <section key={supplierId} className="supplier-po-draft card">
@@ -881,7 +948,7 @@ function OrderDetail() {
                   <a href="#" onClick={(e) => { e.preventDefault(); if (!disableAllActions) handleManualStatusUpdate('pending');}}
                       className={`link-button ${(manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new') ? 'link-button-updating' : ''}`}
                       style={{ fontSize: '0.9em', color: !(manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new') ? 'var(--text-secondary)' : undefined }}
-                      aria-disabled={disableAllActions || (manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new')}> 
+                      aria-disabled={disableAllActions || (manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new')}>
                       {(manualStatusUpdateInProgress && order.status?.toLowerCase() === 'new') ? 'Updating...' : 'Or, Process Manually (Set to Pending)'}
                   </a>
               </div>
@@ -889,8 +956,8 @@ function OrderDetail() {
       </div>
 
       <div className="order-actions" style={{ marginTop: '20px', textAlign: 'center' }}>
-          {(isActuallyProcessed || processSuccess) && (
-              <button type="button" onClick={() => navigate('/')} className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics" disabled={disableAllActions && !processSuccess}> 
+          {(isActuallyProcessed || processSuccess) && ( // Show "Back to Dashboard" if order is processed OR if current processing was a success
+              <button type="button" onClick={() => navigate('/')} className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics" disabled={processing && !processSuccess}> {/* Keep disabled if processing and it's not yet a success */}
                   BACK TO DASHBOARD
               </button>
           )}

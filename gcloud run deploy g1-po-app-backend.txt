@@ -1,5 +1,5 @@
 gcloud run deploy g1-po-app-backend-service `
-     --image gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250518a `
+     --image gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250519a `
       --project order-processing-app-458900 `
       --region us-central1 `
       --platform managed `

@@ -54,14 +54,14 @@ const QuickbooksSync = () => {
 
     return (
         <div className="quickbooks-sync-container">
-            <h2>QuickBooks IIF Sync</h2>
+            <h2>QuickBooks Data Sync</h2>
             <p>
                 This tool generates IIF files for new/updated Purchase Orders and Sales Orders (Invoices & Payments)
                 that are pending synchronization with QuickBooks. The generated IIF files will be emailed.
             </p>
             
             <button onClick={handleSync} disabled={isLoading} className="sync-button">
-                {isLoading ? 'Syncing...' : 'Generate & Email IIF Files Now (All Pending)'}
+                {isLoading ? 'Syncing...' : 'Generate & Email Quickbooks Data'}
             </button>
 
             {/* Displaying error message if 'error' state is set */}

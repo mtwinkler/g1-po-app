@@ -856,3 +856,66 @@ h3 { letter-spacing: 0.5px; }
 .customer-ups-account-info strong {
   color: var(--primary-accent-dark); /* Ensure the label is also distinct */
 }
+
+.see-quotes-gmail-card {
+  background-color: var(--bg-card-alt, #e9f5ff); /* A slightly different background, maybe a light blueish tint */
+  border: 1px solid var(--primary-accent-light, #a3d2fb);
+  margin-top: var(--spacing-lg); /* Ensure space below title section */
+  margin-bottom: var(--spacing-xl); /* Ensure space above order info */
+  padding: var(--spacing-md);
+}
+
+.see-quotes-gmail-card h4 {
+  color: var(--primary-accent-dark);
+  margin-top: 0;
+  margin-bottom: var(--spacing-sm);
+}
+
+.see-quotes-gmail-card p {
+  margin-bottom: var(--spacing-md);
+  font-size: 0.95em;
+  line-height: 1.5;
+}
+
+.see-quotes-gmail-card .btn-primary { /* Assuming you have a .btn-primary or want to style it */
+  background-color: var(--primary-accent);
+  color: var(--text-on-primary);
+  border: none;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+  display: inline-block; /* If it's not already, or remove if it's block and you use margin auto */
+  width: 100%; /* Full width on mobile */
+}
+
+.see-quotes-gmail-card .btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-accent-dark);
+}
+
+.see-quotes-gmail-card .btn-primary:disabled {
+  background-color: var(--bg-disabled);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* Inline status messages for copy feedback */
+.success-message-inline {
+  color: var(--success-text);
+  display: inline-block; /* or block if you prefer full width */
+}
+.error-message-inline {
+  color: var(--error-text);
+   display: inline-block;
+}
+.button-container-center {
+  text-align: center; /* This will center inline-block or inline children */
+  margin-top: var(--spacing-md); /* Optional: add some space above the button */
+  margin-bottom: var(--spacing-md); /* Optional: add some space below the button */
+}
+.centered-status-message {
+  text-align: center;
+  display: block; /* Ensures it can be centered if it's not already block */
+  width: 100%; /* Or whatever width its container allows */
+}
