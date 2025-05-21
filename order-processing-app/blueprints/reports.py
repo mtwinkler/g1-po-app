@@ -58,7 +58,7 @@ def get_daily_revenue_report():
             })
         
         # The report should be in chronological order for the frontend usually
-        complete_daily_revenue.reverse() # Reverse to have oldest day first, newest day last
+        # complete_daily_revenue.reverse() # Reverse to have oldest day first, newest day last
 
         print(f"DEBUG DAILY_REVENUE_BP: Fetched daily revenue for last 14 days. Count: {len(complete_daily_revenue)}")
         return jsonify(make_json_safe(complete_daily_revenue)), 200

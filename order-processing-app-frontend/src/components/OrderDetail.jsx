@@ -672,45 +672,6 @@ function OrderDetail() {
             <p className="success-message-detail" style={{textAlign: 'center', marginBottom: 'var(--spacing-lg)'}}>{processSuccessMessage}</p>
           )}
 
-          {processedPOsInfo && processedPOsInfo.length > 0 && (
-            <div className="processed-po-links">
-              <h4>Generated Documents/POs:</h4>
-              {processedPOsInfo.map((poInfo, index) => (
-                <div key={index} className="po-document-group">
-                  <p className="po-number-title">
-                    {poInfo.po_number === "_G1_ONSITE_FULFILLMENT_" // Using the constant for G1 Onsite PO Number
-                      ? `G1 Onsite Fulfillment (Order ID: ${order?.bigcommerce_order_id || orderId})`
-                      : `PO # ${poInfo.po_number}${poInfo.supplier_id && poInfo.supplier_id !== G1_ONSITE_FULFILLMENT_VALUE ? ` sent to ${suppliers.find(s => s.id === poInfo.supplier_id)?.name || 'Supplier'}` : ''}`
-                    }
-                    {poInfo.tracking_number && ` - Tracking: ${poInfo.tracking_number}`}
-                  </p>
-                  <div className="pdf-links-wrapper">
-                    {poInfo.po_pdf_gcs_uri && (
-                      <a href={poInfo.po_pdf_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
-                        View PO PDF
-                      </a>
-                    )}
-                    {poInfo.packing_slip_gcs_uri && (
-                      <a href={poInfo.packing_slip_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
-                        View Packing Slip PDF
-                      </a>
-                    )}
-                    {poInfo.label_gcs_uri && (
-                      <a href={poInfo.label_gcs_uri} target="_blank" rel="noopener noreferrer" className="pdf-link">
-                        View Label PDF
-                      </a>
-                    )}
-                  </div>
-                  {/* {(!poInfo.po_pdf_gcs_uri && !poInfo.packing_slip_gcs_uri && !poInfo.label_gcs_uri && poInfo.po_number !== "_G1_ONSITE_FULFILLMENT_") && (
-                     <p className="no-documents-note">No documents were generated or linked for this PO.</p>
-                  )} */}
-                   {poInfo.po_number === "_G1_ONSITE_FULFILLMENT_" && !poInfo.packing_slip_gcs_uri && !poInfo.label_gcs_uri && (
-                     <p className="no-documents-note">No documents were generated for this G1 Onsite Fulfillment.</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -765,9 +726,9 @@ function OrderDetail() {
 
      {canDisplayProcessingForm && (
         <section className="supplier-mode-selection card">
-        <h3>Begin Order Fulfillment</h3>
+        <h3>Order Fulfillment</h3>
         <div className="form-grid">
-            <label htmlFor="mainSupplierTrigger" style={{ marginRight: '8px' }}>Fulfillment Mode:</label>
+            <label htmlFor="mainSupplierTrigger" style={{ marginRight: '8px' }}>Initiate Fulfillment Strategy:</label>
             <select
                 id="mainSupplierTrigger"
                 value={selectedMainSupplierTrigger}
@@ -775,7 +736,7 @@ function OrderDetail() {
                 disabled={disableAllActions || (suppliers.length === 0 && originalLineItems.length === 0) }
                 style={{ flexGrow: 1 }}
             >
-                <option value="">-- Select Mode --</option>
+                <option value="">-- Select Supplier --</option>
                 {(suppliers || []).map(supplier => (
                     <option key={supplier.id} value={supplier.id}>
                         {supplier.name || 'Unnamed Supplier'}

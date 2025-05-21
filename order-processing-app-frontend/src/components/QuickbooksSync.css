@@ -10,6 +10,7 @@
     margin: 20px auto;
     text-align: center;
     box-shadow: var(--form-page-shadow, 0 2px 4px rgba(0,0,0,0.1)); /* Uses existing variable */
+    opacity: 65%;
 }
 
 .quickbooks-sync-container h2 {

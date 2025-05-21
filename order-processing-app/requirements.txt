@@ -91,3 +91,4 @@ scramp==1.4.5 # For PostgreSQL SCRAM authentication if used
 # Misc
 postmarker==1.0.0
 firebase-admin==6.8.0
+pywebpush==1.14.0

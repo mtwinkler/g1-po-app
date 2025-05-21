@@ -67,8 +67,12 @@ const QuickbooksSync = () => {
             {/* Displaying error message if 'error' state is set */}
             {error && <div className="sync-status error">{error}</div>}
             {/* Displaying general sync status if no error OR if error also sets syncStatus */}
-            {!error && syncStatus && <div className="sync-status success">{syncStatus}</div>} 
-            
+            {!error && syncStatus && (
+            <div
+                className="sync-status success"
+                dangerouslySetInnerHTML={{ __html: syncStatus }}
+            />
+            )}            
             {lastSyncTime && <p className="last-sync-time">Last sync attempt: {lastSyncTime}</p>}
         </div>
     );

@@ -1,14 +1,14 @@
-docker build -t gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250514b .
+docker build -t gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250520b .
 
-docker push gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250514b
+docker push gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250520b
 
 gcloud run deploy g1-po-app-backend-service `
-  --image gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250514d `
-  --project order-processing-app-458900 `
-  --region us-central1 `
-  --platform managed `
-  --allow-unauthenticated `
-  --port 8080 `
-  --add-cloudsql-instances "order-processing-app-458900:us-central1:order-app-db" `
-  --set-env-vars="FLASK_ENV=production,UPS_API_ENVIRONMENT=production,DB_DRIVER=pg8000,DOMESTIC_COUNTRY_CODE=US,BC_PROCESSING_STATUS_ID=7,BC_SHIPPED_STATUS_ID=2,EMAIL_SERVICE_PROVIDER=Postmark,EMAIL_SENDER_ADDRESS=marktwinkler@globalonetechnology.com,EMAIL_BCC_ADDRESS=marktwinkler@globalonetechnology.com,QUICKBOOKS_EMAIL_RECIPIENT=marktwinkler@globalonetechnology.com,DAILY_IIF_EMAIL_SUBJECT_PREFIX=TODAY''S PURCHASE ORDERS,SHIP_FROM_NAME=Global One Technology,SHIP_FROM_CONTACT=Shipping Dept,SHIP_FROM_STREET1=4916 S 184th Plaza,SHIP_FROM_CITY=Omaha,SHIP_FROM_STATE=NE,SHIP_FROM_ZIP=68135,SHIP_FROM_COUNTRY=US,SHIP_FROM_PHONE='888-888-8888',COMPANY_LOGO_GCS_URI=gs://g1-po-app-documents/assets/g1-logo.png,DB_CONNECTION_NAME=order-processing-app-458900:us-central1:order-app-db,UPS_API_VERSION=v2409" `
-  --update-secrets="DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,BIGCOMMERCE_STORE_HASH=BIGCOMMERCE_STORE_HASH:latest,BIGCOMMERCE_CLIENT_ID=BIGCOMMERCE_CLIENT_ID:latest,BIGCOMMERCE_ACCESS_TOKEN=BIGCOMMERCE_ACCESS_TOKEN:latest,UPS_BILLING_ACCOUNT_NUMBER=UPS_BILLING_ACCOUNT_NUMBER:latest,UPS_CLIENT_ID=UPS_CLIENT_ID:latest,UPS_CLIENT_SECRET=UPS_CLIENT_SECRET:latest,UPS_USERNAME=UPS_USERNAME:latest,UPS_PASSWORD_UPS=UPS_PASSWORD_UPS:latest,EMAIL_API_KEY=EMAIL_API_KEY:latest,GCS_BUCKET_NAME=GCS_BUCKET_NAME:latest"
+      --image gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250520b `
+      --project order-processing-app-458900 `
+      --region us-central1 `
+      --platform managed `
+      --allow-unauthenticated `
+      --port 8080 `
+      --add-cloudsql-instances "order-processing-app-458900:us-central1:order-app-db" `
+      --set-env-vars="FLASK_ENV=production,UPS_API_ENVIRONMENT=production,DB_DRIVER=pg8000,DOMESTIC_COUNTRY_CODE=US,BC_PROCESSING_STATUS_ID=7,BC_SHIPPED_STATUS_ID=2,EMAIL_SERVICE_PROVIDER=Postmark,EMAIL_SENDER_ADDRESS=marktwinkler@globalonetechnology.com,EMAIL_BCC_ADDRESS=marktwinkler@globalonetechnology.com,QUICKBOOKS_EMAIL_RECIPIENT=marktwinkler@globalonetechnology.com,DAILY_IIF_EMAIL_SUBJECT_PREFIX=TODAY''S PURCHASE ORDERS,SHIP_FROM_NAME=Global One Technology,SHIP_FROM_CONTACT=Shipping Dept,SHIP_FROM_STREET1=4916 S 184th Plaza,SHIP_FROM_CITY=Omaha,SHIP_FROM_STATE=NE,SHIP_FROM_ZIP=68135,SHIP_FROM_COUNTRY=US,SHIP_FROM_PHONE='888-888-8888',COMPANY_LOGO_GCS_URI=gs://g1-po-app-documents/assets/g1-logo.png,DB_CONNECTION_NAME=order-processing-app-458900:us-central1:order-app-db,UPS_API_VERSION=v2409" `
+      --update-secrets="DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,BIGCOMMERCE_STORE_HASH=BIGCOMMERCE_STORE_HASH:latest,BIGCOMMERCE_CLIENT_ID=BIGCOMMERCE_CLIENT_ID:latest,BIGCOMMERCE_ACCESS_TOKEN=BIGCOMMERCE_ACCESS_TOKEN:latest,UPS_BILLING_ACCOUNT_NUMBER=UPS_BILLING_ACCOUNT_NUMBER:latest,UPS_CLIENT_ID=UPS_CLIENT_ID:latest,UPS_CLIENT_SECRET=UPS_CLIENT_SECRET:latest,UPS_USERNAME=UPS_USERNAME:latest,UPS_PASSWORD_UPS=UPS_PASSWORD_UPS:latest,EMAIL_API_KEY=EMAIL_API_KEY:latest,GCS_BUCKET_NAME=GCS_BUCKET_NAME:latest,FEDEX_API_KEY_SANDBOX=FEDEX_API_KEY_SANDBOX:latest,FEDEX_SECRET_KEY_SANDBOX=FEDEX_SECRET_KEY_SANDBOX:latest,FEDEX_ACCOUNT_NUMBER_SANDBOX=FEDEX_ACCOUNT_NUMBER_SANDBOX:latest,FEDEX_API_BASE_URL_SANDBOX=FEDEX_API_BASE_URL_SANDBOX:latest,FEDEX_API_ENVIRONMENT=FEDEX_API_ENVIRONMENT:latest,FEDEX_GRANT_TYPE=FEDEX_GRANT_TYPE:latest,FEDEX_API_KEY_PRODUCTION=FEDEX_API_KEY_PRODUCTION:latest,FEDEX_SECRET_KEY_PRODUCTION=FEDEX_SECRET_KEY_PRODUCTION:latest,FEDEX_ACCOUNT_NUMBER_PRODUCTION=FEDEX_ACCOUNT_NUMBER_PRODUCTION:latest,FEDEX_API_BASE_URL_PRODUCTION=FEDEX_API_BASE_URL_PRODUCTION:latest,VAPID_PUBLIC_KEY=VAPID_PUBLIC_KEY:latest,VAPID_PRIVATE_KEY=VAPID_PRIVATE_KEY:latest,VAPID_ADMIN_EMAIL=VAPID_ADMIN_EMAIL:latest,DB_USER=DB_USER:latest"

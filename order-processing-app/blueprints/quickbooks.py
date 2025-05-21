@@ -127,12 +127,12 @@ def trigger_quickbooks_sync_on_demand():
                             iif_content_string=po_iif_content,
                             batch_date_str=f"OnDemand_AllPendingPOs_{current_time_for_sync.strftime('%Y%m%d_%H%M%S')}",
                             warning_message_html=po_email_warning_html, # Pass formatted warnings
-                            custom_subject=f"On-Demand All Pending POs IIF Batch - {current_time_for_sync.strftime('%Y-%m-%d %H:%M')}"
+                            custom_subject=f"QB SYNC POs | {current_time_for_sync.strftime('%Y-%m-%d %H:%M')}"
                         )
                         if email_sent_po:
                             po_sync_success = True
                             processed_po_db_ids_for_db_update = po_ids_in_batch # Store IDs for DB update
-                            po_sync_message = f"Purchase Order IIF generation for {len(po_ids_in_batch)} pending item(s) successful and emailed."
+                            po_sync_message = f"PO's processed successfully: Qty {len(po_ids_in_batch)}"
                         else:
                             po_sync_success = False # Email failed
                             po_sync_message = f"Purchase Order IIF generated for {len(po_ids_in_batch)} items, but email FAILED."
@@ -184,12 +184,12 @@ def trigger_quickbooks_sync_on_demand():
                             iif_content_string=sales_iif_content,
                             batch_date_str=f"OnDemand_AllPendingSales_{current_time_for_sync.strftime('%Y%m%d_%H%M%S')}",
                             warning_message_html=sales_email_warning_html,
-                            custom_subject=f"On-Demand All Pending Sales Orders IIF Batch - {current_time_for_sync.strftime('%Y-%m-%d %H:%M')}"
+                            custom_subject=f"QB SYNC Sales | {current_time_for_sync.strftime('%Y-%m-%d %H:%M')}"
                         )
                         if email_sent_sales:
                             processed_sales_order_db_ids_for_db_update = sales_ids_in_batch
                             sales_sync_success = True
-                            sales_sync_message = f"Sales Order IIF generation for {len(sales_ids_in_batch)} pending item(s) successful and emailed."
+                            sales_sync_message = f"Orders processed successfully: Qty {len(sales_ids_in_batch)}"
                         else:
                             sales_sync_success = False
                             sales_sync_message = f"Sales Order IIF generated for {len(sales_ids_in_batch)} items, but email FAILED."
@@ -235,7 +235,7 @@ def trigger_quickbooks_sync_on_demand():
             sys.stderr.flush() # Ensure traceback is written
             db_update_error_message = f"IIFs may have been generated/emailed, BUT FAILED to update database sync statuses: {str(e_db_update)}"
             
-        final_status_message = f"PO Sync: {po_sync_message} | Sales Sync: {sales_sync_message}"
+        final_status_message = f"SUCCESS! {po_sync_message}<br>SUCCESS! {sales_sync_message}"
         if db_update_error_message:
             final_status_message += f" | DB Update Status: {db_update_error_message}"
         

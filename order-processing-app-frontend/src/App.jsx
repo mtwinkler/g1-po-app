@@ -1,5 +1,6 @@
 // App.jsx
-import React from 'react';
+import React, { useEffect } from 'react';
+
 import './App.css'; 
 import { Routes, Route, Link, Navigate } from 'react-router-dom'; // Removed BrowserRouter as Router
 import { AuthProvider, useAuth } from './contexts/AuthContext';

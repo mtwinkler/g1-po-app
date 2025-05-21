@@ -12,6 +12,58 @@ import traceback # For detailed error logging
 import re # For regex in shipping method formatting
 from xml.sax.saxutils import escape # IMPORTED FOR SANITIZING TEXT
 
+# --- FONT REGISTRATION ---
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+# Path to the fonts directory inside the Docker container
+FONTS_DIR_IN_CONTAINER = '/app/fonts'
+
+try:
+    # --- Register Eloquia Display Family ---
+    # Regular
+    pdfmetrics.registerFont(TTFont('EloquiaDisplay-Regular', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-regular.ttf')))
+    print(f"DEBUG DOC_GEN: Registered font 'EloquiaDisplay-Regular'")
+
+    # SemiBold
+    pdfmetrics.registerFont(TTFont('EloquiaDisplay-SemiBold', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-semibold.ttf')))
+    print(f"DEBUG DOC_GEN: Registered font 'EloquiaDisplay-SemiBold'")
+
+    # ExtraBold
+    pdfmetrics.registerFont(TTFont('EloquiaDisplay-ExtraBold', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-extrabold.ttf')))
+    print(f"DEBUG DOC_GEN: Registered font 'EloquiaDisplay-ExtraBold'")
+
+    # Register the "EloquiaDisplay" font family
+    # We'll map the "semibold" to ReportLab's 'bold' attribute for simplicity in ParagraphStyles using <b> tags,
+    # or you can use 'EloquiaDisplay-SemiBold' explicitly.
+    # If you want <b> to map to ExtraBold, change 'bold' below to 'EloquiaDisplay-ExtraBold'.
+    pdfmetrics.registerFontFamily(
+        'EloquiaDisplay',
+        normal='EloquiaDisplay-Regular',
+        bold='EloquiaDisplay-SemiBold', # Or 'EloquiaDisplay-ExtraBold' if you prefer <b> to be ExtraBold
+        # italic='EloquiaDisplay-Italic', # Add if you get italic versions
+        # boldItalic='EloquiaDisplay-BoldItalic' # Add if you get bold-italic versions
+    )
+    print("DEBUG DOC_GEN: Successfully registered 'EloquiaDisplay' font family.")
+
+    # --- Register Eloquia Text Family (or as standalone) ---
+    # ExtraLight
+    pdfmetrics.registerFont(TTFont('EloquiaText-ExtraLight', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-text-extralight.ttf')))
+    print(f"DEBUG DOC_GEN: Registered font 'EloquiaText-ExtraLight'")
+
+    # Optionally, register a family for EloquiaText if you have other weights for it
+    # pdfmetrics.registerFontFamily(
+    #     'EloquiaText',
+    #     normal='EloquiaText-ExtraLight', # Or if you had a 'EloquiaText-Regular'
+    #     # ... other styles ...
+    # )
+    # print("DEBUG DOC_GEN: Successfully registered 'EloquiaText' font family.")
+
+except Exception as e:
+    print(f"ERROR DOC_GEN: Failed to register custom Eloquia fonts. PDFs may use a default font. Error: {e}")
+    traceback.print_exc()
+# --- END FONT REGISTRATION ---
+
 # --- Pillow Import ---
 try:
     from PIL import Image as PILImage
@@ -108,6 +160,129 @@ def get_custom_styles():
     styles.add(ParagraphStyle(name='CustomerNotesStyle', parent=styles['Normal_Helvetica'], spaceBefore=6, spaceAfter=6, leading=12, leftIndent=0.25*inch, rightIndent=0.25*inch))
 
 
+    # --- Base Eloquia Display Styles ---
+    # styles.add(ParagraphStyle(name='Normal_Eloquia', 
+    #                           parent=styles['Normal'], 
+    #                           fontFamily='EloquiaDisplay', # Using the family
+    #                           fontSize=9, 
+    #                           leading=11))
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_Small', 
+    #                           parent=styles['Normal_Eloquia'], 
+    #                           fontSize=8, 
+    #                           leading=10))
+    
+    # # --- Eloquia Display - Specific Weights ---
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_Regular', 
+    #                           parent=styles['Normal'], 
+    #                           fontName='EloquiaDisplay-Regular', # Specific face
+    #                           fontSize=9, 
+    #                           leading=11))
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_SemiBold', 
+    #                           parent=styles['Normal'], 
+    #                           fontName='EloquiaDisplay-SemiBold', # Specific face
+    #                           fontSize=9, 
+    #                           leading=11))
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_ExtraBold', 
+    #                           parent=styles['Normal'], 
+    #                           fontName='EloquiaDisplay-ExtraBold', # Specific face
+    #                           fontSize=9, 
+    #                           leading=11))
+
+    # # --- Eloquia Text - Specific Weights ---
+    # styles.add(ParagraphStyle(name='Normal_EloquiaText_ExtraLight', 
+    #                           parent=styles['Normal'], 
+    #                           fontName='EloquiaText-ExtraLight', # Specific face
+    #                           fontSize=9, 
+    #                           leading=11))
+    # styles.add(ParagraphStyle(name='Normal_EloquiaText_ExtraLight_Small', 
+    #                           parent=styles['Normal_EloquiaText_ExtraLight'], 
+    #                           fontSize=8, 
+    #                           leading=10))
+
+
+    # # --- Alignment variations for EloquiaDisplay (using family) ---
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_Right', 
+    #                           parent=styles['Normal_Eloquia'], 
+    #                           alignment=TA_RIGHT))
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_Center', 
+    #                           parent=styles['Normal_Eloquia'], 
+    #                           alignment=TA_CENTER))
+    
+    # # For bold aligned text, you can create a specific style or rely on <b> tags within a paragraph
+    # # using a style with fontFamily='EloquiaDisplay'.
+    # # If you want a style that is inherently bold AND aligned:
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_SemiBold_Right', 
+    #                           parent=styles['Normal_Eloquia_SemiBold'], # Explicitly from SemiBold
+    #                           alignment=TA_RIGHT))
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_SemiBold_Center', 
+    #                           parent=styles['Normal_Eloquia_SemiBold'], # Explicitly from SemiBold
+    #                           alignment=TA_CENTER))
+    # # OR if you want to use the family's 'bold' definition (which we mapped to SemiBold):
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_FamilyBold_Right', 
+    #                           parent=styles['Normal_Eloquia'], # Start from normal family style
+    #                           fontWeight='bold', # This will use 'EloquiaDisplay-SemiBold'
+    #                           alignment=TA_RIGHT))
+
+
+    # # --- Heading styles with EloquiaDisplay (using specific bold weights) ---
+    # styles.add(ParagraphStyle(name='H1_Eloquia', 
+    #                           parent=styles['h1'], 
+    #                           fontName='EloquiaDisplay-ExtraBold', # Using ExtraBold for H1
+    #                           fontSize=16, 
+    #                           leading=18))
+    # styles.add(ParagraphStyle(name='H1_Eloquia_Right', 
+    #                           parent=styles['H1_Eloquia'], 
+    #                           alignment=TA_RIGHT))
+    # styles.add(ParagraphStyle(name='H2_Eloquia', 
+    #                           parent=styles['h2'], 
+    #                           fontName='EloquiaDisplay-SemiBold', # Using SemiBold for H2
+    #                           fontSize=14, 
+    #                           leading=16))
+    # styles.add(ParagraphStyle(name='H3_Eloquia', 
+    #                           parent=styles['h3'], 
+    #                           fontName='EloquiaDisplay-SemiBold', # Using SemiBold for H3
+    #                           fontSize=10, 
+    #                           leading=12))
+
+    # # --- Item description styles with EloquiaDisplay ---
+    # styles.add(ParagraphStyle(name='ItemDesc_Eloquia', 
+    #                           parent=styles['Normal_Eloquia'], 
+    #                           fontSize=9, 
+    #                           leading=11))
+    # styles.add(ParagraphStyle(name='ItemDescSmall_Eloquia', 
+    #                           parent=styles['Normal_Eloquia_Small']))
+
+    # # --- Specific use styles with Eloquia ---
+    # styles.add(ParagraphStyle(name='FulfillmentNoteStyle_Eloquia', 
+    #                           parent=styles['Normal_Eloquia'], 
+    #                           fontSize=9, 
+    #                           leading=11, 
+    #                           textColor=colors.HexColor("#666666"))) # Color kept same
+    # styles.add(ParagraphStyle(name='FooterStyle_Eloquia', 
+    #                           parent=styles['Normal_EloquiaText_ExtraLight_Small'], # Using the Text ExtraLight Small
+    #                           alignment=TA_CENTER))
+    # styles.add(ParagraphStyle(name='EnvironmentNoteStyle_Eloquia', 
+    #                           parent=styles['Normal_EloquiaText_ExtraLight_Small'], # Using Text ExtraLight Small
+    #                           alignment=TA_CENTER, 
+    #                           textColor=colors.HexColor("#888888")))
+
+    # # --- Styles for items shipping separately with Eloquia ---
+    # styles.add(ParagraphStyle(name='ItemDesc_ShippingSeparately_Eloquia', 
+    #                           parent=styles['ItemDesc_Eloquia'], 
+    #                           textColor=colors.HexColor("#777777"))) # Color kept same
+    # styles.add(ParagraphStyle(name='Normal_Eloquia_Center_ShippingSeparately', 
+    #                           parent=styles['Normal_Eloquia_Center'], 
+    #                           textColor=colors.HexColor("#777777"))) # Color kept same
+    
+    # # --- Style for Customer Notes on Packing Slip with Eloquia ---
+    # styles.add(ParagraphStyle(name='CustomerNotesStyle_Eloquia', 
+    #                           parent=styles['Normal_Eloquia'], 
+    #                           spaceBefore=6, 
+    #                           spaceAfter=6, 
+    #                           leading=12, 
+    #                           leftIndent=0.25*inch, 
+    #                           rightIndent=0.25*inch))
+
     return styles
 
 # --- Function to create logo element from GCS URI ---
@@ -176,7 +351,7 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
     styles = get_custom_styles()
     story = []
 
-    logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2*inch)
+    logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch)
 
     # Ensure po_date is a datetime object for strftime, otherwise convert/handle
     if isinstance(po_date, str):
@@ -335,7 +510,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     styles = get_custom_styles()
     story = []
 
-    logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2*inch)
+    logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch)
     current_date_obj = datetime.now(timezone.utc)
     formatted_current_date = current_date_obj.strftime("%m/%d/%Y")
     bc_order_id_ps_str = str(order_data.get('bigcommerce_order_id', 'N/A'))

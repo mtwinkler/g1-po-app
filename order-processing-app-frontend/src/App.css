@@ -21,8 +21,8 @@
   --bg-card-lm: #ffffff;            /* White card background */
   --bg-card-alt-lm: #f1f3f5;      /* Slightly off-white for alternating cards */ 
   --bg-nav-lm: #f0f0f0;             /* Light background for nav */
-  --bg-input-lm: #ffffff;
-  --bg-disabled-lm: #e9ecef;
+  --bg-input-lm: rgba(255, 255, 255, 0.5);
+  --bg-disabled-lm: rgba(233, 236, 239, 0.5);  /* was #e9ecef; */
 
   --border-strong-lm: #ced4da;      /* Standard border color */
   --border-medium-lm: #dee2e6;     /* Lighter border */
@@ -63,8 +63,8 @@
   --bg-card-dm: #1e1e1e;             
   --bg-card-alt-dm: #2c2c2c;       
   --bg-nav-dm: #1a1a1a;             
-  --bg-input-dm: #2c2c2c;
-  --bg-disabled-dm: #383838;
+  --bg-input-dm: rgba(44, 44, 44, 0.5); /*#2c2c2c;*/
+  --bg-disabled-dm: rgba(56, 56, 56, 0.5); /*#383838;*/ 
 
   --border-strong-dm: #495057;       
   --border-medium-dm: #343a40;      
@@ -173,6 +173,48 @@
   }
 }
 
+html, body {
+  min-height: 100vh; /* Ensure they cover the full viewport height */
+  height: 100%; /* Some browsers might need this for fixed attachment calculations */
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden; /* Optional: prevent horizontal scrollbars if content overflows slightly */
+}
+
+
+body {
+  /* --- Background Image --- */
+  background-image: url('/images/g1-background-image.png'); /* Path if image is in public/images/ */
+
+  /* --- How the background image should behave --- */
+  background-size: cover; /* Scales the image to cover the entire area. Might crop some parts.
+                             Other options: 'contain' (shows whole image, might leave empty space), 
+                                            '100% 100%' (stretches), or specific dimensions. */
+  background-position: center center; /* Centers the image. */
+  background-repeat: no-repeat; /* Prevents the image from tiling. */
+  background-attachment: fixed; /* Makes the background image fixed during scroll. 
+                                   Remove if you want it to scroll with content. */
+
+  /* --- Fallback Background Color --- */
+  /* This color will show if the image fails to load or while it's loading. 
+     Choose a color that complements your image or site theme. */
+  background-color: #000000; /* Example: a light gray */
+
+  /* --- Ensure content is still readable --- */
+  /* You might need to adjust text colors throughout your app if the background is dark */
+  /* For example, if your background is dark: */
+  /* color: #ffffff; */
+
+  /* Ensure the body takes up at least the full viewport height */
+  min-height: 100vh;
+
+  /* Keep other existing body styles like margin, font-family, etc. */
+  margin: 0;
+  font-family: var(--font-sans); /* Example from your OrderDetail.css */
+  /* ... any other global body styles ... */
+}
+
+
 /* === Global Element Styles === */
 body {
   font-family: 'Eloquia', var(--font-sans);
@@ -191,7 +233,10 @@ body {
   margin: 0 auto;
   padding: 2rem;
   text-align: left;
-  box-sizing: border-box; 
+  box-sizing: border-box;
+  flex-grow: 1; /* If body is flex, #root might need this to fill space */
+  display: flex; /* If you want #root to be the main flex container for its children */
+  flex-direction: column; /* If #root is the main flex container */
 }
 
 a {
@@ -228,6 +273,7 @@ input:focus, textarea:focus, select:focus {
   border-bottom: 1px solid var(--border-nav); 
   background-color: var(--bg-nav);        
   box-sizing: border-box;
+  opacity: 65%;
 }
 
 .main-navigation a {
@@ -343,6 +389,7 @@ input:focus, textarea:focus, select:focus {
   text-decoration: none; /* Remove underline from Link component */
   box-shadow: 0 2px 5px rgba(0,0,0,0.05);
   transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+  opacity: 65%;
 }
 
 .utility-card:hover {
@@ -417,9 +464,20 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); 
   margin-bottom: 1rem;
   color: var(--text-main); 
+  opacity: 65%;
 }
 
 /* === Default Vite Docs Link Style === */
 .read-the-docs {
   color: var(--text-secondary); 
+}
+
+/* For disabled state, if you also updated --bg-disabled variable */
+input:disabled, textarea:disabled, select:disabled {
+  background-color: var(--bg-disabled); /* Will use the transparent disabled color */
+  /* ... other disabled styles ... */
+}
+
+.empty-list-message {
+  opacity: 65%;
 }

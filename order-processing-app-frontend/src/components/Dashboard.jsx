@@ -319,7 +319,7 @@ function Dashboard({ initialView = 'orders' }) {
                                 id="statusFilter"
                                 value={filterStatus}
                                 onChange={handleFilterChange}
-                                style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--border-input)' }}
+                                style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--border-input)', opacity: '65%'}}
                                 disabled={loadingCounts || ingesting}
                             >
                                 {orderedDropdownStatuses.map(statusObj => {
@@ -345,7 +345,7 @@ function Dashboard({ initialView = 'orders' }) {
 
 
                     {orders.length === 0 && !loadingOrders && !errorOrders ? (
-                        <p className="empty-list-message">No orders found{filterStatus ? ` for status '${orderedDropdownStatuses.find(s => s.value === filterStatus)?.label || filterStatus}'` : ''}.</p>
+                        <p className="empty-list-message">No orders found{filterStatus ? ` with status '${orderedDropdownStatuses.find(s => s.value === filterStatus)?.label || filterStatus}'` : ''}.</p>
                     ) : !errorOrders && orders.length > 0 && (
                         <div className="table-responsive-container">
                             <table className="order-table">
