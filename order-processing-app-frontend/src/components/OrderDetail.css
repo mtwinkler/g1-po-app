@@ -271,6 +271,44 @@ h3 { letter-spacing: 0.5px; }
     margin-bottom: var(--spacing-lg);
 }
 
+/* Specific overrides for shipment info section */
+.shipment-info .form-grid {
+  grid-template-columns: auto minmax(0, 1fr) auto auto; /* Goal: col1+2 ~50-60%, col3+4 take rest */
+  /* Example: grid-template-columns: auto minmax(0, 2.5fr) auto auto; -> for ~50% target for first two */
+  /* Using 1fr for weight input to be more flexible with other auto columns */
+  align-items: center; /* Ensure vertical alignment for all items */
+}
+
+.shipment-info label[for="shipmentWeightSingle"] {
+  text-align: left;
+  padding-right: 0; /* Override default right padding */
+  align-self: center; /* Explicit vertical centering */
+}
+
+.shipment-info #shipmentWeightSingle {
+  width: 100%; /* Ensure input takes full width of its column */
+}
+
+.shipment-info label[for="isBlindDropShipSingle"] {
+  /* This label will be in the 3rd column */
+  text-align: right; /* Align text to the right, towards the checkbox */
+  padding-right: var(--spacing-xs); /* Small padding so text isn't touching checkbox */
+  align-self: center; /* Explicit vertical centering */
+  /* No grid-column needed, it flows naturally */
+}
+
+.shipment-info .blind-ship-checkbox-wrapper-col1 {
+  /* This wrapper will be in the 4th column */
+  display: flex;
+  justify-content: flex-start; /* Align checkbox to the start of its cell, appears next to label */
+  align-items: center;
+  /* Clear old properties that were for 2-column layout */
+  grid-column: auto; /* Reset any previous grid-column settings */
+  padding-right: 0; /* Reset padding */
+  margin-top: 0; /* Reset margin */
+}
+/* End of specific overrides for shipment info section */
+
 .form-grid label { /* General style for labels in the first column */
   font-weight: 500;
   text-align: right;
@@ -913,52 +951,68 @@ h3 { letter-spacing: 0.5px; }
 
 
 /* === New Styles for "Blind Ship?" Label and Centered Checkbox (in Column 1) === */
-
+/* These styles below are now superseded by the .shipment-info specific styles above for the 4-column layout */
+/*
 .blind-ship-grid-label-col1 {
   /* This label will inherit styles from .form-grid > label (like text-align: right) */
   /* It occupies the first column of its grid row */
   /* No specific override needed if general label style is okay */
-   align-self: center; /* Ensure it's centered with the (empty) second cell in its row */
-}
+/*   align-self: center; /* Ensure it's centered with the (empty) second cell in its row */
+/* } */
+/* .blind-ship-checkbox-wrapper-col1 - old styles are cleared by the new .shipment-info .blind-ship-checkbox-wrapper-col1 rule */
 
 
-
-.blind-ship-checkbox-wrapper-col1 {
-  grid-column: 1 / 2; /* Crucial: Place this div in the first grid column */
-  display: flex;
-  /* To center the checkbox UNDER the right-aligned "Blind Ship?" text:
-     We align this wrapper to the right (like labels), then center the checkbox inside.
-  */
-  justify-content: flex-end; /* Align the box containing checkbox to the right */
-  align-items: center;     /* Vertical centering if row is taller */
-  padding-right: var(--spacing-md); /* Match the padding of labels above it */
-  margin-top: calc(-1 * var(--spacing-sm) + var(--spacing-xs)); /* Adjust to pull checkbox closer to its label */
-}
-
-.blind-ship-checkbox-input { /* This class name was used in T10 for the checkbox */
+.blind-ship-checkbox-input { /* This class name was used in T10 for the checkbox - style retained */
   transform: scale(1.3); 
 }
 
 
+/* OLD .form-grid-empty-cell - can be removed if no longer used in HTML */
+/*
+.form-grid-empty-cell {
+  /* No specific styling needed for an empty cell unless for debugging
+  /* display: none; /* If they are truly unnecessary now */
+/* }
+*/
+
 
 /* Responsive adjustments for the NEW Blind Ship elements */
+/* The .shipment-info .form-grid will also become 1fr on mobile due to general .form-grid rule */
 @media (max-width: 768px) {
   /* .form-grid is already 1fr on mobile, which handles stacking. */
   
-  /* .blind-ship-grid-label-col1 will inherit from .form-grid > label which is text-align: left on mobile */
-  
-  .blind-ship-checkbox-wrapper-col1 {
-    grid-column: 1 / -1; /* Take full width on its own line on mobile */
-    justify-content: flex-start; /* Align checkbox to the left on mobile */
-    padding-left: 0; /* No special padding needed on left when full width */
-    padding-right: 0; 
-    margin-top: var(--spacing-xs); /* Standard small space after its label */
-  }
-   .blind-ship-checkbox-wrapper-col1 .blind-ship-checkbox-input { /* More specific selector */
-    margin-left: 0; /* Align checkbox to start of wrapper */
+  /* Specific adjustments for shipment info if needed on mobile.
+     By default, labels become text-align: left.
+     The new 4-column layout will stack.
+     Weight label, then weight input.
+     Then Blind ship label, then blind ship checkbox wrapper.
+     This should be an acceptable stacking order.
+  */
+
+  /* .shipment-info .form-grid might need gap adjustments if the default stacking is too spaced out or too tight */
+  .shipment-info .form-grid {
+    /* On mobile, the general .form-grid rule already sets grid-template-columns: 1fr; */
+    /* We might want to adjust gaps or specific item alignments if default stacking isn't ideal */
   }
 
-  .form-grid-empty-cell {
-    display: none; /* No need for empty cells when it's single column */
+  .shipment-info label[for="isBlindDropShipSingle"] {
+    /* On mobile, labels are generally left-aligned by .form-grid > label rule */
+    /* So, reset to left if it was right-aligned for desktop */
+    text-align: left;
+    padding-right: 0;
   }
+  
+  .shipment-info .blind-ship-checkbox-wrapper-col1 {
+    /* On mobile, this will be a full-width item */
+    justify-content: flex-start; /* Ensure checkbox is at the start of the line */
+    padding-left: 0; /* No special padding needed on left when full width */
+  }
+
+  /* .blind-ship-grid-label-col1 will inherit from .form-grid > label which is text-align: left on mobile */
+  
+  /* The old .blind-ship-checkbox-wrapper-col1 mobile rules are removed as new structure applies */
+
+  /* .form-grid-empty-cell {
+    display: none; /* No need for empty cells when it's single column */
+  /* } */
 }

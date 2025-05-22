@@ -1003,8 +1003,8 @@ function OrderDetail() {
                 
                 {/* "Blind Ship?" Label occupies the first column of a new grid row */}
                 <label htmlFor="isBlindDropShipSingle" className="blind-ship-grid-label-col1">Blind Ship?</label>
-                {/* Empty cell for the grid's second column on this label's row */}
-                <div className="form-grid-empty-cell"></div> 
+                {/* Empty cell removed as layout is now 4-column handled by .shipment-info .form-grid */}
+                
 
                 {/* Checkbox wrapper occupies the first column of the next grid row, visually under its label */}
                 <div className="blind-ship-checkbox-wrapper-col1"> 
@@ -1017,8 +1017,8 @@ function OrderDetail() {
                         disabled={disableEditableFormFields}
                     />
                 </div>
-                {/* Empty cell for the grid's second column on this checkbox's row */}
-                <div className="form-grid-empty-cell"></div>
+                {/* Empty cell removed as layout is now 4-column handled by .shipment-info .form-grid */}
+                
 
               </div>
               {currentSelectedShippingOption?.carrier === 'fedex' && (
@@ -1251,8 +1251,8 @@ function OrderDetail() {
 
                 {/* "Blind Ship?" Label for the grid's first column */}
                 <label htmlFor="isBlindDropShipG1" className="blind-ship-grid-label-col1">Blind Ship?</label>
-                {/* Empty cell for the grid's second column on this row */}
-                <div className="form-grid-empty-cell"></div> 
+                {/* Empty cell removed as layout is now 4-column handled by .shipment-info .form-grid */}
+                
 
                 {/* Checkbox on a new conceptual row, centered in the first column's space */}
                 <div className="blind-ship-checkbox-wrapper-col1"> 
@@ -1265,8 +1265,8 @@ function OrderDetail() {
                         disabled={disableEditableFormFields}
                     />
                 </div>
-                {/* Empty cell for the grid's second column on this checkbox's row */}
-                <div className="form-grid-empty-cell"></div>
+                {/* Empty cell removed as layout is now 4-column handled by .shipment-info .form-grid */}
+                
 
             </div>
               {currentSelectedShippingOption?.carrier === 'fedex' && originalLineItems.length > 0 && (
