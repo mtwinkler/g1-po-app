@@ -256,10 +256,17 @@ def map_shipping_method_to_fedex_code(method_name_from_bc):
         "fedex home delivery": "GROUND_HOME_DELIVERY", "home delivery": "GROUND_HOME_DELIVERY",
         "free shipping": "FEDEX_GROUND" 
     }
+    # Attempt direct match from the frontend's value first (e.g., "FEDEX_GROUND")
+    if method_name_from_bc in mapping.values(): # Check if it's already a valid FedEx code
+        print(f"DEBUG FEDEX_MAP: Mapped (direct code) '{method_name_from_bc}' to FedEx Service Code '{method_name_from_bc}'")
+        return method_name_from_bc
+
     api_code = mapping.get(method_name_lower)
     if api_code:
-        print(f"DEBUG FEDEX_MAP: Mapped (direct) '{method_name_from_bc}' to FedEx Service Code '{api_code}'")
+        print(f"DEBUG FEDEX_MAP: Mapped (lower case) '{method_name_from_bc}' to FedEx Service Code '{api_code}'")
         return api_code
+    
+    # Fallback heuristic mapping
     if "first overnight" in method_name_lower: api_code = "FIRST_OVERNIGHT"
     elif "priority overnight" in method_name_lower: api_code = "FEDEX_PRIORITY_OVERNIGHT"
     elif "standard overnight" in method_name_lower: api_code = "STANDARD_OVERNIGHT"
@@ -358,23 +365,17 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
         if not third_party_postal_code: print(f"ERROR UPS Payload (Payment): Postal code missing for 3rd party bill."); return None, None
         payment_details_payload = { "ShipmentCharge": [{"Type": "01", "BillThirdParty": {"AccountNumber": str(customer_ups_acct_num), "Address": {"PostalCode": third_party_postal_code, "CountryCode": third_party_country_code}}}]}
         payload_shipment_part["PaymentDetails"] = payment_details_payload
-        # print(f"DEBUG UPS_LABEL_RAW (PRE-CALL): PaymentDetails (BillThirdParty): {json.dumps(payment_details_payload, indent=2)}")
     else: 
         print(f"DEBUG UPS_LABEL_RAW: Using 'PaymentInformation' (OLD spec) for BillShipper. Account: {UPS_ACCOUNT_NUMBER}")
         if not UPS_ACCOUNT_NUMBER or not UPS_ACCOUNT_NUMBER.strip(): print(f"CRITICAL ERROR UPS_LABEL_RAW: UPS_BILLING_ACCOUNT_NUMBER missing."); return None, None 
         payment_information_payload_old_spec = { "ShipmentCharge": { "Type": "01", "BillShipper": {"AccountNumber": UPS_ACCOUNT_NUMBER}}}
         payload_shipment_part["PaymentInformation"] = payment_information_payload_old_spec 
-        # print(f"DEBUG UPS_LABEL_RAW (PRE-CALL): PaymentInformation (BillShipper - OLD STRUCT): {json.dumps(payment_information_payload_old_spec, indent=2)}")
     payload = { "ShipmentRequest": { "Request": {"RequestOption": "nonvalidate", "TransactionReference": {"CustomerContext": f"Order_{bc_order_id_str}"}}, "Shipment": payload_shipment_part, "LabelSpecification": {"LabelImageFormat": {"Code": "GIF"}, "HTTPUserAgent": "Mozilla/5.0"}}}
-    # print(f"DEBUG UPS_LABEL_RAW (PRE-CALL): Shipper Block: {json.dumps(shipper_payload_block, indent=2)}")
-    # print(f"DEBUG UPS_LABEL_RAW (PRE-CALL): Full Payload: {json.dumps(payload, indent=2)}", flush=True)
     try:
         response = requests.post(UPS_SHIPPING_API_ENDPOINT, headers=headers, json=payload)
         response_data = response.json() 
-        # *** ADDED LOGGING FOR FULL SUCCESS RESPONSE ***
         if response.status_code == 200 and response_data.get("ShipmentResponse", {}).get("Response", {}).get("ResponseStatus", {}).get("Code") == "1":
             print(f"DEBUG UPS_LABEL_RAW (Full Response for Success Code 1): {json.dumps(response_data, indent=2, ensure_ascii=False)}", flush=True)
-        # *** END ADDED LOGGING ***
         response.raise_for_status() 
         shipment_response = response_data.get("ShipmentResponse", {})
         response_status_obj = shipment_response.get("Response", {}).get("ResponseStatus", {})
@@ -383,7 +384,7 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
             tracking_number = shipment_results.get("ShipmentIdentificationNumber")
             package_results_list = shipment_results.get("PackageResults", [])
             label_image_base64 = None
-            if package_results_list and isinstance(package_results_list, list) and len(package_results_list) > 0 and package_results_list[0]: # Added len check
+            if package_results_list and isinstance(package_results_list, list) and len(package_results_list) > 0 and package_results_list[0]:
                 label_image_base64 = package_results_list[0].get("ShippingLabel", {}).get("GraphicImage")
             if tracking_number and label_image_base64: return base64.b64decode(label_image_base64), tracking_number
             elif tracking_number: print(f"WARN UPS_LABEL_RAW: Tracking {tracking_number} obtained, but no label image."); return None, tracking_number
@@ -461,11 +462,9 @@ def generate_fedex_label_raw(order_data, ship_from_address, total_weight_lbs, cu
     final_api_payload = {"labelResponseOptions": "LABEL", "requestedShipment": requested_shipment_payload, "accountNumber": {"value": str(FEDEX_SHIPPER_ACCOUNT_NUMBER)}}
     headers = {"Authorization": f"Bearer {access_token}", "X-locale": "en_US", "Content-Type": "application/json"}
     try:
-        # print(f"DEBUG FEDEX_LABEL_RAW: Full Payload to FedEx API: {json.dumps(final_api_payload, indent=2)}", flush=True) 
         response = requests.post(FEDEX_SHIP_API_URL, headers=headers, json=final_api_payload)
         print(f"DEBUG FEDEX_LABEL_RAW: FedEx API Response Status: {response.status_code}", flush=True)
         response_data = response.json()
-        # print(f"DEBUG FEDEX_LABEL_RAW: FedEx API Response Body: {json.dumps(response_data, indent=2)}", flush=True) 
         response.raise_for_status() 
         if response_data.get("errors"): 
             errors = response_data.get("errors", []); error_messages = "; ".join([f"Code {err.get('code')}: {err.get('message')}" for err in errors])
@@ -477,7 +476,7 @@ def generate_fedex_label_raw(order_data, ship_from_address, total_weight_lbs, cu
         if piece_responses and piece_responses[0].get("packageDocuments"):
             for doc in piece_responses[0].get("packageDocuments", []):
                 if doc.get("encodedLabel") or doc.get("content"): encoded_label_data = doc.get("encodedLabel") or doc.get("content"); break
-        elif first_shipment.get("packageDocuments"):
+        elif first_shipment.get("packageDocuments"): # Fallback for older or different response structures
              for doc in first_shipment.get("packageDocuments", []):
                 if doc.get("encodedLabel") or doc.get("content"): encoded_label_data = doc.get("encodedLabel") or doc.get("content"); break
         if tracking_number and encoded_label_data:
@@ -530,29 +529,21 @@ def convert_image_bytes_to_pdf_bytes(image_bytes, image_format="GIF"):
             return None
 
         page_width_pt, page_height_pt = letter 
-        margin_pt = 1 * inch # Use inch from reportlab.lib.units
+        margin_pt = 1 * inch 
 
         drawable_area_width_pt = page_width_pt - (2 * margin_pt)
-        # drawable_area_height_pt = page_height_pt - (2 * margin_pt) # Not strictly needed for top-align y_offset
-
+        
         img_aspect_ratio = img_width_px / img_height_px
         
-        draw_width_pt = drawable_area_width_pt # Maximize width within margins
+        draw_width_pt = drawable_area_width_pt 
         draw_height_pt = draw_width_pt / img_aspect_ratio
 
-        # If calculated height exceeds page height (minus margins), scale by height instead
         if draw_height_pt > (page_height_pt - 2 * margin_pt):
             draw_height_pt = page_height_pt - (2 * margin_pt)
             draw_width_pt = draw_height_pt * img_aspect_ratio
         
-        # X offset for horizontal centering
         x_offset_pt = margin_pt + (drawable_area_width_pt - draw_width_pt) / 2
-        
-        # *** MODIFICATION FOR TOP ALIGNMENT ***
-        # Y offset for top alignment (ReportLab y-coordinates are from bottom of page)
-        # Position the bottom of the image so its top aligns with the top margin boundary.
         y_offset_pt = page_height_pt - margin_pt - draw_height_pt
-        # Ensure y_offset is not below the bottom margin (e.g. if image is very tall)
         y_offset_pt = max(y_offset_pt, margin_pt)
 
 
@@ -582,7 +573,6 @@ def convert_image_bytes_to_pdf_bytes(image_bytes, image_format="GIF"):
     except Exception as e: print(f"ERROR IMG_TO_PDF: Conversion failed: {e}"); traceback.print_exc(); return None
 
 def generate_ups_label(order_data, ship_from_address, total_weight_lbs, customer_shipping_method_name):
-    # print(f"DEBUG UPS_GEN_LABEL: Order {order_data.get('bigcommerce_order_id', 'N/A')}, Wt {total_weight_lbs}, Method '{customer_shipping_method_name}'") # Less verbose
     access_token = get_ups_oauth_token()
     if not access_token: print("ERROR UPS_GEN_LABEL: Failed to get UPS OAuth token."); return None, None 
     raw_label_image_bytes, tracking_number = generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, customer_shipping_method_name, access_token)
@@ -590,25 +580,50 @@ def generate_ups_label(order_data, ship_from_address, total_weight_lbs, customer
     if not raw_label_image_bytes and tracking_number: print(f"WARN UPS_GEN_LABEL: Tracking {tracking_number}, but no raw label image."); return None, tracking_number 
     final_label_pdf_bytes = convert_image_bytes_to_pdf_bytes(raw_label_image_bytes, image_format="GIF")
     if not final_label_pdf_bytes: print(f"ERROR UPS_GEN_LABEL: PDF conversion failed for track {tracking_number}."); return None, tracking_number 
-    # print(f"INFO UPS_GEN_LABEL: PDF label generated for track {tracking_number}.") # Less verbose
     return final_label_pdf_bytes, tracking_number
 
 def create_bigcommerce_shipment(bigcommerce_order_id, tracking_number, shipping_method_name, line_items_in_shipment, order_address_id, comments=None, shipping_provider=None):
     """Creates a shipment record in BigCommerce."""
-    print(f"DEBUG BC_CREATE_SHIPMENT: Order {bigcommerce_order_id}, Track {tracking_number}")
+    print(f"DEBUG BC_CREATE_SHIPMENT: Order {bigcommerce_order_id}, Track {tracking_number}, Provider: {shipping_provider}")
     if not CURRENT_BC_API_BASE_URL_V2 or not CURRENT_BC_HEADERS or not CURRENT_BC_HEADERS.get("X-Auth-Token"): print("ERROR BC_CREATE_SHIPMENT: BC API not configured."); return False
     if not all([bigcommerce_order_id, tracking_number, line_items_in_shipment]) or order_address_id is None: print(f"ERROR BC_CREATE_SHIPMENT: Missing args."); return False
-    shipments_url = f"{CURRENT_BC_API_BASE_URL_V2}orders/{bigcommerce_order_id}/shipments"; tracking_carrier = ""
-    sm_lower = (shipping_method_name or "").lower()
-    if "ups" in sm_lower: tracking_carrier = "ups"
-    elif "fedex" in sm_lower: tracking_carrier = "fedex"
-    elif "usps" in sm_lower: tracking_carrier = "usps"
-    shipment_payload = {"order_address_id": int(order_address_id), "tracking_number": str(tracking_number), "items": line_items_in_shipment}
+    
+    shipments_url = f"{CURRENT_BC_API_BASE_URL_V2}orders/{bigcommerce_order_id}/shipments"
+    tracking_carrier_for_bc = "" # Default to empty, BC might auto-detect or use what's in shipping_provider
+    
+    # Determine tracking_carrier based on shipping_provider first, then method name
+    if shipping_provider:
+        sp_lower = str(shipping_provider).lower()
+        if "ups" in sp_lower: tracking_carrier_for_bc = "ups"
+        elif "fedex" in sp_lower: tracking_carrier_for_bc = "fedex"
+        elif "usps" in sp_lower: tracking_carrier_for_bc = "usps"
+    
+    if not tracking_carrier_for_bc and shipping_method_name: # Fallback if shipping_provider didn't set it
+        sm_lower = (shipping_method_name or "").lower()
+        if "ups" in sm_lower: tracking_carrier_for_bc = "ups"
+        elif "fedex" in sm_lower: tracking_carrier_for_bc = "fedex"
+        elif "usps" in sm_lower: tracking_carrier_for_bc = "usps"
+
+    shipment_payload = {
+        "order_address_id": int(order_address_id), 
+        "tracking_number": str(tracking_number), 
+        "items": line_items_in_shipment
+    }
     if shipping_method_name: shipment_payload["shipping_method"] = str(shipping_method_name)
-    if tracking_carrier: shipment_payload["tracking_carrier"] = tracking_carrier
+    
+    # Only set tracking_carrier if we determined one. BC will use shipping_provider if tracking_carrier is omitted.
+    if tracking_carrier_for_bc: 
+        shipment_payload["tracking_carrier"] = tracking_carrier_for_bc
+    
     if comments: shipment_payload["comments"] = str(comments)
-    if shipping_provider: shipment_payload["shipping_provider"] = str(shipping_provider)
-    print(f"DEBUG BC_CREATE_SHIPMENT: Payload: {json.dumps(shipment_payload)}")
+    
+    # The shipping_provider field itself for BC API can be more generic or specific
+    # e.g., 'FedEx', 'UPS', or even custom ones if configured in BC.
+    # The `carrier_from_payload` ('ups' or 'fedex') should be suitable here.
+    if shipping_provider: 
+        shipment_payload["shipping_provider"] = str(shipping_provider) 
+
+    print(f"DEBUG BC_CREATE_SHIPMENT: Payload to BC: {json.dumps(shipment_payload)}")
     try:
         response = requests.post(shipments_url, headers=CURRENT_BC_HEADERS, json=shipment_payload)
         response.raise_for_status(); shipment_creation_data = response.json()
@@ -637,29 +652,31 @@ if __name__ == '__main__':
     if ups_token: print("UPS OAuth Token (first 30):", ups_token[:30] + "...")
     else: print("Failed to get UPS OAuth Token.")
     print(f"\n--- Testing FedEx OAuth Token (Env: {FEDEX_API_ENVIRONMENT}) ---")
-    fedex_token = get_fedex_oauth_token() # Ensure you get a fresh token
+    fedex_token = get_fedex_oauth_token() 
 
     if fedex_token:
-        print(f"\n--- FedEx Priority Overnight Test ({FEDEX_API_ENVIRONMENT.upper()} Environment) ---")
+        print(f"\n--- FedEx Test ({FEDEX_API_ENVIRONMENT.upper()} Environment) ---")
         
-        # --- CUSTOMIZE YOUR TEST ORDER DATA HERE ---
-        mock_order_data_priority_overnight = {
-            'bigcommerce_order_id': f'TEST_FX_PO_{int(datetime.now(timezone.utc).timestamp())}',
-            'customer_company': 'Test  Recipient Inc.', 
-            'customer_name': 'Pat Smith',
-            'customer_phone': '8001234567', # Use a valid format
-            'customer_shipping_address_line1': '4916 S 184th Plaza', # Recipient address
-            'customer_shipping_address_line2': '',       # Recipient address line 2 (optional)
-            'customer_shipping_city': 'Omaha',                 # Recipient city
-            'customer_shipping_state': 'NE',                      # Recipient state (e.g., 'CA' for California)
-            'customer_shipping_zip': '68135',                     # Recipient ZIP
-            'customer_shipping_country': 'US',                    # Recipient country (e.g., 'US')
-            'customer_email': 'pat.priority@example.com',
-            'is_bill_to_customer_fedex_account': False, # IMPORTANT: Set to False for Bill SENDER
-            'customer_fedex_account_number': None       # Not needed for Bill SENDER
+        mock_order_data_fedex_test = {
+            'bigcommerce_order_id': f'TEST_FX_LABEL_{int(datetime.now(timezone.utc).timestamp())}',
+            'customer_company': 'FedEx Test Recipient Co.', 
+            'customer_name': 'John Doe FedEx',
+            'customer_phone': '8005551212', 
+            'customer_shipping_address_line1': '123 Main Street', 
+            'customer_shipping_address_line2': 'Suite 100',      
+            'customer_shipping_city': 'Beverly Hills',        
+            'customer_shipping_state': 'CA',                     
+            'customer_shipping_zip': '90210',                    
+            'customer_shipping_country': 'US',                   
+            'customer_email': 'johndoe.fedex@example.com',
+            # Scenario 1: Bill Sender
+            # 'is_bill_to_customer_fedex_account': False, 
+            # 'customer_fedex_account_number': None      
+            # Scenario 2: Bill Recipient (if you have a test recipient account)
+            'is_bill_to_customer_fedex_account': True, 
+            'customer_fedex_account_number': 'YOUR_TEST_RECIPIENT_FEDEX_ACCOUNT' # Replace with a valid test recipient account if testing this
         }
 
-        # Ship From address is loaded from .env variables within the script
         mock_ship_from_details = {
             'name': os.getenv("SHIP_FROM_NAME"), 
             'contact_person': os.getenv("SHIP_FROM_CONTACT"),
@@ -672,36 +689,25 @@ if __name__ == '__main__':
             'phone': os.getenv("SHIP_FROM_PHONE")
         }
 
-        # Check if essential SHIP_FROM details are present
         if any(not mock_ship_from_details.get(key) for key in ['name', 'street_1', 'city', 'state', 'zip', 'country', 'phone']):
-            print("ERROR: FedEx Priority Overnight Test ABORTED. Essential SHIP_FROM details missing in .env.")
+            print("ERROR: FedEx Test ABORTED. Essential SHIP_FROM details missing in .env.")
         else:
-            service_to_test = "2 Day" # Your desired service
-            weight_to_test = 2  # Example weight in lbs
+            # Test with a common service type from your OrderDetail.jsx options
+            service_to_test = "FEDEX_GROUND" # Example: use 'FEDEX_GROUND' or 'FEDEX_PRIORITY_OVERNIGHT'
+            weight_to_test = 3 
 
-            print(f"\nAttempting FedEx Label (Bill SENDER - {service_to_test}) in {FEDEX_API_ENVIRONMENT.upper()}")
+            print(f"\nAttempting FedEx Label ({('Bill Recipient Acct: ' + mock_order_data_fedex_test['customer_fedex_account_number']) if mock_order_data_fedex_test['is_bill_to_customer_fedex_account'] else 'Bill SENDER'}) - Service: {service_to_test} in {FEDEX_API_ENVIRONMENT.upper()}")
             
-            # Using generate_fedex_label which calls get_fedex_oauth_token and then generate_fedex_label_raw
-            # OR, if you already have a token and want to use the _raw function directly:
-            # pdf_bytes_fx, tracking_fx = generate_fedex_label_raw(
-            #                                 mock_order_data_priority_overnight, 
-            #                                 mock_ship_from_details, 
-            #                                 weight_to_test, 
-            #                                 service_to_test,
-            #                                 fedex_token # Pass the token here
-            #                             )
-
-            # Using the higher-level function that gets its own token:
             pdf_bytes_fx, tracking_fx = generate_fedex_label(
-                                            mock_order_data_priority_overnight,
+                                            mock_order_data_fedex_test,
                                             mock_ship_from_details,
                                             weight_to_test,
-                                            service_to_test
+                                            service_to_test # Pass the ENUM directly if that's what map_shipping_method_to_fedex_code expects for direct passthrough
                                         )
 
             if pdf_bytes_fx and tracking_fx:
-                print(f"FedEx Priority Overnight Test: SUCCESS! Tracking: {tracking_fx}")
-                filename = f"{FEDEX_API_ENVIRONMENT}_fx_priority_label_{tracking_fx}.pdf"
+                print(f"FedEx Test: SUCCESS! Tracking: {tracking_fx}")
+                filename = f"{FEDEX_API_ENVIRONMENT}_fx_label_{service_to_test}_{tracking_fx}.pdf"
                 try:
                     with open(filename, "wb") as f:
                         f.write(pdf_bytes_fx)
@@ -709,10 +715,10 @@ if __name__ == '__main__':
                 except Exception as e:
                     print(f"  Error writing label file: {e}")
             elif tracking_fx:
-                print(f"FedEx Priority Overnight Test: PARTIAL SUCCESS. Tracking: {tracking_fx}, but no PDF label data.")
+                print(f"FedEx Test: PARTIAL SUCCESS. Tracking: {tracking_fx}, but no PDF label data.")
             else:
-                print(f"FedEx Priority Overnight Test: FAILED.")
+                print(f"FedEx Test: FAILED.")
     else:
-        print("Failed to get FedEx OAuth Token, cannot proceed with Priority Overnight test.")
+        print("Failed to get FedEx OAuth Token, cannot proceed with FedEx test.")
 
     print("\n--- shipping_service.py standalone test finished ---")

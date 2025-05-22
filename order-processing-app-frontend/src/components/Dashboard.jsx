@@ -302,9 +302,7 @@ function Dashboard({ initialView = 'orders' }) {
                 <span style={{ fontSize: '90%', fontWeight: '600', display: 'block', color: 'var(--primary-accent-dark)' }}>
                     Global One Technology
                 </span>
-                <span style={{ fontSize: '70%', fontWeight: '900', display: 'block', color: 'var(--primary-accent-dark)', letterSpacing: '0.3em' }}>
-                    {currentView === 'dailySales' ? 'Daily Sales Report' : 'Order Dashboard'}
-                </span>
+                <span style={{ fontSize: '70%', fontWeight: '900', display: 'block', color: 'var(--primary-accent-dark)', letterSpacing: '0.3em' }}>{currentView === 'dailySales' ? 'Daily Sales Report' : 'Dashboard'}</span>
             </h2>
 
             {currentView === 'orders' && (

@@ -481,3 +481,7 @@ input:disabled, textarea:disabled, select:disabled {
 .empty-list-message {
   opacity: 65%;
 }
+
+.loading-message {
+  opacity: 65%;
+}

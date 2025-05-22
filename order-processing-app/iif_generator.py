@@ -48,22 +48,49 @@ def get_qb_item_name_for_option_pn(conn, option_pn_from_po_or_sale):
         print(f"WARN IIF_GEN_MAP: Received empty or None Option PN for INVITEM.")
         return "", False
 
+    original_sku_for_reporting = str(option_pn_from_po_or_sale) # For consistent reporting if lookup fails
+    sku_to_lookup = original_sku_for_reporting
+
     sql_mapping_query = text("SELECT qb_item_name FROM qb_product_mapping WHERE option_pn = :option_pn;")
+    
     try:
-        mapping_result = conn.execute(sql_mapping_query, {"option_pn": option_pn_from_po_or_sale}).fetchone()
+        # Attempt 1: Direct lookup with the provided SKU
+        mapping_result = conn.execute(sql_mapping_query, {"option_pn": sku_to_lookup}).fetchone()
         if mapping_result and mapping_result.qb_item_name:
             qb_item_name = mapping_result.qb_item_name
-            print(f"DEBUG IIF_GEN_MAP: Found QB mapping for Option PN '{option_pn_from_po_or_sale}': INVITEM='{qb_item_name}'")
+            print(f"DEBUG IIF_GEN_MAP: Found QB mapping for Option PN '{sku_to_lookup}': INVITEM='{qb_item_name}'")
             return qb_item_name, True
+        
+        # Attempt 2: If direct lookup fails and SKU contains an underscore, try the part after the last underscore
+        if '_' in sku_to_lookup:
+            sku_after_underscore = sku_to_lookup.split('_')[-1]
+            if sku_after_underscore and sku_after_underscore != sku_to_lookup: # Ensure there's something after '_' and it's different
+                print(f"DEBUG IIF_GEN_MAP: Direct lookup failed for '{sku_to_lookup}'. Trying fallback with SKU part after underscore: '{sku_after_underscore}'")
+                fallback_result = conn.execute(sql_mapping_query, {"option_pn": sku_after_underscore}).fetchone()
+                if fallback_result and fallback_result.qb_item_name:
+                    qb_item_name = fallback_result.qb_item_name
+                    print(f"DEBUG IIF_GEN_MAP: Found QB mapping for fallback SKU '{sku_after_underscore}': INVITEM='{qb_item_name}' (Original Full SKU: '{original_sku_for_reporting}')")
+                    return qb_item_name, True
+                else:
+                    # Fallback also failed
+                    print(f"WARN IIF_GEN_MAP: No QuickBooks mapping found for original SKU '{original_sku_for_reporting}' or fallback SKU '{sku_after_underscore}'. Using original full SKU as INVITEM.")
+                    return original_sku_for_reporting, False
+            else:
+                # Underscore present, but no valid part after it, or it's the same as the original
+                 print(f"WARN IIF_GEN_MAP: No QuickBooks mapping found for Option PN '{original_sku_for_reporting}'. Fallback part after underscore was invalid or same. Using original full SKU as INVITEM.")
+                 return original_sku_for_reporting, False
         else:
-            print(f"WARN IIF_GEN_MAP: No QuickBooks mapping found for Option PN '{option_pn_from_po_or_sale}'. Using Option PN as INVITEM.")
-            return str(option_pn_from_po_or_sale), False
+            # No underscore, and direct lookup failed
+            print(f"WARN IIF_GEN_MAP: No QuickBooks mapping found for Option PN '{original_sku_for_reporting}'. Using original full SKU as INVITEM.")
+            return original_sku_for_reporting, False
+            
     except sqlalchemy.exc.SQLAlchemyError as db_err:
-         print(f"ERROR IIF_GEN_MAP: Database error looking up Option PN '{option_pn_from_po_or_sale}': {db_err}")
-         return str(option_pn_from_po_or_sale), False
+         print(f"ERROR IIF_GEN_MAP: Database error looking up Option PN '{original_sku_for_reporting}': {db_err}")
+         return original_sku_for_reporting, False # Return original full SKU on DB error
     except Exception as e:
-        print(f"ERROR IIF_GEN_MAP: Unexpected error looking up Option PN '{option_pn_from_po_or_sale}': {e}")
-        return str(option_pn_from_po_or_sale), False
+        print(f"ERROR IIF_GEN_MAP: Unexpected error looking up Option PN '{original_sku_for_reporting}': {e}")
+        traceback.print_exc()
+        return original_sku_for_reporting, False # Return original full SKU on other errors
 
 def sanitize_field(value, max_length=None):
     """Sanitizes a field value for IIF output."""
@@ -71,20 +98,11 @@ def sanitize_field(value, max_length=None):
         return ""
     s_value = str(value).strip()
 
-    # Replace tabs and newlines with spaces first
     s_value = s_value.replace('\t', ' ')
-    s_value = s_value.replace('\r\n', ' ') # Windows newline
-    s_value = s_value.replace('\n', ' ')   # Unix/Linux newline
-    s_value = s_value.replace('\r', ' ')   # Old Mac newline (less common now)
-
-    # *** NEW: Replace double quotes with "in" (or 'in.' or ' inches') ***
-    # Using "in" as per your request.
+    s_value = s_value.replace('\r\n', ' ') 
+    s_value = s_value.replace('\n', ' ')   
+    s_value = s_value.replace('\r', ' ')   
     s_value = s_value.replace('"', 'in')
-
-    # QuickBooks IIF fields generally should not contain tabs within them after sanitization.
-    # Double-check any other characters that might break IIF parsing if they are critical,
-    # e.g., sometimes leading/trailing special characters or specific combinations.
-    # For now, handling quotes, tabs, and newlines covers the most common issues.
 
     if max_length and len(s_value) > max_length:
         original_value_preview = str(value)[:30] + "..." if len(str(value)) > 30 else str(value)
@@ -98,12 +116,11 @@ def strip_supplier_contact(supplier_name_full):
     return match.group(1).strip() if match else supplier_name_full
 
 
-
 # --- IIF Generation for Purchase Orders ---
 def generate_po_iif_content_for_date(db_engine_ref, target_date_str=None, process_all_pending=False):
     iif_lines = []
     po_mapping_failures = []
-    processed_po_db_ids = [] # <<< NEW: List to store DB IDs of processed POs
+    processed_po_db_ids = [] 
 
     trns_header_fields = [
         "TRNSID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO",
@@ -127,13 +144,12 @@ def generate_po_iif_content_for_date(db_engine_ref, target_date_str=None, proces
 
     target_date = None
     if not process_all_pending:
-        if not target_date_str: print("CRITICAL IIF_PO_GEN: target_date_str is required."); return None, [], [] # MODIFIED
+        if not target_date_str: print("CRITICAL IIF_PO_GEN: target_date_str is required."); return None, [], []
         try: target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-        except ValueError: print(f"CRITICAL IIF_PO_GEN: Invalid target_date_str: {target_date_str}."); return None, [], [] # MODIFIED
-
+        except ValueError: print(f"CRITICAL IIF_PO_GEN: Invalid target_date_str: {target_date_str}."); return None, [], []
     conn = None
     try:
-        if not db_engine_ref: print("CRITICAL IIF_PO_GEN: DB engine not available."); return None, [], [] # MODIFIED
+        if not db_engine_ref: print("CRITICAL IIF_PO_GEN: DB engine not available."); return None, [], []
         conn = db_engine_ref.connect()
         log_message_date_part = f"POs for {target_date_str}" if target_date and not process_all_pending else "all pending POs"
         print(f"INFO IIF_PO_GEN: Connected to DB to fetch {log_message_date_part}")
@@ -146,7 +162,7 @@ def generate_po_iif_content_for_date(db_engine_ref, target_date_str=None, proces
                 po.total_amount,
                 o.customer_name, o.customer_shipping_address_line1, o.customer_shipping_address_line2,
                 o.customer_shipping_city, o.customer_shipping_state, o.customer_shipping_zip,
-                o.customer_shipping_country,
+                o.customer_shipping_country, o.customer_shipping_country_iso2, 
                 o.bigcommerce_order_id
             FROM purchase_orders po
             JOIN suppliers s ON po.supplier_id = s.id
@@ -178,22 +194,51 @@ def generate_po_iif_content_for_date(db_engine_ref, target_date_str=None, proces
             po_total_cost = Decimal(po_row.total_amount if po_row.total_amount is not None else '0.00')
             iif_supplier_name = strip_supplier_contact(po_row.supplier_name_full)
 
-            saddr1 = sanitize_field(po_row.customer_name, 41)
-            saddr2 = sanitize_field(po_row.customer_shipping_address_line1, 41)
-            saddr3 = sanitize_field(po_row.customer_shipping_address_line2, 41)
-            saddr4_parts = [po_row.customer_shipping_city, po_row.customer_shipping_state, po_row.customer_shipping_zip]
-            saddr4 = sanitize_field(" ".join(filter(None, saddr4_parts)), 41)
-            saddr5 = sanitize_field(po_row.customer_shipping_country, 41)
+            s_lines = []
+            cust_company = getattr(po_row, 'customer_company', None) # Get company from order if available (not directly on PO)
+            cust_name_po = getattr(po_row, 'customer_name', None)
+            if cust_company: s_lines.append(cust_company)
+            if cust_name_po: s_lines.append(cust_name_po)
+            
+            s_street1 = getattr(po_row, 'customer_shipping_address_line1', None)
+            if s_street1: s_lines.append(s_street1)
+            s_street2 = getattr(po_row, 'customer_shipping_address_line2', None)
+            if s_street2: s_lines.append(s_street2)
+
+            s_city = getattr(po_row, 'customer_shipping_city', None)
+            s_state_raw = getattr(po_row, 'customer_shipping_state', None)
+            s_country_iso_po = getattr(po_row, 'customer_shipping_country_iso2', "").upper() # from orders table
+            s_country_full_po = getattr(po_row, 'customer_shipping_country', None) # from orders table
+            s_zip = getattr(po_row, 'customer_shipping_zip', None)
+            s_state_proc = get_us_state_abbreviation(s_state_raw, s_country_iso_po)
+
+            s_city_state_zip_parts = []
+            if s_city: s_city_state_zip_parts.append(s_city + ",")
+            if s_state_proc: s_city_state_zip_parts.append(s_state_proc)
+            if s_zip: s_city_state_zip_parts.append(s_zip)
+            s_city_state_zip = " ".join(filter(None, s_city_state_zip_parts)).strip()
+            if s_city_state_zip: s_lines.append(s_city_state_zip)
+
+            is_us_shipping_po = s_country_iso_po == "US"
+            if not is_us_shipping_po and s_country_full_po:
+                 s_lines.append(s_country_full_po)
+
+            saddr1 = sanitize_field(s_lines[0] if len(s_lines) > 0 else "", 41)
+            saddr2 = sanitize_field(s_lines[1] if len(s_lines) > 1 else "", 41)
+            saddr3 = sanitize_field(s_lines[2] if len(s_lines) > 2 else "", 41)
+            saddr4 = sanitize_field(s_lines[3] if len(s_lines) > 3 else "", 41)
+            saddr5 = sanitize_field(s_lines[4] if len(s_lines) > 4 else "", 41)
+
 
             trns_values_dict = {
                 "TRNSID": "", "TRNSTYPE": "PURCHORD", "DATE": po_date_formatted,
                 "ACCNT": QUICKBOOKS_PO_ACCOUNT, "NAME": iif_supplier_name,
-                "CLASS": "", "AMOUNT": str(po_total_cost * -1), # PO TRNS amount is often negative
+                "CLASS": "", "AMOUNT": str(po_total_cost * -1), 
                 "DOCNUM": po_row.po_number, "MEMO": f"PO {po_row.po_number}",
                 "CLEAR": "N", "TOPRINT": "Y", "NAMEISTAXABLE": "N",
-                "ADDR1": "", "ADDR2": "", "ADDR3": "", "ADDR4": "", "ADDR5": "", # Supplier Addr, if known
+                "ADDR1": "", "ADDR2": "", "ADDR3": "", "ADDR4": "", "ADDR5": "", 
                 "DUEDATE": po_date_formatted, "TERMS": "", "PAID": "N", "PAYMETH": "",
-                "SHIPVIA": "", "SHIPDATE": po_date_formatted, # Or expected ship date
+                "SHIPVIA": "", "SHIPDATE": po_date_formatted, 
                 "OTHER1": "", "REP": "", "FOB": "", "PONUM": po_row.po_number,
                 "INVTITLE": "", "INVMEMO": "",
                 "SADDR1": saddr1, "SADDR2": saddr2, "SADDR3": saddr3,
@@ -228,12 +273,12 @@ def generate_po_iif_content_for_date(db_engine_ref, target_date_str=None, proces
 
                 spl_values_dict = {
                     "SPLID": "", "TRNSTYPE": "PURCHORD", "DATE": po_date_formatted,
-                    "ACCNT": QUICKBOOKS_DEFAULT_EXPENSE_ACCOUNT, "NAME": "", # Name usually blank on expense SPL for PO
-                    "CLASS": "", "AMOUNT": str(line_total_cost), # Positive for PO SPL lines
+                    "ACCNT": QUICKBOOKS_DEFAULT_EXPENSE_ACCOUNT, "NAME": "", 
+                    "CLASS": "", "AMOUNT": str(line_total_cost), 
                     "DOCNUM": po_row.po_number, "MEMO": item_description_content,
                     "CLEAR": "N", "QNTY": str(quantity), "PRICE": str(unit_cost),
                     "INVITEM": qb_invitem_name,
-                    "PAYMETH": "", "TAXABLE": "N", # Usually N for PO items unless tax is part of cost
+                    "PAYMETH": "", "TAXABLE": "N", 
                     "VALADJ": "N", "REIMBEXP": "NOTHING", "SERVICEDATE": "", "OTHER2": "", "OTHER3": "",
                     "PAYITEM": "", "YEARTODATE": "", "WAGEBASE": "", "EXTRA": ""
                 }
@@ -252,19 +297,19 @@ def generate_po_iif_content_for_date(db_engine_ref, target_date_str=None, proces
                 iif_lines.append("SPL\t" + "\t".join(fulfillment_spl_data_ordered))
 
             iif_lines.append("ENDTRNS")
-            processed_po_db_ids.append(po_row.po_id) # <<< ADD: Store the DB ID of the processed PO
+            processed_po_db_ids.append(po_row.po_id) 
 
         print(f"INFO IIF_PO_GEN: Finished generating PO IIF content. Processed IDs: {len(processed_po_db_ids)}. Failures: {len(po_mapping_failures)}.")
-        return "\r\n".join(iif_lines) + "\r\n", po_mapping_failures, processed_po_db_ids # <<< MODIFIED: Return IDs
+        return "\r\n".join(iif_lines) + "\r\n", po_mapping_failures, processed_po_db_ids
 
     except sqlalchemy.exc.SQLAlchemyError as db_e:
         print(f"CRITICAL IIF_PO_GEN: Database error: {db_e}")
         traceback.print_exc()
-        return None, po_mapping_failures, [] # Return empty list for IDs on error
+        return None, po_mapping_failures, [] 
     except Exception as e:
         print(f"CRITICAL IIF_PO_GEN: Unexpected error: {e}")
         traceback.print_exc()
-        return None, po_mapping_failures, [] # Return empty list for IDs on error
+        return None, po_mapping_failures, [] 
     finally:
         if conn: conn.close()
 
@@ -281,38 +326,37 @@ US_STATE_ABBREVIATIONS = {
     "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI",
     "south carolina": "SC", "south dakota": "SD", "tennessee": "TN", "texas": "TX",
     "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA",
-    "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
-    # Add territories if needed, e.g., "puerto rico": "PR"
+    "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
+    "puerto rico": "PR"
 }
 
 def get_us_state_abbreviation(state_name_full, country_name_or_iso):
-    """Converts full US state name to 2-letter abbreviation. Returns original if not US or not found."""
     if not state_name_full or not country_name_or_iso:
-        return state_name_full # Return original if no state or country
+        return state_name_full 
 
-    country_lower = country_name_or_iso.lower()
+    country_lower = str(country_name_or_iso).lower()
     is_us_country = country_lower in ["us", "usa", "united states", "united states of america"]
 
     if is_us_country:
-        return US_STATE_ABBREVIATIONS.get(state_name_full.lower(), state_name_full) # Fallback to original if not in dict
-    return state_name_full # Not a US country, return original state name
+        return US_STATE_ABBREVIATIONS.get(str(state_name_full).lower().strip(), str(state_name_full).strip()) 
+    return str(state_name_full).strip() 
 
 # --- IIF Generation for Sales Invoices & Payments ---
 def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, process_all_pending=False):
     iif_lines, sales_item_mapping_failures = [], []
-    processed_sales_order_db_ids = [] # <<< NEW: List to store DB IDs of processed Sales Orders
+    processed_sales_order_db_ids = [] 
     trns_header_fields = ["TRNSID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR", "TOPRINT", "NAMEISTAXABLE", "ADDR1", "ADDR2", "ADDR3", "ADDR4", "ADDR5", "DUEDATE", "TERMS", "PAID", "PAYMETH", "SHIPVIA", "SHIPDATE", "OTHER1", "REP", "FOB", "PONUM", "INVTITLE", "INVMEMO", "SADDR1", "SADDR2", "SADDR3", "SADDR4", "SADDR5"]
     spl_header_fields = ["SPLID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR", "QNTY", "PRICE", "INVITEM", "PAYMETH", "TAXABLE", "VALADJ", "REIMBEXP", "SERVICEDATE", "OTHER2", "OTHER3", "PAYITEM", "YEARTODATE", "WAGEBASE", "EXTRA"]
     iif_lines.extend(["!TRNS\t" + "\t".join(trns_header_fields), "!SPL\t" + "\t".join(spl_header_fields), "!ENDTRNS"])
 
     target_date = None
     if not process_all_pending:
-        if not target_date_str: print("CRITICAL IIF_SALES_GEN: target_date_str required."); return None, [], [] # MODIFIED
+        if not target_date_str: print("CRITICAL IIF_SALES_GEN: target_date_str required."); return None, [], []
         try: target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-        except ValueError: print(f"CRITICAL IIF_SALES_GEN: Invalid target_date_str: {target_date_str}."); return None, [], [] # MODIFIED
+        except ValueError: print(f"CRITICAL IIF_SALES_GEN: Invalid target_date_str: {target_date_str}."); return None, [], []
     conn = None
     try:
-        if not db_engine_ref: print("CRITICAL IIF_SALES_GEN: DB engine not available."); return None, [], [] # MODIFIED
+        if not db_engine_ref: print("CRITICAL IIF_SALES_GEN: DB engine not available."); return None, [], []
         conn = db_engine_ref.connect()
         log_message_date_part = f"Sales Orders for {target_date_str}" if target_date and not process_all_pending else "all pending Sales Orders"
         print(f"INFO IIF_SALES_GEN: Connected to DB to fetch {log_message_date_part}")
@@ -325,11 +369,11 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
                 o.customer_name, o.customer_company,
                 o.customer_shipping_address_line1, o.customer_shipping_address_line2,
                 o.customer_shipping_city, o.customer_shipping_state,
-                o.customer_shipping_zip, o.customer_shipping_country,
+                o.customer_shipping_zip, o.customer_shipping_country, o.customer_shipping_country_iso2,
                 o.customer_billing_first_name, o.customer_billing_last_name, o.customer_billing_company,
                 o.customer_billing_street_1, o.customer_billing_street_2,
                 o.customer_billing_city, o.customer_billing_state,
-                o.customer_billing_zip, o.customer_billing_country
+                o.customer_billing_zip, o.customer_billing_country, o.customer_billing_country_iso2
             FROM orders o
             WHERE (o.qb_sales_order_sync_status IS NULL OR o.qb_sales_order_sync_status IN ('pending_sync', 'error'))
         """
@@ -354,8 +398,6 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
             bc_order_id_str = str(order_row.bigcommerce_order_id)
             invoice_total_amount = Decimal(order_row.total_sale_price if order_row.total_sale_price is not None else '0.00')
 
-            # --- Start INVOICE Transaction ---
-            # --- Construct Billing Address (ADDR1-ADDR5) ---
             _bill_lines = []
             bill_comp = getattr(order_row, 'customer_billing_company', None)
             bill_first = getattr(order_row, 'customer_billing_first_name', None)
@@ -391,22 +433,18 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
             if not is_us_billing and bill_country_full:
                 _bill_lines.append(bill_country_full)
             
-            # Assign to ADDR1-5, ensuring no more than 5 lines are used.
-            # If _bill_lines has more than 5, some info will be truncated from the end.
             addr1_inv = sanitize_field(_bill_lines[0] if len(_bill_lines) > 0 else QUICKBOOKS_CUSTOMER_WEBSITE, 41)
             addr2_inv = sanitize_field(_bill_lines[1] if len(_bill_lines) > 1 else "", 41)
             addr3_inv = sanitize_field(_bill_lines[2] if len(_bill_lines) > 2 else "", 41)
             addr4_inv = sanitize_field(_bill_lines[3] if len(_bill_lines) > 3 else "", 41)
             addr5_inv = sanitize_field(_bill_lines[4] if len(_bill_lines) > 4 else "", 41)
 
-
-            # --- Construct Shipping Address (SADDR1-SADDR5) ---
             _ship_lines = []
-            ship_comp = order_row.customer_company # This comes from shipping_address in BC usually
-            ship_name = order_row.customer_name # This is typically first + last from shipping_address
+            ship_comp = order_row.customer_company 
+            ship_name = order_row.customer_name 
 
             if ship_comp: _ship_lines.append(ship_comp)
-            if ship_name: _ship_lines.append(ship_name) # If company exists, this becomes line 2 effectively
+            if ship_name: _ship_lines.append(ship_name) 
 
             ship_street1 = order_row.customer_shipping_address_line1
             if ship_street1: _ship_lines.append(ship_street1)
@@ -473,12 +511,21 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
                     desc_res = conn.execute(sql_desc_map, {"option_pn_val": option_pn_for_item}).scalar_one_or_none()
                     if desc_res: item_description_for_iif = sanitize_field(desc_res, 4095)
                 else:
-                    sales_item_mapping_failures.append({"bc_order_id": bc_order_id_str, "failed_step": "HPE_SKU_to_OptionPN", "original_sku": original_bc_sku, "product_name": item_row.product_name})
-                    print(f"WARN IIF_SALES_MAP: No HPE mapping for SKU '{original_bc_sku}' (Order {bc_order_id_str})")
-                    option_pn_for_item = original_bc_sku
+                    # If no HPE mapping, use original SKU as the basis for QB item lookup
+                    option_pn_for_item = original_bc_sku 
+                    # No failure logged here for HPE mapping missing, as per existing logic.
+                    # The failure will be logged if the subsequent qb_product_mapping lookup fails.
+
                 qb_invitem_name, mapping_found = get_qb_item_name_for_option_pn(conn, option_pn_for_item)
-                if not mapping_found and not (hpe_res and hpe_res.option_pn): pass
-                elif not mapping_found: sales_item_mapping_failures.append({"bc_order_id": bc_order_id_str, "failed_step": "OptionPN_to_QBItem", "original_sku": original_bc_sku, "option_pn": option_pn_for_item, "product_name": item_row.product_name})
+                if not mapping_found: 
+                    sales_item_mapping_failures.append({
+                        "bc_order_id": bc_order_id_str, 
+                        "failed_step": "OptionPN_to_QBItem", 
+                        "original_sku": original_bc_sku, # Report the very original SKU from BC
+                        "option_pn": option_pn_for_item, # Report the SKU used for QB lookup (could be original_bc_sku or HPE mapped)
+                        "product_name": item_row.product_name
+                    })
+
                 item_quantity = Decimal(item_row.quantity if item_row.quantity is not None else 0)
                 item_sale_price = Decimal(item_row.sale_price if item_row.sale_price is not None else 0)
                 item_line_total = item_quantity * item_sale_price
@@ -502,7 +549,7 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
 
             tax_amount = Decimal(order_row.bigcommerce_order_tax if order_row.bigcommerce_order_tax is not None else '0.00')
             if tax_amount > 0:
-                tax_spl_dict = {"TRNSTYPE": "INVOICE", "DATE": order_date_formatted, "ACCNT": QUICKBOOKS_OTHER_INCOME_FOR_SALES_TAX_ITEM, "INVITEM": QUICKBOOKS_ITEM_SALES_TAX, "AMOUNT": str(tax_amount * -1), "MEMO": "Sales Tax Collected", "DOCNUM": bc_order_id_str, "NAME": QUICKBOOKS_CUSTOMER_WEBSITE, "TAXABLE": "N"}
+                tax_spl_dict = {"TRNSTYPE": "INVOICE", "DATE": order_date_formatted, "ACCNT": QUICKBOOKS_OTHER_INCOME_FOR_SALES_TAX_ITEM, "INVITEM": QUICKBOOKS_ITEM_SALES_TAX, "AMOUNT": str(tax_amount * -1), "MEMO": "", "DOCNUM": bc_order_id_str, "NAME": QUICKBOOKS_CUSTOMER_WEBSITE, "TAXABLE": "N"}
                 spl_data_ordered = [sanitize_field(tax_spl_dict.get(field, "")) for field in spl_header_fields]
                 iif_lines.append("SPL\t" + "\t".join(spl_data_ordered))
             iif_lines.append("ENDTRNS")
@@ -517,62 +564,143 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
             iif_lines.append("SPL\t" + "\t".join(spl_data_ordered))
             iif_lines.append("ENDTRNS")
 
-            processed_sales_order_db_ids.append(order_row.app_order_id) # <<< ADD: Store the DB ID (app_order_id)
+            processed_sales_order_db_ids.append(order_row.app_order_id) 
 
         print(f"INFO IIF_SALES_GEN: Finished Sales IIF. Processed IDs: {len(processed_sales_order_db_ids)}. Failures: {len(sales_item_mapping_failures)}.")
-        return "\r\n".join(iif_lines) + "\r\n", sales_item_mapping_failures, processed_sales_order_db_ids # <<< MODIFIED: Return IDs
+        return "\r\n".join(iif_lines) + "\r\n", sales_item_mapping_failures, processed_sales_order_db_ids
 
     except sqlalchemy.exc.SQLAlchemyError as db_e:
         print(f"CRITICAL IIF_SALES_GEN: DB error: {db_e}"); traceback.print_exc()
-        return None, sales_item_mapping_failures, [] # Return empty list for IDs on error
+        return None, sales_item_mapping_failures, [] 
     except Exception as e:
         print(f"CRITICAL IIF_SALES_GEN: Unexpected error: {e}"); traceback.print_exc()
-        return None, sales_item_mapping_failures, [] # Return empty list for IDs on error
+        return None, sales_item_mapping_failures, [] 
     finally:
         if conn: conn.close()
         print(f"INFO IIF_SALES_GEN: DB connection closed for {log_message_date_part}")
 
 
 # --- Top-Level Functions for POs ---
-def create_and_email_daily_po_iif_batch(db_engine_ref):
+def create_and_email_daily_iif_batch(db_engine_ref): # Renamed to be more generic, as it's called by the scheduler for POs
+    # This function specifically targets POs from yesterday for the daily scheduled task
     target_date_for_production = datetime.now(timezone.utc).date() - timedelta(days=1)
     batch_date_str = target_date_for_production.strftime("%Y-%m-%d")
-    print(f"INFO IIF_PO_BATCH (Daily): Generating PO IIF for date: {batch_date_str}")
-    iif_content, mapping_failures = generate_po_iif_content_for_date(db_engine_ref, target_date_str=batch_date_str, process_all_pending=False)
+    print(f"INFO IIF_PO_BATCH (Daily POs): Generating PO IIF for date: {batch_date_str}")
+    
+    iif_content, mapping_failures, processed_ids = generate_po_iif_content_for_date(
+        db_engine_ref, 
+        target_date_str=batch_date_str, 
+        process_all_pending=False # Explicitly ensure it's for a specific date
+    )
+    
     email_warning_html = None
     if mapping_failures:
-        warning_lines = ['<p><strong><span style="color: red; font-size: 1.2em;">WARNING: QuickBooks Item Mapping Failures (Purchase Orders)</span></strong></p>', '<p>Review `qb_product_mapping` or add items in QuickBooks:</p><ul>']
+        warning_lines = ['<p><strong><span style="color: red; font-size: 1.2em;">WARNING: QuickBooks Item Mapping Failures (Daily Purchase Orders)</span></strong></p>', '<p>Review `qb_product_mapping` or add items in QuickBooks:</p><ul>']
         unique_failures = set(); [warning_lines.append(f"<li>PO: <strong>{html.escape(f['po_number'])}</strong>, Failed SKU (used as INVITEM): <strong>{html.escape(f['failed_sku'])}</strong> (Desc: {html.escape(f['description'] or '')})</li>") for f in mapping_failures if (f['po_number'], f['failed_sku']) not in unique_failures and unique_failures.add((f['po_number'], f['failed_sku'])) is None]
         warning_lines.append('</ul><hr>'); email_warning_html = "\n".join(warning_lines)
-    if iif_content and email_service:
-        email_sent = email_service.send_iif_batch_email(iif_content_string=iif_content, batch_date_str=batch_date_str, warning_message_html=email_warning_html, filename_prefix="PurchaseOrders_")
-        print(f"IIF_PO_BATCH (Daily): Email for {batch_date_str} {'sent' if email_sent else 'failed'}.")
-    elif not iif_content: print(f"ERROR IIF_PO_BATCH (Daily): No PO IIF content for {batch_date_str}.")
+    
+    if iif_content and processed_ids: # Only email if there was actual content with processed items
+        if email_service:
+            email_sent = email_service.send_iif_batch_email(
+                iif_content_string=iif_content, 
+                batch_date_str=batch_date_str, 
+                warning_message_html=email_warning_html, 
+                filename_prefix="PurchaseOrders_Daily_"
+            )
+            print(f"IIF_PO_BATCH (Daily POs): Email for {batch_date_str} {'sent' if email_sent else 'failed'}.")
+            # Update database status for processed POs
+            try:
+                with db_engine_ref.connect() as conn_update:
+                    with conn_update.begin():
+                        update_stmt = text("UPDATE purchase_orders SET qb_po_sync_status = 'synced', qb_po_synced_at = :now, qb_po_last_error = NULL WHERE id = ANY(:ids)")
+                        conn_update.execute(update_stmt, {"now": datetime.now(timezone.utc), "ids": processed_ids})
+                        print(f"INFO IIF_PO_BATCH (Daily POs): Updated sync status for {len(processed_ids)} POs in database.")
+            except Exception as e_db:
+                print(f"ERROR IIF_PO_BATCH (Daily POs): Failed to update DB status for POs {processed_ids}: {e_db}")
+                traceback.print_exc()
+        else:
+            print(f"WARN IIF_PO_BATCH (Daily POs): Email service not available. IIF for {batch_date_str} generated but not sent. DB status NOT updated.")
+    elif not iif_content: 
+        print(f"INFO IIF_PO_BATCH (Daily POs): No PO IIF content generated for {batch_date_str} (no new POs or error).")
+    elif iif_content and not processed_ids:
+         print(f"INFO IIF_PO_BATCH (Daily POs): IIF content generated for {batch_date_str} but no POs were actually processed (e.g. only header/footer). No email sent, no DB update.")
 
 
-def create_and_email_po_iif_for_today(db_engine_ref):
+def create_and_email_iif_for_today(db_engine_ref): # Renamed for clarity - For POs from today by user
     target_date_for_today = datetime.now(timezone.utc).date()
     batch_date_str = target_date_for_today.strftime("%Y-%m-%d")
-    print(f"INFO IIF_PO_BATCH (Today): Generating PO IIF for date: {batch_date_str}")
-    iif_content, mapping_failures = generate_po_iif_content_for_date(db_engine_ref, target_date_str=batch_date_str, process_all_pending=False)
+    print(f"INFO IIF_PO_BATCH (Today's POs - User): Generating PO IIF for date: {batch_date_str}")
+    
+    iif_content, mapping_failures, processed_ids = generate_po_iif_content_for_date(
+        db_engine_ref, 
+        target_date_str=batch_date_str, 
+        process_all_pending=False # For today's date specifically
+    )
+    
     email_warning_html = None
-    if mapping_failures: email_warning_html = "<p>Purchase Order item mapping failures occurred. Check logs.</p>"
-    if iif_content and email_service:
-        email_subject = f"Today's Purchase Orders IIF Batch - {batch_date_str}"
-        email_sent = email_service.send_iif_batch_email( iif_content_string=iif_content, batch_date_str=batch_date_str, warning_message_html=email_warning_html, custom_subject=email_subject, filename_prefix="PurchaseOrders_Today_")
-        print(f"IIF_PO_BATCH (Today): Email {'sent' if email_sent else 'failed'}.")
-        return True, iif_content
-    elif not iif_content: print(f"ERROR IIF_PO_BATCH (Today): No PO IIF content for {batch_date_str}.")
-    return False, None
+    if mapping_failures: 
+        warning_lines_today = ['<p><strong><span style="color: red; font-size: 1.2em;">WARNING: QuickBooks Item Mapping Failures (Today\'s Purchase Orders)</span></strong></p><ul>']
+        # ... (similar formatting for failures as daily batch) ...
+        unique_failures_today = set()
+        for f_today in mapping_failures:
+            key_today = (f_today['po_number'], f_today['failed_sku'])
+            if key_today not in unique_failures_today:
+                warning_lines_today.append(f"<li>PO: {html.escape(f_today['po_number'])}, SKU: {html.escape(f_today['failed_sku'])}</li>")
+                unique_failures_today.add(key_today)
+        warning_lines_today.append("</ul>")
+        email_warning_html = "\n".join(warning_lines_today)
 
-# --- Top-Level Functions for Sales IIF ---
-def create_and_email_daily_sales_iif_batch(db_engine_ref):
+    if iif_content and processed_ids:
+        if email_service:
+            email_subject = f"Today's Purchase Orders IIF Batch - {batch_date_str}"
+            email_sent = email_service.send_iif_batch_email( 
+                iif_content_string=iif_content, 
+                batch_date_str=batch_date_str, 
+                warning_message_html=email_warning_html, 
+                custom_subject=email_subject, 
+                filename_prefix="PurchaseOrders_Today_"
+            )
+            print(f"IIF_PO_BATCH (Today's POs - User): Email {'sent' if email_sent else 'failed'}.")
+            # Update database status for processed POs
+            try:
+                with db_engine_ref.connect() as conn_update_today:
+                    with conn_update_today.begin():
+                        update_stmt_today = text("UPDATE purchase_orders SET qb_po_sync_status = 'synced', qb_po_synced_at = :now, qb_po_last_error = NULL WHERE id = ANY(:ids)")
+                        conn_update_today.execute(update_stmt_today, {"now": datetime.now(timezone.utc), "ids": processed_ids})
+                        print(f"INFO IIF_PO_BATCH (Today's POs - User): Updated sync status for {len(processed_ids)} POs in database.")
+            except Exception as e_db_today:
+                print(f"ERROR IIF_PO_BATCH (Today's POs - User): Failed to update DB status for POs {processed_ids}: {e_db_today}")
+                traceback.print_exc()
+
+            return True, f"IIF for today's POs generated ({len(processed_ids)} items) and email sent."
+        else:
+            print(f"WARN IIF_PO_BATCH (Today's POs - User): Email service not available. IIF generated but not sent. DB status NOT updated.")
+            return True, f"IIF for today's POs generated ({len(processed_ids)} items), but email service unavailable. DB status NOT updated."
+            
+    elif not iif_content: 
+        print(f"INFO IIF_PO_BATCH (Today's POs - User): No PO IIF content for {batch_date_str} (no new POs or error).")
+        return True, "No new Purchase Orders found for today to generate IIF." # Still a success if no items
+    elif iif_content and not processed_ids:
+        print(f"INFO IIF_PO_BATCH (Today's POs - User): IIF content generated for {batch_date_str} but no POs were actually processed. No email sent, no DB update.")
+        return True, "IIF for today's POs generated but no items met criteria for inclusion (e.g., empty POs). No email sent, no DB update."
+
+    return False, "IIF generation for today's POs failed or no items processed."
+
+
+# --- Functions for Sales IIF (Daily and Today - though not explicitly requested for scheduler/user button yet) ---
+# These are here for completeness if you want to add routes for them in quickbooks.py
+
+def create_and_email_daily_sales_iif_batch(db_engine_ref): # Example: could be called by a scheduler
     date_str = (datetime.now(timezone.utc).date() - timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"INFO IIF_SALES_BATCH (Daily): Generating Sales IIF for date: {date_str}")
-    content, failures = generate_sales_iif_content_for_date(db_engine_ref, target_date_str=date_str)
+    print(f"INFO IIF_SALES_BATCH (Daily Sales): Generating Sales IIF for date: {date_str}")
+    content, failures, processed_ids_sales = generate_sales_iif_content_for_date(
+        db_engine_ref, 
+        target_date_str=date_str,
+        process_all_pending=False # For specific date
+    )
     warn_html = None
     if failures:
-        warn_lines = ['<p><strong><span style="color: red; font-size: 1.2em;">WARNING: QuickBooks Item Mapping Failures (Sales Orders)</span></strong></p>', '<p>Review mappings or add items in QuickBooks:</p><ul>']
+        warn_lines = ['<p><strong><span style="color: red; font-size: 1.2em;">WARNING: QuickBooks Item Mapping Failures (Daily Sales Orders)</span></strong></p>', '<p>Review mappings or add items in QuickBooks:</p><ul>']
         unique_fails = set()
         for f_item in failures:
             key = (f_item.get('original_sku', 'N/A'), f_item.get('option_pn', 'N/A'))
@@ -581,63 +709,90 @@ def create_and_email_daily_sales_iif_batch(db_engine_ref):
                 msg = f"Order: <strong>{html.escape(str(f_item.get('bc_order_id','N/A')))}</strong>, Step: {html.escape(str(f_item.get('failed_step','N/A')))}, SKU: <strong>{html.escape(str(f_item.get('original_sku','N/A')))}</strong>{opt_pn_part} (Name: {html.escape(str(f_item.get('product_name','N/A')))})"
                 warn_lines.append(f"<li>{msg}</li>"); unique_fails.add(key)
         warn_lines.append('</ul><hr>'); warn_html = "\n".join(warn_lines)
-    if content and email_service:
-        subject = f"Daily Sales Orders & Payments IIF Batch - {date_str}"
-        sent = email_service.send_iif_batch_email(iif_content_string=content, batch_date_str=date_str, warning_message_html=warn_html, custom_subject=subject, filename_prefix="SalesInvoicesPayments_")
-        print(f"IIF_SALES_BATCH (Daily): Email for {date_str} {'sent' if sent else 'failed'}.")
-    elif not content: print(f"ERROR IIF_SALES_BATCH (Daily): No Sales IIF content for {date_str}.")
+    
+    if content and processed_ids_sales:
+        if email_service:
+            subject = f"Daily Sales Orders & Payments IIF Batch - {date_str}"
+            sent = email_service.send_iif_batch_email(iif_content_string=content, batch_date_str=date_str, warning_message_html=warn_html, custom_subject=subject, filename_prefix="SalesInvoicesPayments_Daily_")
+            print(f"IIF_SALES_BATCH (Daily Sales): Email for {date_str} {'sent' if sent else 'failed'}.")
+            # Update database status for processed Sales Orders
+            try:
+                with db_engine_ref.connect() as conn_update_sales_daily:
+                    with conn_update_sales_daily.begin():
+                        update_sales_stmt_daily = text("UPDATE orders SET qb_sales_order_sync_status = 'synced', qb_sales_order_synced_at = :now, qb_sales_order_last_error = NULL WHERE id = ANY(:ids)")
+                        conn_update_sales_daily.execute(update_sales_stmt_daily, {"now": datetime.now(timezone.utc), "ids": processed_ids_sales})
+                        print(f"INFO IIF_SALES_BATCH (Daily Sales): Updated sync status for {len(processed_ids_sales)} Sales Orders in database.")
+            except Exception as e_db_sales_daily:
+                print(f"ERROR IIF_SALES_BATCH (Daily Sales): Failed to update DB status for Sales Orders {processed_ids_sales}: {e_db_sales_daily}")
+                traceback.print_exc()
+        else:
+            print(f"WARN IIF_SALES_BATCH (Daily Sales): Email service not available. Sales IIF for {date_str} generated but not sent. DB status NOT updated.")
+    elif not content: 
+        print(f"INFO IIF_SALES_BATCH (Daily Sales): No Sales IIF content generated for {date_str} (no new sales orders or error).")
+    elif content and not processed_ids_sales:
+        print(f"INFO IIF_SALES_BATCH (Daily Sales): Sales IIF content generated for {date_str} but no Sales Orders were actually processed. No email sent, no DB update.")
 
-def create_and_email_sales_iif_for_today(db_engine_ref):
-    date_str = datetime.now(timezone.utc).date().strftime("%Y-%m-%d")
-    print(f"INFO IIF_SALES_BATCH (Today): Generating Sales IIF for date: {date_str}")
-    content, failures = generate_sales_iif_content_for_date(db_engine_ref, target_date_str=date_str)
-    warn_html = "<p>Sales Order item mapping failures occurred.</p>" if failures else None
-    if content and email_service:
-        subject = f"Today's Sales Orders & Payments IIF Batch - {date_str}"
-        sent = email_service.send_iif_batch_email(iif_content_string=content, batch_date_str=date_str, warning_message_html=warn_html, custom_subject=subject, filename_prefix="SalesInvoicesPayments_Today_")
-        print(f"IIF_SALES_BATCH (Today): Email {'sent' if sent else 'failed'}.")
-        return True, content
-    elif not content: print(f"ERROR IIF_SALES_BATCH (Today): No Sales IIF content for {date_str}.")
-    return False, None
 
+# --- Standalone Test ---
 if __name__ == '__main__':
     print("--- Running IIF Generator Standalone Test ---")
     from dotenv import load_dotenv
-    load_dotenv()
-    test_engine = engine
+    load_dotenv() # Ensure .env is loaded if running standalone
+    
+    # Determine which engine to use (imported 'engine' or create a new one for test)
+    test_engine = engine # Prefer imported engine if available
     connector_instance_for_cleanup = None
+
     if not test_engine:
         print("INFO IIF_TEST: 'engine' not imported from app. Attempting to create a new engine for testing.")
         try:
-            db_user, db_pass, db_name = os.getenv("DB_USER"), os.getenv("DB_PASS"), os.getenv("DB_NAME")
-            instance_conn_name = os.getenv("DB_CONNECTION_NAME")
-            db_host, db_port = os.getenv("DB_HOST", "127.0.0.1"), os.getenv("DB_PORT", "5432")
-            if not all([db_user, db_pass, db_name]): raise ValueError("Missing DB credentials")
-            if instance_conn_name:
+            # Simplified connection string for local testing if needed
+            db_user = os.getenv("DB_USER")
+            db_pass = os.getenv("DB_PASSWORD") # Corrected from DB_PASS
+            db_name = os.getenv("DB_NAME")
+            instance_conn_name = os.getenv("DB_CONNECTION_NAME") # For Cloud SQL
+            db_host = os.getenv("DB_HOST", "127.0.0.1") # For direct connection
+            db_port = os.getenv("DB_PORT", "5432")     # For direct connection
+
+            if not all([db_user, db_pass, db_name]):
+                raise ValueError("Missing DB_USER, DB_PASSWORD, or DB_NAME in environment variables.")
+
+            if instance_conn_name: # Cloud SQL Connector preferred
                 from google.cloud.sql.connector import Connector
                 connector = Connector()
-                connector_instance_for_cleanup = connector
+                connector_instance_for_cleanup = connector # Store to close later
                 def getconn(): # type: ignore
-                    return connector.connect(instance_conn_name, "pg8000", user=db_user, password=db_pass, db=db_name)
+                    conn_gcp = connector.connect(
+                        instance_conn_name,
+                        "pg8000",
+                        user=db_user,
+                        password=db_pass,
+                        db=db_name
+                    )
+                    return conn_gcp
                 test_engine = create_engine("postgresql+pg8000://", creator=getconn, echo=False)
-                print("INFO IIF_TEST: Cloud SQL Connector engine created.")
-            elif db_host:
+                print("INFO IIF_TEST: Cloud SQL Connector engine created for standalone test.")
+            elif db_host : # Fallback to direct connection if DB_HOST is set
                 db_url = f"postgresql+pg8000://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-                test_engine = create_engine(db_url, echo=False); print("INFO IIF_TEST: Direct connection engine created.")
-            else: raise ValueError("Insufficient DB config")
-        except Exception as e_engine:
-            print(f"CRITICAL IIF_TEST: Failed to create test DB engine: {e_engine}"); test_engine = None
+                test_engine = create_engine(db_url, echo=False)
+                print(f"INFO IIF_TEST: Direct connection engine created for standalone test to {db_host}.")
+            else:
+                raise ValueError("DB_CONNECTION_NAME (for Cloud SQL) or DB_HOST (for direct) must be set for standalone test.")
+        except Exception as e_engine_create:
+            print(f"CRITICAL IIF_TEST: Failed to create test DB engine: {e_engine_create}")
+            test_engine = None # Ensure it's None if creation failed
             if connector_instance_for_cleanup:
                  try: connector_instance_for_cleanup.close() # type: ignore
-                 except: pass
+                 except Exception as e_close_conn: print(f"WARN IIF_TEST: Error closing connector instance on engine creation fail: {e_close_conn}")
+
 
     if test_engine:
         print("INFO IIF_TEST: Database engine available. Proceeding with test execution.")
         try:
             print("\n--- Generating PO IIF for ALL PENDING Purchase Orders ---")
-            all_pending_po_iif_content, all_pending_po_failures = generate_po_iif_content_for_date(test_engine, process_all_pending=True)
+            all_pending_po_iif_content, all_pending_po_failures, po_ids = generate_po_iif_content_for_date(test_engine, process_all_pending=True)
             if all_pending_po_iif_content:
-                print(f"SUCCESS: Generated PO IIF for ALL PENDING. Length: {len(all_pending_po_iif_content)}")
+                print(f"SUCCESS: Generated PO IIF for ALL PENDING. Length: {len(all_pending_po_iif_content)}. Processed {len(po_ids)} POs.")
                 print(f"PO Item Mapping Failures: {len(all_pending_po_failures)}")
                 if all_pending_po_failures:
                     print("Failures Details (POs):"); [print(f"  - {f}") for f in all_pending_po_failures]
@@ -649,9 +804,9 @@ if __name__ == '__main__':
             else: print("FAILURE: No PO IIF content generated for ALL PENDING, or error occurred.")
 
             print("\n--- Generating Sales IIF for ALL PENDING Sales Orders ---")
-            all_pending_sales_iif_content, all_pending_sales_failures = generate_sales_iif_content_for_date(test_engine, process_all_pending=True)
+            all_pending_sales_iif_content, all_pending_sales_failures, sales_ids = generate_sales_iif_content_for_date(test_engine, process_all_pending=True)
             if all_pending_sales_iif_content:
-                print(f"SUCCESS: Generated Sales IIF for ALL PENDING. Length: {len(all_pending_sales_iif_content)}")
+                print(f"SUCCESS: Generated Sales IIF for ALL PENDING. Length: {len(all_pending_sales_iif_content)}. Processed {len(sales_ids)} Sales Orders.")
                 print(f"Sales Item Mapping Failures: {len(all_pending_sales_failures)}")
                 if all_pending_sales_failures:
                     print("Failures Details (Sales):"); [print(f"  - {f}") for f in all_pending_sales_failures]
@@ -663,12 +818,20 @@ if __name__ == '__main__':
             else: print("FAILURE: No Sales IIF content generated for ALL PENDING, or error occurred.")
 
         finally:
-            if connector_instance_for_cleanup:
-                try: connector_instance_for_cleanup.close(); print("INFO IIF_TEST: Cloud SQL Connector closed.") # type: ignore
-                except Exception as e_close: print(f"WARN IIF_TEST: Error closing Cloud SQL Connector: {e_close}")
-            if test_engine and (engine is None or test_engine != engine) :
-                 try: test_engine.dispose(); print("INFO IIF_TEST: Local test engine disposed.")
-                 except Exception as e_dispose: print(f"WARN IIF_TEST: Error disposing local test engine: {e_dispose}")
-            elif engine and test_engine == engine: print("INFO IIF_TEST: Using imported engine from app.py, not disposing.")
-    else: print("CRITICAL IIF_TEST: Database engine not available. Cannot run IIF generation test.")
+            if connector_instance_for_cleanup: # If a new connector was created for this test run
+                try: 
+                    connector_instance_for_cleanup.close() # type: ignore
+                    print("INFO IIF_TEST: Cloud SQL Connector (created for test) closed.")
+                except Exception as e_close_conn_final: print(f"WARN IIF_TEST: Error closing Cloud SQL Connector (created for test): {e_close_conn_final}")
+            
+            # Dispose the engine only if it was created locally for this test and is not the imported 'engine'
+            if test_engine and (engine is None or test_engine != engine) : 
+                 try: 
+                     test_engine.dispose()
+                     print("INFO IIF_TEST: Local test engine (created for test) disposed.")
+                 except Exception as e_dispose_final: print(f"WARN IIF_TEST: Error disposing local test engine (created for test): {e_dispose_final}")
+            elif engine and test_engine == engine: # If it's the imported engine
+                print("INFO IIF_TEST: Using imported engine from app.py, not disposing in this standalone test.")
+    else:
+        print("CRITICAL IIF_TEST: Database engine not available. Cannot run IIF generation test.")
     print("--- Finished IIF Generator Standalone Test ---")

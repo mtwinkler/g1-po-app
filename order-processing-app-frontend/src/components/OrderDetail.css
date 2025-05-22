@@ -144,56 +144,47 @@
   }
 }
 
-/* Apply base font to body - If this CSS file is loaded globally or OrderDetail is the main view */
-/* It's better in index.css or App.css if possible */
-body { /* Example if this was global */
-  /* font-family: var(--font-sans); */
+body { 
   color: var(--text-main);
   line-height: 1.6;
   background-color: var(--bg-page);
   margin: 0;
 }
 
-/* Basic Link Styling */
 a {
-  color: var(--primary-accent); /* Use adaptive primary accent */
+  color: var(--primary-accent); 
   text-decoration: none;
   transition: color 0.2s ease;
 }
 a:hover {
-  color: var(--primary-accent-dark); /* Use adaptive darker accent */
+  color: var(--primary-accent-dark); 
   text-decoration: underline;
 }
 
-
-/* === OrderDetail Specific Styles === */
-
 .order-detail-container {
-  /* Assuming #root handles max-width and centering */
   padding: 0; 
-  /* background-color: var(--bg-page); /* Set overall page background */
 }
 
 .card {
-    background-color: var(--bg-card); /* Use adaptive card background */
-    border: 1px solid var(--border-medium); /* Use adaptive medium border */
+    background-color: var(--bg-card); 
+    border: 1px solid var(--border-medium); 
     border-radius: 6px;
     padding: var(--spacing-lg);
     margin-bottom: var(--spacing-xl);
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* This shadow might need adjustment for dark mode */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
     padding-top: 10px;
-    color: var(--text-main); /* Ensure text inside card uses adaptive main text color */
+    color: var(--text-main); 
 }
 
 h2, h3, h4 {
-  color: var(--primary-accent-dark); /* Use adaptive header color */
+  color: var(--primary-accent-dark); 
   margin-top: 0;
   margin-bottom: var(--spacing-md);
   font-weight: 600;
 }
 h2 { font-size: 1.8em; }
 h3 { font-size: 1.6em; border-bottom: 1px solid var(--border-light); padding-bottom: var(--spacing-sm); }
-h4 { font-size: 1.1em; color: var(--text-secondary); font-weight: 500; } /* Adaptive secondary text */
+h4 { font-size: 1.1em; color: var(--text-secondary); font-weight: 500; } 
 
 h3 { letter-spacing: 0.5px; }
 
@@ -208,8 +199,8 @@ h3 { letter-spacing: 0.5px; }
 .order-title-section h2 {
     margin-bottom: 0;
 }
-.order-title-section h2 span[style*="color: white"] { /* Target your white span */
-    color: var(--text-main) !important; /* Override inline style with adaptive text color */
+.order-title-section h2 span[style*="color: white"] { 
+    color: var(--text-main) !important; 
 }
 
 
@@ -217,33 +208,30 @@ h3 { letter-spacing: 0.5px; }
     font-weight: 600;
     padding: var(--spacing-xs) var(--spacing-sm);
     border-radius: 16px;
-    color: var(--status-text); /* Use adaptive status text color */
+    color: var(--status-text); 
     font-size: 0.85em;
     white-space: nowrap;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
-/* Status Colors Using Variables */
 .status-new { background-color: var(--status-new-bg); }
 .status-processed { background-color: var(--status-processed-bg); }
-.status-pending { background-color: var(--status-pending-bg); color: var(--status-pending-text); } /* Uses specific text color */
+.status-pending { background-color: var(--status-pending-bg); color: var(--status-pending-text); } 
 .status-international_manual { background-color: var(--status-international-bg); }
 .status-rfq-sent { background-color: var(--status-rfqsent-bg); }
 .status-completed-offline { background-color: var(--status-completed-offline-bg); }
 .status-unknown { background-color: var(--status-unknown-bg); }
 
-
-/* Order Info Section */
 .order-info {
     line-height: 1.7;
-    color: var(--text-main); /* Ensure general text in this section is adaptive */
+    color: var(--text-main); 
 }
 .order-info div {
   margin-bottom: var(--spacing-xs);
 }
 .order-info strong {
-    color: var(--text-secondary); /* Use adaptive secondary text for labels */
+    color: var(--text-secondary); 
     min-width: 80px;
     display: inline-block;
 }
@@ -255,40 +243,42 @@ h3 { letter-spacing: 0.5px; }
     text-align: left;
     padding-left: var(--spacing-md);
     position: relative;
-    color: var(--text-main); /* Ensure adaptive text */
+    color: var(--text-main); 
 }
 .order-info-item::before {
     content: '•';
     position: absolute;
     left: 0;
     top: 0;
-    color: var(--primary-accent); /* Use adaptive accent */
+    color: var(--primary-accent); 
 }
 
 .order-info-item span {
     margin-right: var(--spacing-sm);
 }
 
-/* Form Styling */
 .processing-form {
   margin-top: var(--spacing-xl);
   padding-top: var(--spacing-lg);
-  border-top: 1px solid var(--border-light); /* Use adaptive light border */
+  border-top: 1px solid var(--border-light); 
 }
 
 .form-grid {
     display: grid;
     grid-template-columns: 120px 1fr;
     gap: var(--spacing-sm) var(--spacing-md);
-    align-items: center;
+    align-items: center; /* Default alignment for items in cells */
     margin-bottom: var(--spacing-lg);
 }
 
-.form-grid label {
+.form-grid label { /* General style for labels in the first column */
   font-weight: 500;
   text-align: right;
-  color: var(--text-secondary); /* Adaptive secondary text */
+  color: var(--text-secondary); 
   font-size: 0.95em;
+  padding-right: var(--spacing-md); /* Space for alignment */
+  /* align-self: center; /* Ensures label text is centered with its control cell */
+                         /* Let's test without this first to see if align-items on grid is enough */
 }
 
 .form-grid select,
@@ -296,31 +286,31 @@ h3 { letter-spacing: 0.5px; }
 .form-grid input[type="number"],
 .form-grid textarea {
   padding: var(--spacing-sm) 10px;
-  border: 1px solid var(--border-input); /* Adaptive input border */
+  border: 1px solid var(--border-input); 
   border-radius: 4px;
   width: 100%;
   box-sizing: border-box;
-  font-size: 1em; /* Restored for readability */
+  font-size: 1em; 
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  background-color: var(--bg-input); /* Adaptive input background */
-  color: var(--text-main); /* Adaptive input text color */
+  background-color: var(--bg-input); 
+  color: var(--text-main); 
+  /* margin-bottom: 15px; /* REMOVED - Let grid gap handle this */
 }
 .form-grid select:focus,
 .form-grid input:focus,
 .form-grid textarea:focus {
     outline: none;
-    border-color: var(--primary-accent); /* Adaptive accent for focus */
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-accent) 20%, transparent); /* Adjusted shadow */
+    border-color: var(--primary-accent); 
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-accent) 20%, transparent); 
 }
 
 .form-grid textarea {
     resize: vertical;
     min-height: 140px;
     line-height: 1.5;
-    font-size: 0.9em; /* Adjusted from 0.86em */
+    font-size: 0.9em; 
 }
 
-/* Purchase Items Grid Styling */
 .purchase-items-grid {
     margin-top: var(--spacing-lg);
 }
@@ -334,9 +324,9 @@ h3 { letter-spacing: 0.5px; }
     font-weight: 600;
     margin-bottom: var(--spacing-sm);
     padding-bottom: var(--spacing-sm);
-    border-bottom: 2px solid var(--border-strong); /* Adaptive strong border */
+    border-bottom: 2px solid var(--border-strong); 
     font-size: 0.9em;
-    color: var(--text-secondary); /* Adaptive secondary text */
+    color: var(--text-secondary); 
     text-align: left;
     padding-left: 15px;
     padding-right: 15px;
@@ -352,8 +342,8 @@ h3 { letter-spacing: 0.5px; }
   grid-template-columns: 1.5fr 3fr 80px 100px;
   gap: var(--spacing-sm) var(--spacing-md);
   align-items: start;
-  background-color: color-mix(in srgb, var(--bg-card) 95%, var(--bg-page) 5%); /* Slightly different from card */
-  border: 1px solid var(--border-medium); /* Use adaptive medium border */
+  background-color: color-mix(in srgb, var(--bg-card) 95%, var(--bg-page) 5%); 
+  border: 1px solid var(--border-medium); 
   border-radius: 5px;
   padding: var(--spacing-md);
   margin-bottom: var(--spacing-md);
@@ -365,10 +355,10 @@ h3 { letter-spacing: 0.5px; }
 .item-row input, .item-row textarea {
     padding: var(--spacing-sm);
     font-size: 1em;
-    border: 1px solid var(--border-input); /* Use adaptive input border */
+    border: 1px solid var(--border-input); 
     border-radius: 4px;
-    background-color: var(--bg-input); /* Use adaptive input background */
-    color: var(--text-main); /* Use adaptive input text color */
+    background-color: var(--bg-input); 
+    color: var(--text-main); 
 }
 .sku-input { width: 100%; box-sizing: border-box; }
 .description-textarea {
@@ -379,104 +369,98 @@ h3 { letter-spacing: 0.5px; }
     font-family: inherit;
     padding: var(--spacing-sm);
     line-height: 1.5;
-    font-size: 0.9em !important; /* Adjusted from 0.86em */
+    font-size: 0.9em !important; 
 }
 .qty-input { width: 70px; text-align: center; }
 .price-input { width: 90px; text-align: right; }
 
-
-/* Click to Copy & Link Buttons */
 .copy-button {
     background: none; border: none; cursor: pointer; font-size: 1em;
-    padding: 0 var(--spacing-xs); vertical-align: middle; color: var(--text-secondary); /* Adaptive */
+    padding: 0 var(--spacing-xs); vertical-align: middle; color: var(--text-secondary); 
     opacity: 0.7; transition: opacity 0.2s ease;
 }
 .copy-button:hover { opacity: 1; }
 
-.link-button { /* Style for "Process Manually" link */
+.link-button { 
     background: none;
     border: none;
     cursor: pointer;
     padding: 0;
-    color: var(--primary-accent); /* Use adaptive primary accent color */
+    color: var(--primary-accent); 
     text-decoration: underline;
-    font-size: 1em; /* As per inline style in JSX */
+    font-size: 1em; 
     transition: color 0.2s ease;
 }
 .link-button:hover {
-    color: var(--primary-accent-dark); /* Darker on hover */
+    color: var(--primary-accent-dark); 
 }
-.link-button[aria-disabled="true"] { /* Style for disabled link */
+.link-button[aria-disabled="true"] { 
     color: var(--text-secondary);
     text-decoration: none;
     cursor: not-allowed;
     opacity: 0.6;
 }
 
+.clipboard-status { margin-left: var(--spacing-sm); font-size: 0.8em; color: var(--success-text); font-style: italic; } 
 
-.clipboard-status { margin-left: var(--spacing-sm); font-size: 0.8em; color: var(--success-text); font-style: italic; } /* Adaptive */
-
-/* Action Button Section - Replaces old .action-section */
-.order-actions { /* NEW: Styles for the button container */
+.order-actions { 
   margin-top: var(--spacing-xl);
   margin-bottom: var(--spacing-md);
   display: flex;
-  flex-direction: column; /* Stack buttons and links */
-  align-items: flex-start; /* Align to the left */
-  gap: var(--spacing-md); /* Space between elements */
+  flex-direction: column; 
+  align-items: flex-start; 
+  gap: var(--spacing-md); 
 }
 
-/* Styles for the PROCESS ORDER button */
-.process-order-button { /* NEW or MODIFIED from your .process-button */
-  background-color: var(--status-processed-bg); /* Green for "go" - uses adaptive variable */
-  color: var(--status-text); /* Typically white, uses adaptive variable */
+.process-order-button { 
+  background-color: var(--status-processed-bg); 
+  color: var(--status-text); 
   border: none;
-  padding: 10px var(--spacing-lg); /* Default padding */
-  min-height: 70px; /* Taller button - adjust as needed */
+  padding: 10px var(--spacing-lg); 
+  min-height: 70px; 
   font-size: 1.2em;
-  font-weight: 900; /* Was bold, adjusted to 600 */
+  font-weight: 900; 
   border-radius: 5px;
   cursor: pointer;
   transition: background-color 0.2s ease, box-shadow 0.2s ease;
-  display: flex; /* For centering text */
+  display: flex; 
   align-items: center;
   justify-content: center;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  width: auto; /* Allow button to size to content or set a specific width */
-  min-width: 200px; /* Example minimum width */
+  width: auto; 
+  min-width: 200px; 
 }
 
 .process-order-button:hover:not(:disabled) {
-  background-color: color-mix(in srgb, var(--status-processed-bg) 85%, black); /* Darker green */
+  background-color: color-mix(in srgb, var(--status-processed-bg) 85%, black); 
   box-shadow: 0 2px 5px rgba(0,0,0,0.15);
 }
 
 .process-order-button:disabled {
-  background-color: var(--bg-disabled); /* Use adaptive disabled background */
-  color: var(--text-secondary); /* Use adaptive disabled text color */
+  background-color: var(--bg-disabled); 
+  color: var(--text-secondary); 
   cursor: not-allowed;
   box-shadow: none;
 }
 
-/* Styles for the BACK TO DASHBOARD button */
-.back-to-dashboard-button { /* NEW */
-  background-color: var(--primary-accent); /* Blue, using adaptive variable */
-  color: var(--text-on-primary); /* Text on blue, adaptive */
+.back-to-dashboard-button { 
+  background-color: var(--primary-accent); 
+  color: var(--text-on-primary); 
   border: none;
-  padding: var(--spacing-sm) var(--spacing-md); /* Standard padding */
+  padding: var(--spacing-sm) var(--spacing-md); 
   font-size: 1em;
   font-weight: 500;
   border-radius: 5px;
   cursor: pointer;
   transition: background-color 0.2s ease;
   text-transform: uppercase;
-  min-width: 200px; /* Example minimum width, match process button if desired */
+  min-width: 200px; 
   text-align: center;
 }
 
 .back-to-dashboard-button:hover:not(:disabled) {
-  background-color: var(--primary-accent-dark); /* Darker blue */
+  background-color: var(--primary-accent-dark); 
 }
 
 .back-to-dashboard-button:disabled {
@@ -485,21 +469,17 @@ h3 { letter-spacing: 0.5px; }
   cursor: not-allowed;
 }
 
-
-/* Disable form elements visually */
 .form-disabled select,
 .form-disabled input,
 .form-disabled textarea {
-    background-color: var(--bg-disabled); /* Adaptive disabled background */
+    background-color: var(--bg-disabled); 
     cursor: not-allowed;
     opacity: 0.7;
-    border-color: var(--border-medium); /* Adaptive medium border */
-    color: var(--text-secondary); /* Adaptive disabled text */
+    border-color: var(--border-medium); 
+    color: var(--text-secondary); 
 }
 
-
-/* Messages */
-.loading-message, .error-message, .success-message, .process-message { /* Added .process-message here */
+.loading-message, .error-message, .success-message, .process-message { 
     padding: var(--spacing-sm) var(--spacing-md);
     margin-top: var(--spacing-lg);
     border-radius: 4px;
@@ -507,14 +487,12 @@ h3 { letter-spacing: 0.5px; }
     font-weight: 500;
     border: 1px solid transparent;
 }
-.loading-message { background-color: var(--border-medium); color: var(--text-main); border-color: var(--border-strong);} /* Adaptive */
-.error-message, .process-message.error { background-color: var(--error-bg); color: var(--error-text); border-color: var(--error-border); } /* Adaptive, combined error styling */
-.success-message, .process-message.success { background-color: var(--success-bg); color: var(--success-text); border-color: var(--success-border); } /* Adaptive, combined success styling */
+.loading-message { background-color: var(--border-medium); color: var(--text-main); border-color: var(--border-strong);} 
+.error-message, .process-message.error { background-color: var(--error-bg); color: var(--error-text); border-color: var(--error-border); } 
+.success-message, .process-message.success { background-color: var(--success-bg); color: var(--success-text); border-color: var(--success-border); } 
 
 
-/* --- Responsive Adjustments --- */
-
-.mobile-label { display: none; margin-bottom: var(--spacing-xs); font-size: 0.85em; color: var(--text-secondary); font-weight: 600; } /* Adaptive */
+.mobile-label { display: none; margin-bottom: var(--spacing-xs); font-size: 0.85em; color: var(--text-secondary); font-weight: 600; } 
 
 @media (max-width: 768px) {
   .item-header-row { display: none; }
@@ -548,35 +526,34 @@ h3 { letter-spacing: 0.5px; }
   }
 
    .form-grid {
-        grid-template-columns: 1fr;
-        gap: var(--spacing-xs) 0;
+        grid-template-columns: 1fr; /* Stack all items in the form grid */
+        gap: var(--spacing-sm) 0; /* Reduced gap for stacked items */
     }
-    .form-grid label {
+    /* General label adjustment for stacked mobile view */
+    .form-grid > label {
         text-align: left;
-        margin-bottom: var(--spacing-xs);
+        padding-right: 0; /* Remove right padding */
+        margin-bottom: var(--spacing-xs); /* Space below label */
+        /* align-self: flex-start; /* Align to the start of the cell */
     }
     .order-title-section { align-items: flex-start; }
     .order-title-section h2 { margin-bottom: var(--spacing-xs); font-size: 1.6em; }
     .order-status-badge { margin-left: 0; margin-top: var(--spacing-xs); }
 
-    /* Adjust action buttons for mobile if needed */
     .order-actions {
-        align-items: stretch; /* Make buttons full width on mobile */
-
+        align-items: stretch; 
     }
     .process-order-button, .back-to-dashboard-button {
-        width: 100%; /* Full width buttons on mobile */
-        min-width: 0; /* Reset min-width */
-        font-size: 1.5em; /* Slightly smaller font for mobile buttons */
+        width: 100%; 
+        min-width: 0; 
+        font-size: 1.5em; 
         font-weight: 900;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
     .process-order-button {
-        min-height: 90px; /* Slightly reduce min-height for mobile if needed */
-
+        min-height: 90px; 
     }
-
 }
 
 @media (max-width: 480px) {
@@ -584,32 +561,25 @@ h3 { letter-spacing: 0.5px; }
     .qty-cost-row { gap: var(--spacing-sm); }
     .item-row { gap: var(--spacing-sm); }
     h3 { font-size: 1.25em; }
-    .form-grid { grid-template-columns: 1fr; }
-    .form-grid label { text-align: left; }
-
-    /* Your existing responsive .process-button styles were quite different,
-       I'm applying a simpler full-width approach here.
-       If you prefer the gradient and text-shadow effects,
-       you can re-integrate them into .process-order-button for this media query.
-    */
+    /* .form-grid { grid-template-columns: 1fr; } /* Already set above */
+    /* .form-grid label { text-align: left; } /* Already set above */
 }
 
-.manual-actions-section { /* This was in your original CSS, keeping it for now */
+.manual-actions-section { 
   margin-top: 20px;
   margin-bottom: 20px;
   text-align: center;
   display: flex;
-  justify-content: center; /* Center buttons if they don't fill the space */
-  gap: 10px; /* Space between buttons */
-  flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+  justify-content: center; 
+  gap: 10px; 
+  flex-wrap: wrap; 
 }
 
-.manual-action-button { /* This was in your original CSS, keeping it for now */
+.manual-action-button { 
   padding: 10px 15px;
   font-size: 0.95em;
 }
 
-/* Example specific styles if not using inline */
 .button-mark-completed {
   background-color: var(--status-processed-bg, #28a745);
   color: var(--status-text, #ffffff);
@@ -626,11 +596,10 @@ h3 { letter-spacing: 0.5px; }
   background-color: color-mix(in srgb, var(--status-pending-bg, #ffc107) 85%, black);
 }
 
-/* Ensure back link is styled */
 .back-link {
-  display: block; /* Make it block to take full width for easier clicking */
+  display: block; 
   margin-top: var(--spacing-lg);
-  text-align: center; /* Center the back link */
+  text-align: center; 
   color: var(--primary-accent);
   text-decoration: none;
   font-weight: 500;
@@ -644,68 +613,55 @@ h3 { letter-spacing: 0.5px; }
 
 .purchase-items-grid.multi-supplier-items .item-row-multi {
   display: flex;
-  flex-direction: column; /* Stack elements vertically */
-  gap: 8px; /* Space between SKU line, description, and cost */
+  flex-direction: column; 
+  gap: 8px; 
   padding: 10px;
-  border: 1px solid #444; /* Light border for each item block */
+  border: 1px solid #444; 
   border-radius: 4px;
   margin-bottom: 10px;
 }
 
 .item-info-multi {
   font-weight: 600;
-  margin-bottom: 5px; /* Space below "Qty X of SKU" */
+  margin-bottom: 5px; 
 }
 
 .item-description-multi .description-textarea-multi {
   width: 100%;
   box-sizing: border-box;
-  min-height: 140px; /* Adjust as needed */
+  min-height: 140px; 
 }
 
 .item-cost-multi {
   display: flex;
   align-items: center;
-  gap: 8px; /* Space between label and input if both are visible */
+  gap: 8px; 
 }
 
 .item-cost-multi .price-input {
-  flex-grow: 1; /* Allow input to take available space */
-  max-width: 100px; /* Or adjust as needed */
+  flex-grow: 1; 
+  max-width: 100px; 
 }
 
-/* Adjust labels for better alignment if needed */
 .item-description-multi label,
-.item-cost-multi .desktop-label { /* Style for explicit desktop label */
+.item-cost-multi .desktop-label { 
   margin-right: 5px;
   font-size: 0.9em;
   color: #ccc;
 }
 
-/* Responsive adjustments if your item-row was previously a grid */
-@media (min-width: 600px) { /* Example breakpoint */
-  .purchase-items-grid.multi-supplier-items .item-row-multi {
-    /* You might want a more complex grid/flex setup here for wider screens */
-    /* For example, SKU | Description Textarea | Cost Input side-by-side */
-  }
-  .item-cost-multi {
-    /* Example: make it not take full width if side by side */
-    /* justify-content: flex-start; */
-  }
-}
 
-/* Add to OrderDetail.css */
 
 .success-message-large {
   font-weight: bold;
-  color: var(--success-text, green); /* Use your theme's success color */
-  font-size: 1.2em; /* Make it larger */
+  color: var(--success-text, green); 
+  font-size: 1.2em; 
   text-align: center;
   margin-bottom: 10px;
 }
 
 .process-success-container {
-  background-color: var(--bg-card-alt, #f9f9f9); /* Light background for the section */
+  background-color: var(--bg-card-alt, #f9f9f9); 
   border: 1px solid var(--success-border, green);
 }
 
@@ -715,12 +671,12 @@ h3 { letter-spacing: 0.5px; }
 }
 
 .po-document-group {
-  background-color: var(--bg-page, #fff); /* Slightly different background for each PO group */
+  background-color: var(--bg-page, #fff); 
 }
 
 .pdf-link {
-  display: inline-block; /* Or block if you want them on new lines */
-  margin-right: 15px; /* Space between links */
+  display: inline-block; 
+  margin-right: 15px; 
   margin-bottom: 5px;
   color: var(--primary-accent, blue);
   text-decoration: none;
@@ -731,7 +687,6 @@ h3 { letter-spacing: 0.5px; }
   color: var(--primary-accent-dark, darkblue);
 }
 
-/* Ensure your existing .success-message and .error-message are styled */
 .success-message {
   padding: 10px;
   background-color: var(--success-bg, #e6fffa);
@@ -790,17 +745,12 @@ h3 { letter-spacing: 0.5px; }
   text-align: left; 
 }
 
-.po-document-group .po-number-title { /* This will now contain "PO # ... sent to ..." */
+.po-document-group .po-number-title { 
   font-weight: bold;
-  margin-bottom: 10px; /* Increased space before links */
+  margin-bottom: 10px; 
   font-size: 1em;
   color: var(--text-main);
 }
-/* .po-document-group .supplier-name-subtitle { /* Removed as it's combined */
-  /* font-size: 0.9em; */
-  /* color: var(--text-secondary); */
-  /* margin-bottom: 10px; */
-/* } */
 
 .pdf-links-wrapper {
   display: flex;
@@ -831,37 +781,36 @@ h3 { letter-spacing: 0.5px; }
 }
 
 .pdf-icon {
-  width: 18px;  /* Adjust to your preferred size e.g., 18px, 20px */
-  height: 18px; /* Adjust to your preferred size */
-  /* vertical-align: middle; Not strictly needed with inline-flex on parent */
+  width: 18px;  
+  height: 18px; 
 }
 
 .no-documents-note {
-  font-size: 0.9em; /* Made slightly larger */
+  font-size: 0.9em; 
   font-style: italic;
   color: var(--text-secondary);
-  margin-top: 8px; /* Added some top margin */
+  margin-top: 8px; 
 }
 
 .customer-ups-account-info {
   margin-top: 8px;
   padding: 8px;
-  background-color: var(--bg-card-alt); /* Or a slightly different background */
-  border: 1px dashed var(--primary-accent-dark); /* Make it stand out a bit */
+  background-color: var(--bg-card-alt); 
+  border: 1px dashed var(--primary-accent-dark); 
   border-radius: 4px;
-  color: var(--primary-accent-dark); /* Or --text-main if preferred */
+  color: var(--primary-accent-dark); 
   font-weight: 500;
 }
 
 .customer-ups-account-info strong {
-  color: var(--primary-accent-dark); /* Ensure the label is also distinct */
+  color: var(--primary-accent-dark); 
 }
 
 .see-quotes-gmail-card {
-  background-color: var(--bg-card-alt, #e9f5ff); /* A slightly different background, maybe a light blueish tint */
+  background-color: var(--bg-card-alt, #e9f5ff); 
   border: 1px solid var(--primary-accent-light, #a3d2fb);
-  margin-top: var(--spacing-lg); /* Ensure space below title section */
-  margin-bottom: var(--spacing-xl); /* Ensure space above order info */
+  margin-top: var(--spacing-lg); 
+  margin-bottom: var(--spacing-xl); 
   padding: var(--spacing-md);
 }
 
@@ -877,7 +826,7 @@ h3 { letter-spacing: 0.5px; }
   line-height: 1.5;
 }
 
-.see-quotes-gmail-card .btn-primary { /* Assuming you have a .btn-primary or want to style it */
+.see-quotes-gmail-card .btn-primary { 
   background-color: var(--primary-accent);
   color: var(--text-on-primary);
   border: none;
@@ -886,8 +835,8 @@ h3 { letter-spacing: 0.5px; }
   cursor: pointer;
   font-weight: 500;
   transition: background-color 0.2s ease;
-  display: inline-block; /* If it's not already, or remove if it's block and you use margin auto */
-  width: 100%; /* Full width on mobile */
+  display: inline-block; 
+  width: 100%; 
 }
 
 .see-quotes-gmail-card .btn-primary:hover:not(:disabled) {
@@ -900,22 +849,116 @@ h3 { letter-spacing: 0.5px; }
   cursor: not-allowed;
 }
 
-/* Inline status messages for copy feedback */
 .success-message-inline {
   color: var(--success-text);
-  display: inline-block; /* or block if you prefer full width */
+  display: inline-block; 
 }
 .error-message-inline {
   color: var(--error-text);
    display: inline-block;
 }
 .button-container-center {
-  text-align: center; /* This will center inline-block or inline children */
-  margin-top: var(--spacing-md); /* Optional: add some space above the button */
-  margin-bottom: var(--spacing-md); /* Optional: add some space below the button */
+  text-align: center; 
+  margin-top: var(--spacing-md); 
+  margin-bottom: var(--spacing-md); 
 }
 .centered-status-message {
   text-align: center;
-  display: block; /* Ensures it can be centered if it's not already block */
-  width: 100%; /* Or whatever width its container allows */
+  display: block; 
+  width: 100%; 
+}
+
+/* STYLES FROM PREVIOUS ATTEMPT (SIDE-BY-SIDE) - TO BE REMOVED/REPLACED */
+/* These will be removed and replaced by the new layout's CSS */
+/*
+.weight-blind-ship-combined-row {
+  display: flex;            
+  align-items: center;    
+  gap: var(--spacing-sm); 
+  width: 100%;              
+}
+
+.weight-input-area {
+  flex: 2; 
+}
+
+.blind-ship-area {
+  flex: 1; 
+  display: flex;
+  flex-direction: column; 
+  align-items: center;  
+  justify-content: center; 
+  padding-left: var(--spacing-sm); 
+}
+
+.blind-ship-text-label {
+  font-size: 0.85em; 
+  color: var(--text-main);
+  margin-bottom: var(--spacing-xs); 
+  font-weight: normal; 
+  text-align: center; 
+  display: block; 
+}
+
+.blind-ship-checkbox-input {
+  transform: scale(1.2); 
+  display: block; 
+  margin: 0 auto; 
+}
+*/
+/* Styles for the main "Weight (lbs):" label when its content row is complex */
+/* .form-grid > label[for^="shipmentWeight"] {
+   padding-top: calc(var(--spacing-sm) + 0.3em); 
+} */
+
+
+/* === New Styles for "Blind Ship?" Label and Centered Checkbox (in Column 1) === */
+
+.blind-ship-grid-label-col1 {
+  /* This label will inherit styles from .form-grid > label (like text-align: right) */
+  /* It occupies the first column of its grid row */
+  /* No specific override needed if general label style is okay */
+   align-self: center; /* Ensure it's centered with the (empty) second cell in its row */
+}
+
+
+
+.blind-ship-checkbox-wrapper-col1 {
+  grid-column: 1 / 2; /* Crucial: Place this div in the first grid column */
+  display: flex;
+  /* To center the checkbox UNDER the right-aligned "Blind Ship?" text:
+     We align this wrapper to the right (like labels), then center the checkbox inside.
+  */
+  justify-content: flex-end; /* Align the box containing checkbox to the right */
+  align-items: center;     /* Vertical centering if row is taller */
+  padding-right: var(--spacing-md); /* Match the padding of labels above it */
+  margin-top: calc(-1 * var(--spacing-sm) + var(--spacing-xs)); /* Adjust to pull checkbox closer to its label */
+}
+
+.blind-ship-checkbox-input { /* This class name was used in T10 for the checkbox */
+  transform: scale(1.3); 
+}
+
+
+
+/* Responsive adjustments for the NEW Blind Ship elements */
+@media (max-width: 768px) {
+  /* .form-grid is already 1fr on mobile, which handles stacking. */
+  
+  /* .blind-ship-grid-label-col1 will inherit from .form-grid > label which is text-align: left on mobile */
+  
+  .blind-ship-checkbox-wrapper-col1 {
+    grid-column: 1 / -1; /* Take full width on its own line on mobile */
+    justify-content: flex-start; /* Align checkbox to the left on mobile */
+    padding-left: 0; /* No special padding needed on left when full width */
+    padding-right: 0; 
+    margin-top: var(--spacing-xs); /* Standard small space after its label */
+  }
+   .blind-ship-checkbox-wrapper-col1 .blind-ship-checkbox-input { /* More specific selector */
+    margin-left: 0; /* Align checkbox to start of wrapper */
+  }
+
+  .form-grid-empty-cell {
+    display: none; /* No need for empty cells when it's single column */
+  }
 }
