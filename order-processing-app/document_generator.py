@@ -347,7 +347,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
         # order_ref_text remains empty for blind slips
     else: # Not a blind slip
         logo_element_to_use = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch, is_blind_slip=False)
-        company_header_address_text_non_blind = f"{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE1}<br/>{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE2}"
+        company_header_address_text_non_blind = f"{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE1}\n{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE2}"
         company_address_display_ps_para = Paragraph(escape(company_header_address_text_non_blind).replace('\n', '<br/>'), styles['Normal_Eloquia_Small'])
         if is_g1_onsite_fulfillment:
             packing_slip_title_text = "PACKING SLIP"

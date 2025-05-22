@@ -920,17 +920,18 @@ function OrderDetail() {
         <div><strong>Rec'd:</strong> {displayOrderDate}</div>
         <div><strong>Customer:</strong> {order.customer_company || order.customer_name || 'N/A'}</div>
         <div><strong>Paid by:</strong> {order.payment_method || 'N/A'}</div>
-        <div><strong>Ship:</strong> {displayShipMethodInOrderInfo}<br />to {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
+        <div><strong>Ship via:</strong> {displayShipMethodInOrderInfo}</div>
+        <div><strong>Ship to:</strong> {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
 
         {order.is_bill_to_customer_account && order.customer_ups_account_number && (
-          <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg, #e6f7ff)', color: 'var(--info-text, #00529B)', border: '1px dashed var(--info-border, #b3e0ff)'}}>
+          <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg,rgb(255, 0, 0))', color: 'var(--info-text,rgb(255, 255, 255))', border: '1px dashed var(--info-border, #b3e0ff)', opacity: '60%'}}>
             <strong>Bill Shipping To:</strong> Customer UPS Acct # {order.customer_ups_account_number}
             {order.customer_selected_freight_service && ` (Service: ${formatShippingMethod(order.customer_selected_freight_service)})`}
             {order.customer_ups_account_zipcode && ` (Zip: ${order.customer_ups_account_zipcode})`}
           </div>
         )}
          {order.is_bill_to_customer_fedex_account && order.customer_fedex_account_number && (
-          <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg-alt, #e6fff2)', color: 'var(--info-text-alt, #006421)', border: '1px dashed var(--info-border-alt, #b3ffcc)'}}>
+          <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg-alt,rgb(255, 0, 0))', color: 'var(--info-text-alt,rgb(255, 255, 255))', border: '1px dashed var(--info-border-alt, #b3ffcc)', opacity: '60%'}}>
             <strong>Bill Shipping To:</strong> Customer FedEx Acct # {order.customer_fedex_account_number}
             {order.customer_selected_fedex_service && ` (Service: ${formatShippingMethod(order.customer_selected_fedex_service)})`}
           </div>
@@ -1045,17 +1046,6 @@ function OrderDetail() {
                     disabled={disableEditableFormFields}
                 />
 
-                <label htmlFor="brandingOptionSingle">Branding:</label>
-                <select
-                    id="brandingOptionSingle"
-                    value={isBlindDropShip ? 'blind' : 'g1'}
-                    onChange={handleBrandingChange}
-                    disabled={disableEditableFormFields}
-                >
-                    <option value="g1">G1 Branding</option>
-                    <option value="blind">Blind/No Branding</option>
-                </select>
-
                 {/* FedEx Billing Options */}
                 {currentSelectedShippingOption?.carrier === 'fedex' && (
                 <>
@@ -1127,6 +1117,23 @@ function OrderDetail() {
                )}
               </div>
             </section>
+
+            <section className="branding-options-section card" style={{ marginTop: 'var(--spacing-lg)' }}> {/* Or use a simpler div */}
+                <h3>Branding Options</h3>
+                <div className="form-grid"> {/* You can reuse form-grid or a simpler structure */}
+                    <label htmlFor="brandingOptionSingle">Branding:</label>
+                    <select
+                        id="brandingOptionSingle"
+                        value={isBlindDropShip ? 'blind' : 'g1'}
+                        onChange={handleBrandingChange}
+                        disabled={disableEditableFormFields}
+                    >
+                        <option value="g1">Global One Technology Branding</option>
+                        <option value="blind">Blind Ship (Generic Packing Slip)</option>
+                    </select>
+                </div>
+            </section>   
+           
              <div className="order-actions">
                 <button type="submit" disabled={disableAllActions || processing} className="process-order-button">
                     {processing ? 'Processing Single PO...' : 'PROCESS SINGLE SUPPLIER PO'}
@@ -1290,7 +1297,7 @@ function OrderDetail() {
                 );
             })}
             <section className="card" style={{marginTop: 'var(--spacing-lg)'}}>
-                 <h3>Global Options</h3>
+                 <h3>Packing Slip Branding</h3>
                  <div className="form-grid">
                     <label htmlFor="brandingOptionMultiGlobal">Branding:</label>
                     <select
@@ -1299,8 +1306,8 @@ function OrderDetail() {
                         onChange={handleBrandingChange}
                         disabled={disableEditableFormFields}
                     >
-                        <option value="g1">G1 Branding</option>
-                        <option value="blind">Blind/No Branding</option>
+                        <option value="g1">Global One Technology Branding</option>
+                        <option value="blind">Blind Ship (Generic Packing Slip)</option>
                     </select>
                 </div>
             </section>
@@ -1350,8 +1357,8 @@ function OrderDetail() {
                     onChange={handleBrandingChange}
                     disabled={disableEditableFormFields}
                 >
-                    <option value="g1">G1 Branding</option>
-                    <option value="blind">Blind/No Branding</option>
+                    <option value="g1">Global One Technology Branding</option>
+                    <option value="blind">Blind Ship (Generic Packing Slip)</option>
                 </select>
 
               {/* FedEx Billing Options for G1 Onsite */}

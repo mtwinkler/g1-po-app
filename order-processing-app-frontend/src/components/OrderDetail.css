@@ -798,7 +798,7 @@ h3 { letter-spacing: 0.5px; }
 }
 
 .customer-ups-account-info strong {
-  color: var(--primary-accent-dark); 
+  color: #fff; 
 }
 
 .see-quotes-gmail-card {
@@ -880,7 +880,7 @@ h3 { letter-spacing: 0.5px; }
 /* Target Method Label and Select to span if needed or ensure they fit column 1 and 2 */
 .shipment-info > .form-grid > label[for^="shipmentMethod"] {
   grid-column: 1 / 2;
-  text-align: right;
+  text-align: left;
   padding-right: var(--spacing-md);
 }
 .shipment-info > .form-grid > select[id^="shipmentMethod"] {
