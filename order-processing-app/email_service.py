@@ -64,13 +64,14 @@ def _format_item_sku_for_quickbooks(description, sku):
     return f"{brand}:{category}:{sku}"
 
 
-def send_po_email(supplier_email, po_number, attachments):
+def send_po_email(supplier_email, po_number, attachments, is_blind_drop_ship=False): # Added is_blind_drop_ship
     """
     Sends the PO email with provided documents as attachments using Postmark.
     Each item in 'attachments' should be a dict:
     {'filename': 'somefile.ext', 'content': byte_data, 'content_type': 'mime/type'}
+    The is_blind_drop_ship parameter is accepted but not currently used to alter email content.
     """
-    print(f"DEBUG EMAIL_SERVICE (PO): Attempting to send PO email for PO {po_number} to {supplier_email}")
+    print(f"DEBUG EMAIL_SERVICE (PO): Attempting to send PO email for PO {po_number} to {supplier_email}. Blind Ship: {is_blind_drop_ship}")
 
     if EMAIL_SERVICE_PROVIDER != "postmark":
         print(f"DEBUG EMAIL_SERVICE (PO): Email service provider is '{EMAIL_SERVICE_PROVIDER}', not 'postmark'. Skipping actual send.")
@@ -94,26 +95,23 @@ def send_po_email(supplier_email, po_number, attachments):
         email_attachments_for_postmark = []
         if attachments:
             for att_data in attachments:
-                # Check for 'Name' (capitalized) as that's what app.py provides
-                # And directly use att_data['Content'] as it's already a base64 string
                 if att_data and att_data.get('Name') and att_data.get('Content') and att_data.get('ContentType'):
                     email_attachments_for_postmark.append({
-                        "Name": att_data['Name'],         # Use 'Name'
-                        "Content": att_data['Content'],   # Already base64 encoded string from app.py
+                        "Name": att_data['Name'],
+                        "Content": att_data['Content'],
                         "ContentType": att_data['ContentType']
                     })
                 else:
-                    # This warning should now only trigger if essential parts are truly missing from app.py's perspective
                     print(f"WARN EMAIL_SERVICE (PO): Invalid or incomplete attachment data structure skipped for PO {po_number}. Data: {att_data}")
 
         subject = f"New Purchase Order #{po_number} from {COMPANY_NAME_FOR_EMAIL}"
         html_body = f"""
-         Hello, 
-         <br><br> 
-         Attached are the purchase order, packing slip, and shipping paperwork for our PO# referenced above. Kindly process at your earliest convenience. 
-         <br><br> 
-         Thanks! 
-         <br> 
+         Hello,
+         <br><br>
+         Attached are the purchase order, packing slip, and shipping paperwork for our PO# referenced above. Kindly process at your earliest convenience.
+         <br><br>
+         Thanks!
+         <br>
          <strong>Mark T. Winkler</strong>
          <br>
          <em>HP Enterprise Purchasing and Fulfillment</em>
@@ -125,7 +123,6 @@ def send_po_email(supplier_email, po_number, attachments):
 
         print(f"DEBUG EMAIL_SERVICE (PO): Sending Postmark email to {supplier_email} for PO {po_number} with {len(email_attachments_for_postmark)} attachments.")
 
-        # Construct the email parameters
         email_params = {
             "From": f"Mark Winkler | Global One Technology <{EMAIL_SENDER_ADDRESS}>",
             "To": supplier_email,
@@ -133,10 +130,9 @@ def send_po_email(supplier_email, po_number, attachments):
             "HtmlBody": html_body,
             "Attachments": email_attachments_for_postmark,
             "TrackOpens": True,
-            "MessageStream": "outbound" # Or your specific transactional stream if configured
+            "MessageStream": "outbound"
         }
 
-        # Add BCC if configured
         if EMAIL_BCC_ADDRESS:
             email_params["Bcc"] = EMAIL_BCC_ADDRESS
             print(f"DEBUG EMAIL_SERVICE (PO): BCCing to {EMAIL_BCC_ADDRESS}")
@@ -152,76 +148,12 @@ def send_po_email(supplier_email, po_number, attachments):
         traceback.print_exc()
         return False
 
-# REMOVE OR COMMENT OUT THIS ENTIRE FUNCTION "PO Data for QuickBooks Import":
-# def send_quickbooks_data_email(po_data):
-#     """Sends structured PO data for potential QuickBooks import."""
-#     print(f"DEBUG QB_EMAIL: Attempting to send QuickBooks data email for PO {po_data.get('po_number')}")
-#
-#     if EMAIL_SERVICE_PROVIDER != "postmark":
-#         # ... (rest of the function code) ...
-#     # ...
-#     # ...
-#     # try:
-#     #     # ... Postmark send call ...
-#     # except Exception as e:
-#     #     # ... error handling ...
-#     # return False
-# END OF FUNCTION TO REMOVE OR COMMENT OUT
-
-    client = PostmarkClient(server_token=EMAIL_API_KEY)
-
-    body_lines = [
-        f"Supplier: {po_data.get('supplier_name', 'N/A')}",
-        f"PO_Number: {po_data.get('po_number', 'N/A')}",
-        f"PO_Date: {po_data.get('po_date').strftime('%Y-%m-%d') if po_data.get('po_date') else 'N/A'}",
-        f"Shipping_Method: {po_data.get('shipping_method', 'N/A')}",
-        f"Payment_Instructions: {po_data.get('payment_instructions_for_po', 'N/A')}",
-        f"Fulfillment_Order_ID: {po_data.get('fulfillment_order_id', 'N/A')}",
-        f"Expected_Delivery_Date: {po_data.get('expected_delivery_date', 'N/A (Not Provided)')}",
-        ""
-    ]
-    for i, item in enumerate(po_data.get('po_line_items', [])):
-        formatted_sku = _format_item_sku_for_quickbooks(item.get('description'), item.get('sku'))
-        body_lines.extend([
-            "[ITEM_START]", f"Item_SKU: {formatted_sku}",
-            f"Item_FullDescription: {item.get('description', 'N/A')}",
-            f"Item_Quantity: {item.get('quantity', 0)}",
-            f"Item_UnitPrice: {item.get('unit_cost', 0.00)}", "[ITEM_END]", ""
-        ])
-    email_text_body = "\n".join(body_lines)
-
-    try:
-        response = client.emails.send(
-            From=EMAIL_SENDER_ADDRESS,
-            To=QUICKBOOKS_EMAIL_RECIPIENT,
-            Subject=f"PO Data for QuickBooks Import - PO #{po_data.get('po_number', 'N/A')}",
-            TextBody=email_text_body,
-            MessageStream="outbound" # Or your specific stream
-        )
-        print(f"INFO QB_EMAIL: QB Data email for PO {po_data.get('po_number')} sent. MessageID: {response.get('MessageID') if isinstance(response, dict) else 'N/A'}")
-        return True
-    except Exception as e:
-        print(f"CRITICAL QB_EMAIL: Failed to send QB Data email for PO {po_data.get('po_number')}: {e}")
-        return False
-
-
-# --- CORRECTED FUNCTION DEFINITION ---
-def send_iif_batch_email(iif_content_string, batch_date_str, 
-                         warning_message_html=None, 
-                         custom_subject=None, 
-                         filename_prefix="IIF_Batch_"): # <<< MODIFIED: Added filename_prefix with default
+def send_iif_batch_email(iif_content_string, batch_date_str,
+                         warning_message_html=None,
+                         custom_subject=None,
+                         filename_prefix="IIF_Batch_"):
     """
     Sends the daily IIF batch email using Postmark.
-
-    Args:
-        iif_content_string (str): The IIF file content as a string.
-        batch_date_str (str): The date string (YYYY-MM-DD or other context like "OnDemand_...") for the batch.
-        warning_message_html (str, optional): HTML formatted warning message. Defaults to None.
-        custom_subject (str, optional): Overrides the default subject line. Defaults to None.
-        filename_prefix (str, optional): Prefix for the attached IIF filename.
-                                         Defaults to "IIF_Batch_".
-    Returns:
-        bool: True if email sending was successful, False otherwise.
     """
     print(f"DEBUG IIF_EMAIL: Attempting to send IIF batch email for context: {batch_date_str}, prefix: {filename_prefix}")
     if EMAIL_SERVICE_PROVIDER != "postmark":
@@ -236,31 +168,25 @@ def send_iif_batch_email(iif_content_string, batch_date_str,
 
     try:
         client = PostmarkClient(server_token=EMAIL_API_KEY)
-        
-        # MODIFIED: Use filename_prefix and ensure batch_date_str (if it's a full timestamp string for on-demand) is handled
-        # For on-demand, batch_date_str might be like "OnDemand_AllPendingPOs_20230520_103045"
-        # For daily, it's "YYYY-MM-DD"
-        # We'll clean up the date part for the filename.
+
         date_part_for_filename = batch_date_str.replace('-', '')
-        if "OnDemand" in batch_date_str: # Handle the longer on-demand string
+        if "OnDemand" in batch_date_str:
             try:
-                # Extract just the date if it's a complex string, or use a simplified version
-                # Example: "OnDemand_AllPendingPOs_20230520_103045" -> "20230520"
-                date_match = re.search(r'(\d{8})', batch_date_str) # Look for YYYYMMDD
+                date_match = re.search(r'(\d{8})', batch_date_str)
                 if date_match:
                     date_part_for_filename = date_match.group(1)
-                else: # Fallback for on-demand if no YYYYMMDD found, use a timestamp
+                else:
                     date_part_for_filename = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
             except Exception:
-                date_part_for_filename = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S') # Safest fallback
+                date_part_for_filename = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
 
         iif_filename = f"{filename_prefix}{date_part_for_filename}.iif"
         print(f"DEBUG IIF_EMAIL: Attachment filename will be: {iif_filename}")
 
         attachments = [{
             "Name": iif_filename,
-            "Content": base64.b64encode(iif_content_string.encode('utf-8')).decode('utf-8'), # Changed from ascii to utf-8 for decode for safety
-            "ContentType": "application/iif" # Correct MIME type for IIF or text/plain
+            "Content": base64.b64encode(iif_content_string.encode('utf-8')).decode('utf-8'),
+            "ContentType": "application/iif"
         }]
 
         html_body_parts = []
@@ -272,7 +198,6 @@ def send_iif_batch_email(iif_content_string, batch_date_str,
             text_body_parts.append(text_warning)
             text_body_parts.append("-" * 20)
 
-        # For the email body, use the original batch_date_str for context
         standard_html_body = f"<p>Attached is the batch IIF file for context: {batch_date_str}.</p>"
         standard_text_body = f"Attached is the batch IIF file for context: {batch_date_str}."
         html_body_parts.append(standard_html_body)
@@ -284,9 +209,8 @@ def send_iif_batch_email(iif_content_string, batch_date_str,
         final_html_body = "\n".join(html_body_parts)
         final_text_body = "\n".join(text_body_parts)
 
-        # For subject line, use the original batch_date_str or a simplified date for readability
         subject_date_context = batch_date_str
-        if "OnDemand" in custom_subject if custom_subject else False: # Check if it's an on-demand subject
+        if "OnDemand" in custom_subject if custom_subject else False:
              subject_date_context = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')
 
 
@@ -301,20 +225,19 @@ def send_iif_batch_email(iif_content_string, batch_date_str,
             HtmlBody=final_html_body,
             TextBody=final_text_body,
             Attachments=attachments,
-            MessageStream="outbound" # Or your specific stream
+            MessageStream="outbound"
         )
-        response_data = response # Assuming postmarker client returns a dict or object
-        if isinstance(response, dict) and response.get("ErrorCode") == 0: # Typical Postmark success
+        response_data = response
+        if isinstance(response, dict) and response.get("ErrorCode") == 0:
             print(f"INFO IIF_EMAIL: IIF Batch email for {batch_date_str} sent. MessageID: {response.get('MessageID')}")
             return True
-        # Handle cases where response might not be a dict or error code is different
-        elif hasattr(response, 'status_code') and response.status_code == 200: # For requests-like responses
+        elif hasattr(response, 'status_code') and response.status_code == 200:
             print(f"INFO IIF_EMAIL: IIF Batch email for {batch_date_str} sent (status 200).")
             return True
         else:
             print(f"ERROR IIF_EMAIL: Failed to send IIF Batch email. Response: {response_data}")
             return False
-            
+
     except Exception as e:
         print(f"CRITICAL IIF_EMAIL: Failed to send IIF Batch email for {batch_date_str}: {e}")
         traceback.print_exc()
@@ -324,9 +247,6 @@ def send_iif_batch_email(iif_content_string, batch_date_str,
 def send_sales_notification_email(recipient_email, subject, html_body, text_body, attachments):
     """
     Sends a generic notification email using Postmark, intended for internal sales notifications.
-    Each item in 'attachments' should be a dict:
-    {'Name': 'filename.ext', 'Content': base64_encoded_string, 'ContentType': 'mime/type'}
-    (Note: This attachment format is for PostmarkClient library. If using direct API, adjust.)
     """
     print(f"DEBUG EMAIL_SERVICE (SALES_NOTIF): Attempting to send notification email to {recipient_email} with subject '{subject}'")
 
@@ -348,27 +268,18 @@ def send_sales_notification_email(recipient_email, subject, html_body, text_body
 
     try:
         client = PostmarkClient(server_token=EMAIL_API_KEY)
-
-        # The attachments are expected to be pre-formatted for PostmarkClient by app.py
-        # (i.e., Content is already base64 encoded string)
-
         print(f"DEBUG EMAIL_SERVICE (SALES_NOTIF): Sending Postmark email to {recipient_email} with {len(attachments)} attachments.")
 
         email_params = {
-            "From": f"{COMPANY_NAME_FOR_EMAIL} <{EMAIL_SENDER_ADDRESS}>", # Or a more specific sender name
+            "From": f"{COMPANY_NAME_FOR_EMAIL} <{EMAIL_SENDER_ADDRESS}>",
             "To": recipient_email,
             "Subject": subject,
             "HtmlBody": html_body,
-            "TextBody": text_body, # Good practice to include a text part
-            "Attachments": attachments, # Expects list of dicts with "Name", "Content", "ContentType"
+            "TextBody": text_body,
+            "Attachments": attachments,
             "TrackOpens": True,
-            "MessageStream": "outbound" # Or your specific transactional stream
+            "MessageStream": "outbound"
         }
-
-        # Add BCC if configured and if appropriate for this type of notification
-        # if EMAIL_BCC_ADDRESS:
-        #     email_params["Bcc"] = EMAIL_BCC_ADDRESS
-        #     print(f"DEBUG EMAIL_SERVICE (SALES_NOTIF): BCCing to {EMAIL_BCC_ADDRESS}")
 
         response = client.emails.send(**email_params)
 
@@ -384,26 +295,14 @@ def send_sales_notification_email(recipient_email, subject, html_body, text_body
 
 if __name__ == '__main__':
     print("--- Testing Email Service ---")
-
-    # Test send_po_email
-    # ... (keep existing PO email test code, ensure you uncomment and use a real test email) ...
-
-    # Test send_quickbooks_data_email
-    # ... (keep existing QB data email test code) ...
-
-    # Test send_iif_batch_email
-    print("\n--- Testing IIF Batch Email ---")
     sample_iif_content = "!TRNS\tTRNSID\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tDOCNUM\tMEMO\n!SPL\tSPLID\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tDOCNUM\tMEMO\tQNTY\tPRICE\tINVITEM\n!ENDTRNS\nTRNS\t\tPURCHORD\t05/12/2025\tAccounts Payable\tTest Supplier\t10.00\tPO-TEST\tTest PO\nSPL\t\tPURCHORD\t05/12/2025\tCost of Goods Sold\t\t10.00\tPO-TEST\tTest Item\t1\t10.00\tTest:Item:SKU123\nENDTRNS\n"
     test_batch_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    # Test without warning
     print("Testing IIF email without warning...")
     iif_email_sent_no_warn = send_iif_batch_email(iif_content_string=sample_iif_content, batch_date_str=test_batch_date)
     print(f"IIF Batch Email Send Test Result (No Warning): {iif_email_sent_no_warn}")
-    # Test with warning
     print("\nTesting IIF email WITH warning...")
     sample_warning = '<p style="color:red;"><strong>WARNING TEST!</strong><ul><li>PO: P1, SKU: S1</li></ul></p><hr>'
     iif_email_sent_warn = send_iif_batch_email(iif_content_string=sample_iif_content, batch_date_str=test_batch_date, warning_message_html=sample_warning)
     print(f"IIF Batch Email Send Test Result (With Warning): {iif_email_sent_warn}")
-
-
     print("\n--- Make sure to set EMAIL_API_KEY (Postmark Server Token) and EMAIL_SENDER_ADDRESS in your .env for actual sending ---")
+

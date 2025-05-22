@@ -6,10 +6,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-from io import BytesIO 
+from io import BytesIO
 import os
-import traceback 
-import re 
+import traceback
+import re
 from xml.sax.saxutils import escape
 from functools import partial
 
@@ -20,22 +20,26 @@ from reportlab.pdfbase.ttfonts import TTFont
 FONTS_DIR_IN_CONTAINER = '/app/fonts'
 
 try:
+    # Register individual TTF files
     pdfmetrics.registerFont(TTFont('EloquiaDisplay-Regular', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-regular.ttf')))
     pdfmetrics.registerFont(TTFont('EloquiaDisplay-SemiBold', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-semibold.ttf')))
     pdfmetrics.registerFont(TTFont('EloquiaDisplay-ExtraBold', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-extrabold.ttf')))
-    
-    pdfmetrics.registerFontFamily(
-        'EloquiaDisplay',
-        normal='EloquiaDisplay-Regular',
-        bold='EloquiaDisplay-SemiBold', 
-    )
-    print("DEBUG DOC_GEN: Successfully registered 'EloquiaDisplay' font family.")
-
     pdfmetrics.registerFont(TTFont('EloquiaText-ExtraLight', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-text-extralight.ttf')))
-    print(f"DEBUG DOC_GEN: Registered font 'EloquiaText-ExtraLight'")
+
+    # Map EloquiaDisplay variants to Helvetica
+    pdfmetrics.addMapping('Helvetica', 0, 0, 'EloquiaDisplay-Regular')    # Normal Helvetica uses EloquiaDisplay-Regular
+    pdfmetrics.addMapping('Helvetica', 1, 0, 'EloquiaDisplay-SemiBold') # Bold Helvetica uses EloquiaDisplay-SemiBold
+
+    # Map EloquiaText-ExtraLight to Times-Roman
+    pdfmetrics.addMapping('Times-Roman', 0, 0, 'EloquiaText-ExtraLight')
+
+    pdfmetrics.registerFontFamily('EloquiaDisplay', normal='EloquiaDisplay-Regular', bold='EloquiaDisplay-SemiBold')
+    pdfmetrics.registerFontFamily('EloquiaText', normal='EloquiaText-ExtraLight')
+
+    print("DEBUG DOC_GEN: Successfully registered Eloquia fonts and mapped to Helvetica/Times-Roman.")
 
 except Exception as e:
-    print(f"ERROR DOC_GEN: Failed to register custom Eloquia fonts. PDFs may use a default font. Error: {e}")
+    print(f"ERROR DOC_GEN: Failed to register/map custom Eloquia fonts. PDFs may use a default font. Error: {e}")
     traceback.print_exc()
 # --- END FONT REGISTRATION ---
 
@@ -60,8 +64,11 @@ except Exception as gcs_e:
     storage_client = None
 
 COMPANY_NAME = "GLOBAL ONE TECHNOLOGY"
-COMPANY_ADDRESS_PO_HEADER = "" 
-COMPANY_ADDRESS_PACKING_SLIP_FOOTER_LINE1 = "4916 S 184th Plaza - Omaha, NE 68135" 
+COMPANY_ADDRESS_PO_HEADER = ""
+COMPANY_ADDRESS_PACKING_SLIP_FOOTER_LINE1 = "4916 S 184th Plaza - Omaha, NE 68135"
+COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE1 = "GLOBAL ONE TECHNOLOGY"
+COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE2 = "4916 S 184th Plaza - Omaha, NE 68135"
+
 COMPANY_PHONE = "(877) 418-3246"
 COMPANY_FAX = "(866) 921-1032"
 COMPANY_EMAIL = "sales@globalonetechnology.com"
@@ -71,7 +78,7 @@ def format_currency(value):
     try:
         return f"${float(value):,.2f}"
     except (ValueError, TypeError):
-        try: 
+        try:
             return f"${float(str(value)):,.2f}"
         except:
              return "$0.00"
@@ -87,124 +94,47 @@ def _format_shipping_method_for_display(method_string):
 def get_custom_styles():
     styles = getSampleStyleSheet()
 
-    # --- Base Eloquia Display Styles ---
-    styles.add(ParagraphStyle(name='Normal_Eloquia', 
-                              fontName='EloquiaDisplay-Regular',
-                              fontSize=9, 
-                              leading=11))
-    styles.add(ParagraphStyle(name='Normal_Eloquia_Small', 
-                              parent=styles['Normal_Eloquia'], 
-                              fontSize=8, 
-                              leading=10))
-    
-    # --- Eloquia Display - BOLD (using SemiBold) ---
-    styles.add(ParagraphStyle(name='Normal_Eloquia_Bold', 
-                              parent=styles['Normal_Eloquia'], 
-                              fontName='EloquiaDisplay-SemiBold'))
-
-    # --- Alignment variations for EloquiaDisplay ---
-    styles.add(ParagraphStyle(name='Normal_Eloquia_Right', 
-                              parent=styles['Normal_Eloquia'], 
-                              alignment=TA_RIGHT))
-    styles.add(ParagraphStyle(name='Normal_Eloquia_Center', 
-                              parent=styles['Normal_Eloquia'], 
-                              alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name='Normal_Eloquia_Bold_Right', 
-                              parent=styles['Normal_Eloquia_Bold'], 
-                              alignment=TA_RIGHT))
-    styles.add(ParagraphStyle(name='Normal_Eloquia_Bold_Center', 
-                              parent=styles['Normal_Eloquia_Bold'], 
-                              alignment=TA_CENTER))
-
-    # --- Heading styles with EloquiaDisplay ---
-    styles.add(ParagraphStyle(name='H1_Eloquia', 
-                              parent=styles['h1'], 
-                              fontName='EloquiaDisplay-ExtraBold', 
-                              fontSize=16, 
-                              leading=18))
-    styles.add(ParagraphStyle(name='H1_Eloquia_Right', 
-                              parent=styles['H1_Eloquia'], 
-                              alignment=TA_RIGHT))
-    styles.add(ParagraphStyle(name='H2_Eloquia', # For logo text fallback
-                              parent=styles['h2'], 
-                              fontName='EloquiaDisplay-ExtraBold', 
-                              fontSize=14, 
-                              leading=16))
-    styles.add(ParagraphStyle(name='H3_Eloquia', # For section titles like "Ship To", "IN THIS SHIPMENT"
-                              parent=styles['h3'], 
-                              fontName='EloquiaDisplay-SemiBold', 
-                              fontSize=10, 
-                              leading=12))
-
-    # --- Item description styles with EloquiaDisplay ---
-    styles.add(ParagraphStyle(name='ItemDesc_Eloquia', 
-                              parent=styles['Normal_Eloquia'], 
-                              fontSize=9, 
-                              leading=11))
-    # styles.add(ParagraphStyle(name='ItemDescSmall_Eloquia', parent=styles['Normal_Eloquia_Small'])) # If needed
-
-    # --- Specific use styles with Eloquia ---
-    styles.add(ParagraphStyle(name='FulfillmentNoteStyle_Eloquia', 
-                              parent=styles['Normal_Eloquia'], 
-                              fontSize=9, 
-                              leading=11, 
-                              textColor=colors.HexColor("#666666")))
-    
-    # Using EloquiaText-ExtraLight for Footer and Environment notes for a lighter touch
-    styles.add(ParagraphStyle(name='FooterStyle_Eloquia', 
-                              fontName='EloquiaText-ExtraLight',
-                              fontSize=8, # Adjusted for ExtraLight
-                              leading=10,
-                              alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name='EnvironmentNoteStyle_Eloquia', 
-                              fontName='EloquiaText-ExtraLight', 
-                              fontSize=8, # Adjusted for ExtraLight
-                              leading=10,
-                              alignment=TA_CENTER, 
-                              textColor=colors.HexColor("#888888")))
-
-    styles.add(ParagraphStyle(name='ItemDesc_ShippingSeparately_Eloquia', 
-                              parent=styles['ItemDesc_Eloquia'], 
-                              textColor=colors.HexColor("#777777")))
-    styles.add(ParagraphStyle(name='Normal_Eloquia_Center_ShippingSeparately', 
-                              parent=styles['Normal_Eloquia_Center'], 
-                              textColor=colors.HexColor("#777777")))
-    
-    styles.add(ParagraphStyle(name='CustomerNotesStyle_Eloquia', 
-                              parent=styles['Normal_Eloquia'], 
-                              spaceBefore=6, 
-                              spaceAfter=6, 
-                              leading=12, 
-                              leftIndent=0.25*inch, 
-                              rightIndent=0.25*inch))
-
-    # Keep Helvetica styles for Purchase Order for now, or update them similarly if needed
+    styles.add(ParagraphStyle(name='Normal_Eloquia', fontName='Helvetica', fontSize=9, leading=11))
+    styles.add(ParagraphStyle(name='Normal_Eloquia_Small', parent=styles['Normal_Eloquia'], fontSize=8, leading=10))
+    styles.add(ParagraphStyle(name='Normal_Eloquia_Bold', fontName='Helvetica-Bold', fontSize=9, leading=11))
+    styles.add(ParagraphStyle(name='Normal_Eloquia_Right', parent=styles['Normal_Eloquia'], alignment=TA_RIGHT))
+    styles.add(ParagraphStyle(name='Normal_Eloquia_Center', parent=styles['Normal_Eloquia'], alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name='Normal_Eloquia_Bold_Right', parent=styles['Normal_Eloquia_Bold'], alignment=TA_RIGHT))
+    styles.add(ParagraphStyle(name='Normal_Eloquia_Bold_Center', parent=styles['Normal_Eloquia_Bold'], alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name='H1_Eloquia', fontName='Helvetica-Bold', fontSize=16, leading=18, parent=styles['h1']))
+    styles.add(ParagraphStyle(name='H1_Eloquia_Right', parent=styles['H1_Eloquia'], alignment=TA_RIGHT))
+    styles.add(ParagraphStyle(name='H2_Eloquia', fontName='Helvetica-Bold', fontSize=14, leading=16, parent=styles['h2']))
+    styles.add(ParagraphStyle(name='H3_Eloquia', fontName='Helvetica-Bold', fontSize=10, leading=12, parent=styles['h3']))
+    styles.add(ParagraphStyle(name='ItemDesc_Eloquia', parent=styles['Normal_Eloquia'], fontSize=9, leading=11))
+    styles.add(ParagraphStyle(name='FulfillmentNoteStyle_Eloquia', parent=styles['Normal_Eloquia'], fontSize=9, leading=11, textColor=colors.HexColor("#666666")))
+    styles.add(ParagraphStyle(name='ItemDesc_ShippingSeparately_Eloquia', parent=styles['ItemDesc_Eloquia'], textColor=colors.HexColor("#777777")))
+    styles.add(ParagraphStyle(name='Normal_Eloquia_Center_ShippingSeparately', parent=styles['Normal_Eloquia_Center'], textColor=colors.HexColor("#777777")))
+    styles.add(ParagraphStyle(name='CustomerNotesStyle_Eloquia', parent=styles['Normal_Eloquia'], spaceBefore=6, spaceAfter=6, leading=12, leftIndent=0.25*inch, rightIndent=0.25*inch))
+    styles.add(ParagraphStyle(name='FooterStyle_Eloquia', fontName='Times-Roman', fontSize=8, leading=10, alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name='EnvironmentNoteStyle_Eloquia', fontName='Times-Roman', fontSize=8, leading=10, alignment=TA_CENTER, textColor=colors.HexColor("#888888")))
     styles.add(ParagraphStyle(name='Normal_Helvetica', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=11))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Small', parent=styles['Normal_Helvetica'], fontSize=8, leading=10))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Bold', parent=styles['Normal_Helvetica'], fontName='Helvetica-Bold'))
-    styles.add(ParagraphStyle(name='H1_Helvetica_Right', parent=styles['Normal_Helvetica_Bold'], fontSize=16, alignment=TA_RIGHT)) # PO Title
-    styles.add(ParagraphStyle(name='H2_Helvetica', parent=styles['Normal_Helvetica_Bold'], fontSize=14)) # PO Logo Fallback
-    styles.add(ParagraphStyle(name='H3_Helvetica', parent=styles['Normal_Helvetica_Bold'], fontSize=10)) # PO Section Title
-    styles.add(ParagraphStyle(name='ItemDesc', parent=styles['Normal_Helvetica'])) # PO Items
+    styles.add(ParagraphStyle(name='H1_Helvetica_Right', parent=styles['Normal_Helvetica_Bold'], fontSize=16, alignment=TA_RIGHT))
+    styles.add(ParagraphStyle(name='H2_Helvetica', parent=styles['Normal_Helvetica_Bold'], fontSize=14))
+    styles.add(ParagraphStyle(name='H3_Helvetica', parent=styles['Normal_Helvetica_Bold'], fontSize=10))
+    styles.add(ParagraphStyle(name='ItemDesc', parent=styles['Normal_Helvetica']))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Right', parent=styles['Normal_Helvetica'], alignment=TA_RIGHT))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Bold_Right', parent=styles['Normal_Helvetica_Bold'], alignment=TA_RIGHT))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Center', parent=styles['Normal_Helvetica'], alignment=TA_CENTER))
     styles.add(ParagraphStyle(name='FulfillmentNoteStyle', parent=styles['Normal_Helvetica'], fontSize=9, textColor=colors.HexColor("#666666")))
-
-
     return styles
 
-def _get_logo_element_from_gcs(styles, logo_gcs_uri=None, desired_logo_width=1.5*inch, is_blind_slip=False): # Added is_blind_slip
-    # For blind slip, orders.py passes logo_gcs_uri as None. This function's existing fallback is COMPANY_NAME.
-    # If truly blind, even COMPANY_NAME is not desired.
-    if is_blind_slip: # Explicitly handle blind slip for top-left company branding area
-        return Paragraph("SHIPPING DOCUMENT", styles['H2_Eloquia']) # Generic text, uses Eloquia
+def _get_logo_element_from_gcs(styles, logo_gcs_uri=None, desired_logo_width=1.5*inch, is_blind_slip=False):
+    if is_blind_slip:
+        # For blind slips, return an empty paragraph or a minimal placeholder if absolutely necessary
+        # Removing "SHIPPING DOCUMENT" text
+        return Paragraph("", styles['H2_Eloquia']) # Empty string
 
-    if not logo_gcs_uri: 
+    if not logo_gcs_uri:
         print("WARN _get_logo_element_from_gcs: No logo_gcs_uri provided. Using company name text.")
-        return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Eloquia']) # Fallback to company name with Eloquia
-    
-    # ... (rest of GCS fetching logic remains the same) ...
+        return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Eloquia'])
+
     if not storage_client:
         print("WARN _get_logo_element_from_gcs: GCS storage client not available. Using company name text.")
         return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Eloquia'])
@@ -222,25 +152,25 @@ def _get_logo_element_from_gcs(styles, logo_gcs_uri=None, desired_logo_width=1.5
         logo_stream = BytesIO(logo_bytes)
         logo_stream.seek(0)
         actual_logo_width = desired_logo_width
-        actual_logo_height = None 
+        actual_logo_height = None
         if PILImage:
             try:
                 pillow_img = PILImage.open(logo_stream)
-                pillow_img.verify() 
-                logo_stream.seek(0) 
-                pillow_img = PILImage.open(logo_stream) 
+                pillow_img.verify()
+                logo_stream.seek(0)
+                pillow_img = PILImage.open(logo_stream)
                 img_width_px, img_height_px = pillow_img.size
                 if not img_width_px or not img_height_px or img_width_px == 0 or img_height_px == 0:
                     raise ValueError("Pillow reported invalid image dimensions (0 or None).")
                 aspect_ratio = float(img_height_px) / float(img_width_px)
                 actual_logo_height = desired_logo_width * aspect_ratio
-                logo_stream.seek(0) 
+                logo_stream.seek(0)
             except Exception as pil_e:
                 print(f"ERROR _get_logo_element_from_gcs: Pillow failed: {pil_e}"); traceback.print_exc()
                 return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Eloquia'])
         else:
-            logo_stream.seek(0) 
-            actual_logo_height = 0.75 * inch 
+            logo_stream.seek(0)
+            actual_logo_height = 0.75 * inch
 
         logo = Image(logo_stream, width=actual_logo_width, height=actual_logo_height)
         if not logo.imageWidth or not logo.imageHeight or logo.imageWidth == 0 or logo.imageHeight == 0:
@@ -250,43 +180,35 @@ def _get_logo_element_from_gcs(styles, logo_gcs_uri=None, desired_logo_width=1.5
     except Exception as e:
         print(f"ERROR _get_logo_element_from_gcs: Failed to load logo: {e}"); traceback.print_exc()
         if logo_stream and not logo_stream.closed: logo_stream.close()
-        return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Eloquia']) # Fallback for errors
+        return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Eloquia'])
 
 
 def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, po_items,
                                 payment_terms, payment_instructions, logo_gcs_uri=None,
                                 is_partial_fulfillment=False):
-    # This function will continue to use Helvetica styles as defined (or update its styles too if needed)
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=0.75*inch, rightMargin=0.75*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
-    styles = get_custom_styles() # This will get all styles, including Helvetica ones for PO
+    styles = get_custom_styles()
     story = []
-
-    # PO uses H2_Helvetica for fallback logo text
-    logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch, is_blind_slip=False) # PO is never blind
-
+    logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch, is_blind_slip=False)
     if isinstance(po_date, str):
         try:
             po_date = datetime.fromisoformat(po_date.replace('Z', '+00:00'))
         except ValueError:
             print(f"WARN: po_date is a string '{po_date}' and could not be parsed to datetime. Using as string.")
-    
     formatted_po_date = po_date.strftime("%m/%d/%Y") if hasattr(po_date, 'strftime') else str(po_date)
-
     header_data = [
-        [logo_element, Paragraph("<b>PURCHASE ORDER</b>", styles['H1_Helvetica_Right'])], # PO title uses Helvetica
+        [logo_element, Paragraph("<b>PURCHASE ORDER</b>", styles['H1_Helvetica_Right'])],
         [Paragraph(COMPANY_ADDRESS_PO_HEADER, styles['Normal_Helvetica']),
          Paragraph(f"Date: {formatted_po_date}<br/>P.O. No.: {po_number}", styles['Normal_Helvetica_Right'])]
     ]
-    # ... (rest of PO generation uses Helvetica styles as previously defined) ...
     header_table = Table(header_data, colWidths=[4*inch, 3*inch])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'), ('BOTTOMPADDING', (0,0), (0,0), 6),
         ('BOTTOMPADDING', (0,1), (0,1), 6), ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('RIGHTPADDING', (0,0), (-1,-1), 0), ('SPAN', (0,0), (0,0)), 
+        ('RIGHTPADDING', (0,0), (-1,-1), 0), ('SPAN', (0,0), (0,0)),
     ]))
     story.append(header_table); story.append(Spacer(1, 0.25 * inch))
-
     vendor_ship_to_content = [
         [Paragraph("<b>Vendor</b>", styles['H3_Helvetica']), Paragraph("<b>Ship To</b>", styles['H3_Helvetica'])],
         [Paragraph(f"{escape(supplier_data.get('name', 'N/A'))}<br/>"
@@ -308,10 +230,9 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
         ('RIGHTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
     ]))
     story.append(vendor_ship_to_table); story.append(Spacer(1, 0.25 * inch))
-
     items_header = [
         Paragraph('<b>Item</b>', styles['Normal_Helvetica_Bold']),
-        Paragraph('<b>Qty</b>', styles['Normal_Helvetica_Center']), # Was Bold_Center
+        Paragraph('<b>Qty</b>', styles['Normal_Helvetica_Center']),
         Paragraph('<b>Rate</b>', styles['Normal_Helvetica_Bold_Right']),
         Paragraph('<b>Amount</b>', styles['Normal_Helvetica_Bold_Right'])
     ]
@@ -322,39 +243,34 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
         total_po_amount += item_amount
         description_text = f"{escape(item.get('description', 'N/A'))}"
         items_table_data.append([
-            Paragraph(description_text, styles['ItemDesc']), # Uses Helvetica ItemDesc
+            Paragraph(description_text, styles['ItemDesc']),
             Paragraph(str(item.get('quantity', 0)), styles['Normal_Helvetica_Center']),
             Paragraph(format_currency(item.get('unit_cost', 0.00)), styles['Normal_Helvetica_Right']),
             Paragraph(format_currency(item_amount), styles['Normal_Helvetica_Right'])
         ])
-
     items_table = Table(items_table_data, colWidths=[4.0*inch, 0.5*inch, 1.0*inch, 1.5*inch])
     items_table.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('BOTTOMPADDING', (0,0), (-1,-1), 4), ('TOPPADDING', (0,0), (-1,-1), 4),
     ]))
     story.append(items_table); story.append(Spacer(1, 0.1 * inch))
-
     notes_and_total_data = []
     if payment_instructions:
         notes_and_total_data.append([Paragraph(escape(payment_instructions).replace('\n', '<br/>'), styles['ItemDesc']), '', '', ''])
-
     if order_data.get('bigcommerce_order_id'):
         fulfillment_text_prefix = "Partial fulfillment of G1 Order #" if is_partial_fulfillment else "Fulfillment of G1 Order #"
         bc_order_id_str = str(order_data.get('bigcommerce_order_id', 'N/A'))
         notes_and_total_data.append([
-            Paragraph(f"{fulfillment_text_prefix}{escape(bc_order_id_str)}", styles['FulfillmentNoteStyle']), # Uses Helvetica
+            Paragraph(f"{fulfillment_text_prefix}{escape(bc_order_id_str)}", styles['FulfillmentNoteStyle']),
             '', '', ''
         ])
-
     if notes_and_total_data:
-        notes_and_total_data.append(['', '', '', '']) 
+        notes_and_total_data.append(['', '', '', ''])
     notes_and_total_data.append([
         '', '',
         Paragraph("<b>Total</b>", styles['Normal_Helvetica_Bold_Right']),
         Paragraph(f"<b>USD {format_currency(total_po_amount)}</b>", styles['Normal_Helvetica_Bold_Right'])
     ])
-
     if notes_and_total_data:
         notes_total_table = Table(notes_and_total_data, colWidths=[4.0*inch, 0.5*inch, 1.0*inch, 1.5*inch])
         style_cmds = [('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (0,-1), 0)]
@@ -368,7 +284,6 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
         style_cmds.append(('TOPPADDING', (2, total_row_idx), (3, total_row_idx), 10))
         notes_total_table.setStyle(TableStyle(style_cmds))
         story.append(notes_total_table)
-
     story.append(Spacer(1, 0.3 * inch))
     doc.build(story)
     pdf_bytes = buffer.getvalue(); buffer.close()
@@ -376,34 +291,26 @@ def generate_purchase_order_pdf(order_data, supplier_data, po_number, po_date, p
 
 def _draw_packing_slip_footer(canvas, doc, is_blind_slip=False):
     canvas.saveState()
-    styles = get_custom_styles() # Ensure styles are available
-    
+    styles = get_custom_styles()
     if not is_blind_slip:
         available_width = doc.width
-        current_y = 0.3 * inch 
-        
+        current_y = 0.3 * inch
         env_text = """In an effort to minimize our footprint on the environment,<br/>Global One Technology uses clean, recycled packaging materials."""
-        p_env = Paragraph(env_text, styles['EnvironmentNoteStyle_Eloquia']) # Use Eloquia Style
+        p_env = Paragraph(env_text, styles['EnvironmentNoteStyle_Eloquia'])
         p_env.wrapOn(canvas, available_width, doc.bottomMargin); p_env.drawOn(canvas, doc.leftMargin, current_y)
         current_y += p_env.height + 0.1 * inch
-
-        company_footer_text = f"""<font name="EloquiaDisplay-SemiBold" size="9">{COMPANY_NAME}</font><br/><font name="EloquiaText-ExtraLight" size="8">
-        Voice: {COMPANY_PHONE} Fax: {COMPANY_FAX}<br/>{COMPANY_ADDRESS_PACKING_SLIP_FOOTER_LINE1}<br/>
-        Email: {COMPANY_EMAIL} Website: {COMPANY_WEBSITE}</font>"""
-        p_company = Paragraph(company_footer_text, styles['FooterStyle_Eloquia']) # Use Eloquia Style
+        company_footer_text = f"<b>{COMPANY_NAME}</b><br/>Voice: {COMPANY_PHONE} Fax: {COMPANY_FAX}<br/>{COMPANY_ADDRESS_PACKING_SLIP_FOOTER_LINE1}<br/>Email: {COMPANY_EMAIL} Website: {COMPANY_WEBSITE}"
+        p_company = Paragraph(company_footer_text, styles['FooterStyle_Eloquia'])
         p_company.wrapOn(canvas, available_width, doc.bottomMargin); p_company.drawOn(canvas, doc.leftMargin, current_y)
         current_y += p_company.height + 0.15 * inch
-
-        faq_text = """<font name="EloquiaDisplay-SemiBold" size="9">FAQ's:</font><br/><font name="EloquiaText-ExtraLight" size="8">
-        1. We ordered the wrong part or have a defective item. How would we arrange a return?<br/>
+        faq_text = f"""<b>FAQ's:</b><br/>1. We ordered the wrong part or have a defective item. How would we arrange a return?<br/>
         Please visit http://www.globalonetechnology.com/returns for information on how to return an item.<br/><br/>
         2. How can I get a copy of our invoice for bookkeeping/accounting?<br/>
-        Please email sales@globalonetechnology.com to request a copy of your invoice.</font>"""
-        p_faq = Paragraph(faq_text, styles['Normal_Eloquia_Small']) # Use Eloquia based small style
+        Please email sales@globalonetechnology.com to request a copy of your invoice."""
+        p_faq = Paragraph(faq_text, styles['Normal_Eloquia_Small'])
         p_faq.wrapOn(canvas, available_width, doc.bottomMargin); p_faq.drawOn(canvas, doc.leftMargin, current_y)
     else:
         print("DEBUG DOC_GEN (Footer): Blind slip, footer skipped.")
-        
     canvas.restoreState()
 
 
@@ -413,18 +320,20 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter,
                             leftMargin=0.75*inch, rightMargin=0.75*inch,
-                            topMargin=0.5*inch, bottomMargin=1.9*inch) 
-    styles = get_custom_styles() # Styles now include Eloquia variants
+                            topMargin=0.5*inch, bottomMargin=1.9*inch)
+    styles = get_custom_styles()
     story = []
 
     logo_element_to_use = None
-    company_address_display_ps_para = None # Changed to para
-    packing_slip_title_text = "PACKING SLIP" 
+    company_address_display_ps_para = None
+    packing_slip_title_text = "PACKING SLIP"
+    order_ref_text = "" # Initialize to empty
 
     if is_blind_slip:
         print("DEBUG DOC_GEN (Packing Slip): Generating BLIND slip.")
-        logo_element_to_use = Paragraph("SHIPPING DOCUMENT", styles['H2_Eloquia']) 
-        
+        logo_element_to_use = Paragraph("", styles['H2_Eloquia']) # Empty string for logo area
+        packing_slip_title_text = "PACKING SLIP" # Keep title for blind, or make it generic like "SHIPMENT CONTENTS"
+
         if custom_ship_from_address:
             company_address_text_blind = f"{escape(custom_ship_from_address.get('name', ''))}<br/>" \
                                          f"{escape(custom_ship_from_address.get('street_1', ''))}<br/>"
@@ -435,30 +344,28 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
             company_address_display_ps_para = Paragraph(company_address_text_blind, styles['Normal_Eloquia_Small'])
         else:
             company_address_display_ps_para = Paragraph("", styles['Normal_Eloquia_Small'])
-    else:
-        logo_element_to_use = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch, is_blind_slip=False) # Pass is_blind_slip
-        # COMPANY_ADDRESS_PO_HEADER is used for POs. For packing slip header, we might want something else or keep it consistent.
-        # For now, if not blind, we use the standard company info from constants if COMPANY_ADDRESS_PO_HEADER is empty.
-        company_header_address_text_non_blind = COMPANY_ADDRESS_PO_HEADER if COMPANY_ADDRESS_PO_HEADER else f"{COMPANY_NAME}<br/>{COMPANY_ADDRESS_PACKING_SLIP_FOOTER_LINE1}"
+        # order_ref_text remains empty for blind slips
+    else: # Not a blind slip
+        logo_element_to_use = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch, is_blind_slip=False)
+        company_header_address_text_non_blind = f"{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE1}<br/>{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE2}"
         company_address_display_ps_para = Paragraph(escape(company_header_address_text_non_blind).replace('\n', '<br/>'), styles['Normal_Eloquia_Small'])
-        if is_g1_onsite_fulfillment: # Title logic was here, keeping it
-            packing_slip_title_text = "PACKING SLIP" 
-    
-    current_date_obj = datetime.now(timezone.utc)
-    formatted_current_date = current_date_obj.strftime("%m/%d/%Y")
-    bc_order_id_ps_str = str(order_data.get('bigcommerce_order_id', 'N/A'))
-    order_ref_text = f"Date: {formatted_current_date}<br/>Order #: {escape(bc_order_id_ps_str)}"
-    
+        if is_g1_onsite_fulfillment:
+            packing_slip_title_text = "PACKING SLIP"
+
+        current_date_obj = datetime.now(timezone.utc)
+        formatted_current_date = current_date_obj.strftime("%m/%d/%Y")
+        bc_order_id_ps_str = str(order_data.get('bigcommerce_order_id', 'N/A'))
+        order_ref_text = f"Date: {formatted_current_date}<br/>Order #: {escape(bc_order_id_ps_str)}"
+
     header_data = [
-        [logo_element_to_use, Paragraph(f"<b>{packing_slip_title_text}</b>", styles['H1_Eloquia_Right'])], # Use H1_Eloquia_Right
-        [company_address_display_ps_para, Paragraph(order_ref_text, styles['Normal_Eloquia_Right'])] # Use Normal_Eloquia_Right
+        [logo_element_to_use, Paragraph(f"<b>{packing_slip_title_text}</b>", styles['H1_Eloquia_Right'])],
+        [company_address_display_ps_para, Paragraph(order_ref_text, styles['Normal_Eloquia_Right'])] # order_ref_text will be empty for blind
     ]
-    # ... (rest of packing slip generation using Eloquia styles)
     header_table = Table(header_data, colWidths=[4*inch, 3*inch])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (0,0), 6),
-        ('SPAN', (0,0), (0,0)), 
+        ('SPAN', (0,0), (0,0)),
     ]))
     story.append(header_table)
     story.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=0.05*inch, spaceAfter=0.1*inch))
@@ -472,19 +379,23 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
         ship_to_address_parts.append(escape(order_data.get('customer_shipping_address_line2', '')))
     ship_to_address_parts.append(f"{escape(order_data.get('customer_shipping_city', ''))}, {escape(order_data.get('customer_shipping_state', ''))} {escape(order_data.get('customer_shipping_zip', ''))}")
     ship_to_address_parts.append(escape(order_data.get('customer_shipping_country', '')))
-    
+
     ship_to_address_text = "<br/>".join(filter(None, ship_to_address_parts))
     ship_to_para = Paragraph(ship_to_address_text, styles['Normal_Eloquia'])
 
     formatted_shipping_method_display = _format_shipping_method_for_display(order_data.get('customer_shipping_method', 'N/A'))
-    raw_payment_method = order_data.get('payment_method', 'N/A')
-    formatted_payment_method_display = _format_shipping_method_for_display(raw_payment_method)
-
+    
     right_column_content = [
         Paragraph(f"<b>Shipping Method:</b> {escape(formatted_shipping_method_display)}", styles['Normal_Eloquia_Right']),
-        Spacer(1, 0.05 * inch),
-        Paragraph(f"<b>Payment Method:</b> {escape(formatted_payment_method_display)}", styles['Normal_Eloquia_Right'])
     ]
+    if not is_blind_slip: # Only add payment method if not a blind slip
+        raw_payment_method = order_data.get('payment_method', 'N/A')
+        formatted_payment_method_display = _format_shipping_method_for_display(raw_payment_method)
+        right_column_content.extend([
+            Spacer(1, 0.05 * inch),
+            Paragraph(f"<b>Payment Method:</b> {escape(formatted_payment_method_display)}", styles['Normal_Eloquia_Right'])
+        ])
+
     shipping_details_data = [
         [Paragraph("<b>Ship To:</b>", styles['H3_Eloquia']), ""],
         [ship_to_para, KeepInFrame(3.5*inch, 1.2*inch, right_column_content)]
@@ -498,12 +409,13 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     story.append(shipping_details_table)
     story.append(Spacer(1, 0.15 * inch))
 
-    customer_notes = order_data.get('customer_notes', '').strip()
-    if customer_notes:
-        story.append(Paragraph("<b>Customer Notes:</b>", styles['Normal_Eloquia_Bold']))
-        notes_paragraph_content = escape(customer_notes).replace('\n', '<br/>\n')
-        story.append(Paragraph(notes_paragraph_content, styles['CustomerNotesStyle_Eloquia']))
-        story.append(Spacer(1, 0.15 * inch))
+    if not is_blind_slip: # Only add customer notes if not a blind slip
+        customer_notes = order_data.get('customer_notes', '').strip()
+        if customer_notes:
+            story.append(Paragraph("<b>Customer Notes:</b>", styles['Normal_Eloquia_Bold']))
+            notes_paragraph_content = escape(customer_notes).replace('\n', '<br/>\n')
+            story.append(Paragraph(notes_paragraph_content, styles['CustomerNotesStyle_Eloquia']))
+            story.append(Spacer(1, 0.15 * inch))
 
     story.append(Paragraph("<b>IN THIS SHIPMENT:</b>", styles['H3_Eloquia']))
     story.append(Spacer(1, 0.05 * inch))
@@ -570,7 +482,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
 
     draw_footer_with_flag = partial(_draw_packing_slip_footer, is_blind_slip=is_blind_slip)
     doc.build(story, onFirstPage=draw_footer_with_flag, onLaterPages=draw_footer_with_flag)
-    
+
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes
@@ -580,7 +492,7 @@ if __name__ == '__main__':
     print("NOTE: Logo will be text unless GCS is configured and test_logo_gcs_uri is set.")
 
     sample_order_data_po = {
-        'bigcommerce_order_id': 12345, 
+        'bigcommerce_order_id': 12345,
         'customer_company': 'Customer Company LLC',
         'customer_name': 'Alice Wonderland',
         'customer_shipping_address_line1': '123 Main St',
@@ -594,9 +506,9 @@ if __name__ == '__main__':
     sample_supplier_data = { 'name': 'Test Supplier Inc.', 'address_line1': '123 Test St', 'city': 'Testville', 'state': 'TS', 'zip': '12345', 'country': 'USA', 'payment_terms': 'Net 30' }
     sample_po_items = [{'sku': 'TEST-SKU-1', 'description': 'Test Item One (Condition Suffix)', 'quantity': 2, 'unit_cost': 10.50, 'condition': 'New'}, {'sku': 'TEST-SKU-2', 'description': 'Test Item Two', 'quantity': 1, 'unit_cost': 25.00, 'condition': 'Used'}]
     po_specific_notes = "Test payment instructions.\nSecond line."
-    
+
     sample_order_data_ps = {
-        'bigcommerce_order_id': 'PS-5678', 
+        'bigcommerce_order_id': 'PS-5678',
         'order_date': datetime.now(timezone.utc).isoformat(),
         'customer_company': 'Multi-Ship Company',
         'customer_name': 'Multi-Ship Customer',
@@ -617,51 +529,52 @@ if __name__ == '__main__':
         {'quantity': 1, 'name': 'Widget B - Accessory (Ships Later in Grey)', 'sku': 'WIDGET-B'},
         {'quantity': 5, 'name': 'Extra Screws - Backordered (Grey Font Test)', 'sku': 'SCREW-XTRA'}
     ]
-    test_logo_gcs_uri = os.getenv("COMPANY_LOGO_GCS_URI") 
+    test_logo_gcs_uri = os.getenv("COMPANY_LOGO_GCS_URI")
     if not test_logo_gcs_uri: print("WARN: COMPANY_LOGO_GCS_URI not set in .env for local logo test.")
-    
-    print("\nGenerating Sample Purchase Order (Local Test - Helvetica)...")
+
+    print("\nGenerating Sample Purchase Order (Local Test - Mapped Eloquia via Helvetica)...")
     po_pdf_bytes = generate_purchase_order_pdf(
         order_data=sample_order_data_po, supplier_data=sample_supplier_data,
         po_number='TEST-PO-123', po_date=datetime.now(timezone.utc),
         po_items=sample_po_items, payment_terms=sample_supplier_data['payment_terms'],
         payment_instructions=po_specific_notes, logo_gcs_uri=test_logo_gcs_uri
     )
-    po_filename = "LOCAL_TEST_purchase_order_helvetica.pdf"
+    po_filename = "LOCAL_TEST_purchase_order_mapped_eloquia.pdf"
     with open(po_filename, "wb") as f: f.write(po_pdf_bytes)
     print(f"Sample Purchase Order PDF generated: {po_filename}")
 
-    print("\nGenerating Sample Packing Slip (Local Test - Eloquia)...")
+    print("\nGenerating Sample Packing Slip (Local Test - Mapped Eloquia)...")
     packing_slip_pdf_bytes = generate_packing_slip_pdf(
         order_data=sample_order_data_ps,
         items_in_this_shipment=sample_items_in_shipment,
         items_shipping_separately=sample_items_shipping_separately,
         logo_gcs_uri=test_logo_gcs_uri,
-        is_g1_onsite_fulfillment=False, 
-        is_blind_slip=False 
+        is_g1_onsite_fulfillment=False,
+        is_blind_slip=False
     )
-    ps_filename = "LOCAL_TEST_packing_slip_eloquia.pdf"
+    ps_filename = "LOCAL_TEST_packing_slip_mapped_eloquia.pdf"
     with open(ps_filename, "wb") as f: f.write(packing_slip_pdf_bytes)
     print(f"Sample Packing Slip PDF generated: {ps_filename}")
 
-    print("\nGenerating BLIND Sample Packing Slip (Local Test - Eloquia)...")
+    print("\nGenerating BLIND Sample Packing Slip (Local Test - Mapped Eloquia)...")
     blind_ship_from_details = {
-        'name': sample_order_data_ps.get('customer_company', 'Your Shipper Name'), 
-        'street_1': 'PO Box 1000', 
+        'name': sample_order_data_ps.get('customer_company', 'Your Shipper Name'),
+        'street_1': 'PO Box 1000',
         'city': 'Some City',
         'state': 'XX',
         'zip': '00000',
-        'country': 'USA' 
+        'country': 'USA'
     }
     blind_packing_slip_pdf_bytes = generate_packing_slip_pdf(
-        order_data=sample_order_data_ps, 
+        order_data=sample_order_data_ps,
         items_in_this_shipment=sample_items_in_shipment,
         items_shipping_separately=sample_items_shipping_separately,
-        logo_gcs_uri=None, 
-        is_g1_onsite_fulfillment=False, 
-        is_blind_slip=True, 
-        custom_ship_from_address=blind_ship_from_details 
+        logo_gcs_uri=None,
+        is_g1_onsite_fulfillment=False,
+        is_blind_slip=True,
+        custom_ship_from_address=blind_ship_from_details
     )
-    blind_ps_filename = "LOCAL_TEST_BLIND_packing_slip_eloquia.pdf"
+    blind_ps_filename = "LOCAL_TEST_BLIND_packing_slip_mapped_eloquia.pdf"
     with open(blind_ps_filename, "wb") as f: f.write(blind_packing_slip_pdf_bytes)
     print(f"Sample BLIND Packing Slip PDF generated: {blind_ps_filename}")
+

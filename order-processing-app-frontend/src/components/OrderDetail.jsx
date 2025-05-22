@@ -47,11 +47,11 @@ const formatShippingMethod = (methodString) => {
   if (lowerMethod.includes('next day air early a.m.') || lowerMethod.includes('next day air early am') || lowerMethod.includes('next day air e')) return 'UPS Next Day Air Early A.M.';
   if (lowerMethod.includes('next day air') || lowerMethod.includes('nda')) return 'UPS Next Day Air';
   if (lowerMethod.includes('2nd day air') || lowerMethod.includes('second day air')) return 'UPS 2nd Day Air';
-  if (lowerMethod.includes('ground')) return 'UPS Ground'; 
+  if (lowerMethod.includes('ground')) return 'UPS Ground';
   if (lowerMethod.includes('worldwide expedited')) return 'UPS Worldwide Expedited';
   if (lowerMethod.includes('worldwide express')) return 'UPS Worldwide Express';
   if (lowerMethod.includes('worldwide saver')) return 'UPS Worldwide Saver';
-  if (lowerMethod.includes('free shipping')) return 'UPS Ground'; 
+  if (lowerMethod.includes('free shipping')) return 'UPS Ground';
 
   if (lowerMethod === 'ups ground') return 'UPS Ground';
   if (lowerMethod === 'ups 2nd day air') return 'UPS 2nd Day Air';
@@ -64,7 +64,7 @@ const formatShippingMethod = (methodString) => {
   const bcMatch = methodString.match(/\(([^)]+)\)/);
   if (bcMatch && bcMatch[1]) {
     const extracted = bcMatch[1].trim();
-    const innerFormatted = formatShippingMethod(extracted); 
+    const innerFormatted = formatShippingMethod(extracted);
     return innerFormatted !== 'N/A' ? innerFormatted : extracted;
   }
 
@@ -88,6 +88,11 @@ const SHIPPING_METHODS_OPTIONS = [
     { value: "FEDEX_PRIORITY_OVERNIGHT", label: "FedEx Priority Overnight", carrier: "fedex" },
     { value: "FEDEX_STANDARD_OVERNIGHT", label: "FedEx Standard Overnight", carrier: "fedex" }
 ];
+
+const getSelectedShippingOption = (methodValue) => {
+  const foundOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === methodValue);
+  return foundOption || { value: methodValue, label: methodValue || 'N/A', carrier: null };
+};
 
 function OrderDetail() {
   const { orderId } = useParams();
@@ -123,9 +128,15 @@ function OrderDetail() {
   const [multiSupplierShipmentDetails, setMultiSupplierShipmentDetails] = useState({});
   const [originalCustomerShippingMethod, setOriginalCustomerShippingMethod] = useState('UPS Ground');
 
+  // FedEx Billing State
   const [billToCustomerFedex, setBillToCustomerFedex] = useState(false);
   const [customerFedexAccountNumber, setCustomerFedexAccountNumber] = useState('');
   
+  // UPS Billing State
+  const [billToCustomerUps, setBillToCustomerUps] = useState(false);
+  const [customerUpsAccountNumber, setCustomerUpsAccountNumber] = useState('');
+
+
   const [isBlindDropShip, setIsBlindDropShip] = useState(false);
 
   const [lineItemSpares, setLineItemSpares] = useState({});
@@ -134,8 +145,10 @@ function OrderDetail() {
   const cleanPullSuffix = " - clean pull";
   const originalLineItems = orderData?.line_items || [];
 
-  const getSelectedShippingOption = (methodValue) => {
-    return SHIPPING_METHODS_OPTIONS.find(opt => opt.value === methodValue);
+  const currentSelectedShippingOption = getSelectedShippingOption(shipmentMethod);
+
+  const handleBrandingChange = (event) => {
+    setIsBlindDropShip(event.target.value === 'blind');
   };
 
   const handleSeeQuotesClick = async () => {
@@ -145,7 +158,7 @@ function OrderDetail() {
       return;
     }
     const orderNumber = orderData.order.bigcommerce_order_id;
-    const searchPhrase = `Show me, in list format, the quoted prices received only today for Brokerbin RFQ and order number ${orderNumber}. Also include any comments included with the quotes. Disregard anything below "From: Global One Technology Group" in the emails. Note that "ea" is an abbreviation for each.`;
+    const searchPhrase = `Show me, in list format, the quoted prices received only today for Brokerbin RFQ and order number ${orderNumber}. Also include any comments included with the quotes. Disregard anything below "From: Global One Technology" in the emails. Note that "ea" is an abbreviation for each.`;
     try {
       await navigator.clipboard.writeText(searchPhrase);
       setSeeQuotesStatus(`Gemini prompt copied!`);
@@ -176,7 +189,11 @@ function OrderDetail() {
     if (!isPostProcessRefresh) {
         setProcessSuccess(false); setProcessSuccessMessage('');
         setProcessedPOsInfo([]); setProcessError(null);
-        setIsBlindDropShip(false); 
+        setIsBlindDropShip(false);
+        setBillToCustomerFedex(false); 
+        setCustomerFedexAccountNumber('');
+        setBillToCustomerUps(false);
+        setCustomerUpsAccountNumber('');
     }
     setStatusUpdateMessage('');
 
@@ -196,58 +213,45 @@ function OrderDetail() {
             setMultiSupplierShipmentDetails({});
             setLineItemAssignments({});
             setPoNotesBySupplier({});
-            setBillToCustomerFedex(false); 
-            setCustomerFedexAccountNumber('');
-
+            
             if (fetchedOrderData?.order) {
                 const orderDetails = fetchedOrderData.order;
-                let determinedInitialShipMethod = 'UPS Ground'; 
-                let determinedInitialCarrier = 'ups';
-
-                if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) { 
+                let determinedInitialShipMethod = 'UPS Ground';
+                
+                // Prioritize customer's selected service if billing their account
+                if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) {
                     const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_freight_service);
-                    const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService);
+                    const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService && opt.carrier === 'ups');
                     if (matchedOption) {
                         determinedInitialShipMethod = matchedOption.value;
-                        determinedInitialCarrier = matchedOption.carrier;
+                        setBillToCustomerUps(true);
+                        setCustomerUpsAccountNumber(orderDetails.customer_ups_account_number || '');
                     }
-                } else if (orderDetails.is_bill_to_customer_fedex_account && orderDetails.customer_selected_fedex_service) { 
+                } else if (orderDetails.is_bill_to_customer_fedex_account && orderDetails.customer_selected_fedex_service) {
                     const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_fedex_service);
                      const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService && opt.carrier === 'fedex');
                     if (matchedOption) {
                         determinedInitialShipMethod = matchedOption.value;
-                        determinedInitialCarrier = 'fedex';
                         setBillToCustomerFedex(true);
                         setCustomerFedexAccountNumber(orderDetails.customer_fedex_account_number || '');
                     }
-                } else if (orderDetails.customer_shipping_method) { 
+                } else if (orderDetails.customer_shipping_method) { // Fallback to general customer_shipping_method
                     const parsedOrderMethod = formatShippingMethod(orderDetails.customer_shipping_method);
                     const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === parsedOrderMethod);
                     if (matchedOption) {
                         determinedInitialShipMethod = matchedOption.value;
-                        determinedInitialCarrier = matchedOption.carrier;
-                         if (matchedOption.carrier === 'fedex' && orderDetails.is_bill_to_customer_fedex_account) {
-                            setBillToCustomerFedex(true);
-                            setCustomerFedexAccountNumber(orderDetails.customer_fedex_account_number || '');
+                        // If this method is UPS and the order indicates UPS third party billing, set those states
+                        if (matchedOption.carrier === 'ups' && orderDetails.is_bill_to_customer_account) {
+                           setBillToCustomerUps(true);
+                           setCustomerUpsAccountNumber(orderDetails.customer_ups_account_number || '');
+                        } else if (matchedOption.carrier === 'fedex' && orderDetails.is_bill_to_customer_fedex_account) {
+                           setBillToCustomerFedex(true);
+                           setCustomerFedexAccountNumber(orderDetails.customer_fedex_account_number || '');
                         }
                     }
                 }
                 setShipmentMethod(determinedInitialShipMethod);
-                setOriginalCustomerShippingMethod(determinedInitialShipMethod); 
-
-                const initialSelectedShippingOption = getSelectedShippingOption(determinedInitialShipMethod);
-                if (initialSelectedShippingOption?.carrier === 'fedex') {
-                    if (orderDetails.is_bill_to_customer_fedex_account) {
-                        setBillToCustomerFedex(true);
-                        setCustomerFedexAccountNumber(orderDetails.customer_fedex_account_number || '');
-                    } else {
-                        setBillToCustomerFedex(false);
-                        setCustomerFedexAccountNumber('');
-                    }
-                } else { 
-                    setBillToCustomerFedex(false);
-                    setCustomerFedexAccountNumber('');
-                }
+                setOriginalCustomerShippingMethod(determinedInitialShipMethod);
             }
 
 
@@ -276,20 +280,20 @@ function OrderDetail() {
                 setPurchaseItems([]);
                 setMultiSupplierItemDescriptions({});
             }
-        } else if (fetchedOrderData?.order) { 
+        } else if (fetchedOrderData?.order) {
             const orderDetails = fetchedOrderData.order;
             let determinedOriginalMethod = 'UPS Ground';
-             if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) { 
+             if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) {
                 const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_freight_service);
-                 if (SHIPPING_METHODS_OPTIONS.some(opt => opt.value === customerSelectedService)) determinedOriginalMethod = customerSelectedService;
-            } else if (orderDetails.is_bill_to_customer_fedex_account && orderDetails.customer_selected_fedex_service) { 
+                 if (SHIPPING_METHODS_OPTIONS.some(opt => opt.value === customerSelectedService && opt.carrier === 'ups')) determinedOriginalMethod = customerSelectedService;
+            } else if (orderDetails.is_bill_to_customer_fedex_account && orderDetails.customer_selected_fedex_service) {
                 const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_fedex_service);
                  if (SHIPPING_METHODS_OPTIONS.some(opt => opt.value === customerSelectedService && opt.carrier === 'fedex')) determinedOriginalMethod = customerSelectedService;
             } else if (orderDetails.customer_shipping_method) {
                 const parsedOrderMethod = formatShippingMethod(orderDetails.customer_shipping_method);
                  if (SHIPPING_METHODS_OPTIONS.some(opt => opt.value === parsedOrderMethod)) determinedOriginalMethod = parsedOrderMethod;
             }
-            setOriginalCustomerShippingMethod(determinedOriginalMethod); 
+            setOriginalCustomerShippingMethod(determinedOriginalMethod);
         }
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -379,44 +383,55 @@ function OrderDetail() {
     setProcessError(null); setProcessSuccess(false);
     setProcessSuccessMessage(''); setProcessedPOsInfo([]);
 
-    let defaultMethodForThisMode = 'UPS Ground'; 
-    let defaultCarrier = 'ups';
+    let defaultMethodForThisMode = 'UPS Ground';
+    // let defaultCarrier = 'ups'; // Not directly used for setting state here
 
     if (orderData?.order) {
         const orderDetails = orderData.order;
-        if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) { 
+        if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) {
             const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_freight_service);
-            const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService);
+            const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService && opt.carrier === 'ups');
             if (matchedOption) {
                 defaultMethodForThisMode = matchedOption.value;
-                defaultCarrier = matchedOption.carrier;
+                // defaultCarrier = 'ups';
             }
-        } else if (orderDetails.is_bill_to_customer_fedex_account && orderDetails.customer_selected_fedex_service) { 
+        } else if (orderDetails.is_bill_to_customer_fedex_account && orderDetails.customer_selected_fedex_service) {
             const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_fedex_service);
             const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService && opt.carrier === 'fedex');
             if (matchedOption) {
                 defaultMethodForThisMode = matchedOption.value;
-                defaultCarrier = 'fedex';
+                // defaultCarrier = 'fedex';
             }
         } else if (orderDetails.customer_shipping_method) {
             const parsedOrderMethod = formatShippingMethod(orderDetails.customer_shipping_method);
             const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === parsedOrderMethod);
             if (matchedOption) {
                 defaultMethodForThisMode = matchedOption.value;
-                defaultCarrier = matchedOption.carrier;
+                // defaultCarrier = matchedOption.carrier;
             }
         }
     }
-    setOriginalCustomerShippingMethod(defaultMethodForThisMode); 
-    setShipmentMethod(defaultMethodForThisMode); 
+    setOriginalCustomerShippingMethod(defaultMethodForThisMode);
+    setShipmentMethod(defaultMethodForThisMode);
     setShipmentWeight('');
+    setIsBlindDropShip(false);
 
-    if (defaultCarrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account) {
+    const newSelectedOption = getSelectedShippingOption(defaultMethodForThisMode);
+    if (newSelectedOption.carrier === 'ups' && orderData?.order?.is_bill_to_customer_account) {
+        setBillToCustomerUps(true);
+        setCustomerUpsAccountNumber(orderData.order.customer_ups_account_number || '');
+        setBillToCustomerFedex(false);
+        setCustomerFedexAccountNumber('');
+    } else if (newSelectedOption.carrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account) {
         setBillToCustomerFedex(true);
         setCustomerFedexAccountNumber(orderData.order.customer_fedex_account_number || '');
+        setBillToCustomerUps(false);
+        setCustomerUpsAccountNumber('');
     } else {
         setBillToCustomerFedex(false);
         setCustomerFedexAccountNumber('');
+        setBillToCustomerUps(false);
+        setCustomerUpsAccountNumber('');
     }
 
 
@@ -444,14 +459,24 @@ function OrderDetail() {
         setLineItemAssignments({}); setPoNotesBySupplier({});
         setMultiSupplierItemCosts({});
         const newMultiShipDetails = {};
-        Object.keys(lineItemAssignments).forEach(itemId => { 
+        // Initialize multi-supplier shipment details based on the original customer method
+        // and check for pre-existing third-party billing info for each carrier
+        const initialShipOptionForMulti = getSelectedShippingOption(originalCustomerShippingMethod);
+        Object.keys(lineItemAssignments).forEach(itemId => {
             const supId = lineItemAssignments[itemId];
             if (supId && !newMultiShipDetails[supId]) {
-                newMultiShipDetails[supId] = { method: defaultMethodForThisMode, weight: '' };
+                newMultiShipDetails[supId] = {
+                    method: originalCustomerShippingMethod,
+                    weight: '',
+                    billToCustomerUpsAccount: initialShipOptionForMulti.carrier === 'ups' && orderData?.order?.is_bill_to_customer_account,
+                    customerUpsAccount: initialShipOptionForMulti.carrier === 'ups' && orderData?.order?.is_bill_to_customer_account ? (orderData.order.customer_ups_account_number || '') : '',
+                    billToCustomerFedexAccount: initialShipOptionForMulti.carrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account,
+                    customerFedexAccount: initialShipOptionForMulti.carrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account ? (orderData.order.customer_fedex_account_number || '') : ''
+                };
             }
         });
         setMultiSupplierShipmentDetails(newMultiShipDetails);
-    } else { 
+    } else {
         setIsG1OnsiteFulfillmentMode(false); setIsMultiSupplierMode(false);
         const s = suppliers.find(sup => sup.id === parseInt(value, 10));
         setSingleOrderPoNotes(s?.defaultponotes || '');
@@ -482,9 +507,17 @@ function OrderDetail() {
         setPoNotesBySupplier(prev => ({ ...prev, [supplierId]: s?.defaultponotes || '' }));
     }
     if (supplierId && isMultiSupplierMode && !multiSupplierShipmentDetails[supplierId]) {
+        const initialShipOptionForMulti = getSelectedShippingOption(originalCustomerShippingMethod);
         setMultiSupplierShipmentDetails(prev => ({
             ...prev,
-            [supplierId]: { method: originalCustomerShippingMethod, weight: '' } 
+            [supplierId]: {
+                method: originalCustomerShippingMethod,
+                weight: '',
+                billToCustomerUpsAccount: initialShipOptionForMulti.carrier === 'ups' && orderData?.order?.is_bill_to_customer_account,
+                customerUpsAccount: initialShipOptionForMulti.carrier === 'ups' && orderData?.order?.is_bill_to_customer_account ? (orderData.order.customer_ups_account_number || '') : '',
+                billToCustomerFedexAccount: initialShipOptionForMulti.carrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account,
+                customerFedexAccount: initialShipOptionForMulti.carrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account ? (orderData.order.customer_fedex_account_number || '') : ''
+            }
         }));
     }
   };
@@ -503,26 +536,32 @@ function OrderDetail() {
 
   const handleMultiSupplierShipmentDetailChange = (supplierId, field, value) => {
     setMultiSupplierShipmentDetails(prev => {
-        const newDetails = {
-            ...prev,
-            [supplierId]: {
-                ...(prev[supplierId] || { method: originalCustomerShippingMethod, weight: '' }),
-                [field]: value
-            }
-        };
+        const currentDetails = prev[supplierId] || { method: originalCustomerShippingMethod, weight: '' };
+        const newDetailsForSupplier = { ...currentDetails, [field]: value };
+
         if (field === 'method') {
             const selectedOpt = getSelectedShippingOption(value);
-            if (selectedOpt?.carrier !== 'fedex') {
-                newDetails[supplierId].billToCustomerFedexAccount = false;
-                newDetails[supplierId].customerFedexAccount = '';
-            } else if (selectedOpt?.carrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account) {
-                newDetails[supplierId].billToCustomerFedexAccount = true;
-                newDetails[supplierId].customerFedexAccount = orderData.order.customer_fedex_account_number || '';
+            if (selectedOpt?.carrier === 'ups') {
+                newDetailsForSupplier.billToCustomerUpsAccount = orderData?.order?.is_bill_to_customer_account || false;
+                newDetailsForSupplier.customerUpsAccount = (orderData?.order?.is_bill_to_customer_account && orderData?.order?.customer_ups_account_number) ? orderData.order.customer_ups_account_number : '';
+                newDetailsForSupplier.billToCustomerFedexAccount = false;
+                newDetailsForSupplier.customerFedexAccount = '';
+            } else if (selectedOpt?.carrier === 'fedex') {
+                newDetailsForSupplier.billToCustomerFedexAccount = orderData?.order?.is_bill_to_customer_fedex_account || false;
+                newDetailsForSupplier.customerFedexAccount = (orderData?.order?.is_bill_to_customer_fedex_account && orderData?.order?.customer_fedex_account_number) ? orderData.order.customer_fedex_account_number : '';
+                newDetailsForSupplier.billToCustomerUpsAccount = false;
+                newDetailsForSupplier.customerUpsAccount = '';
+            } else { // Neither UPS nor FedEx, or no specific carrier
+                newDetailsForSupplier.billToCustomerUpsAccount = false;
+                newDetailsForSupplier.customerUpsAccount = '';
+                newDetailsForSupplier.billToCustomerFedexAccount = false;
+                newDetailsForSupplier.customerFedexAccount = '';
             }
         }
-        return newDetails;
+        return { ...prev, [supplierId]: newDetailsForSupplier };
     });
-  };
+};
+
 
   const handlePurchaseItemChange = (index, field, value) => {
     setPurchaseItems(prevItems => {
@@ -544,12 +583,22 @@ function OrderDetail() {
     const newMethod = e.target.value;
     setShipmentMethod(newMethod);
     const selectedOpt = getSelectedShippingOption(newMethod);
-    if (selectedOpt?.carrier !== 'fedex') {
+
+    if (selectedOpt?.carrier === 'ups') {
+        setBillToCustomerUps(orderData?.order?.is_bill_to_customer_account || false);
+        setCustomerUpsAccountNumber((orderData?.order?.is_bill_to_customer_account && orderData?.order?.customer_ups_account_number) ? orderData.order.customer_ups_account_number : '');
         setBillToCustomerFedex(false);
         setCustomerFedexAccountNumber('');
-    } else if (selectedOpt?.carrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account) {
-        setBillToCustomerFedex(true);
-        setCustomerFedexAccountNumber(orderData.order.customer_fedex_account_number || '');
+    } else if (selectedOpt?.carrier === 'fedex') {
+        setBillToCustomerFedex(orderData?.order?.is_bill_to_customer_fedex_account || false);
+        setCustomerFedexAccountNumber((orderData?.order?.is_bill_to_customer_fedex_account && orderData?.order?.customer_fedex_account_number) ? orderData.order.customer_fedex_account_number : '');
+        setBillToCustomerUps(false);
+        setCustomerUpsAccountNumber('');
+    } else {
+        setBillToCustomerFedex(false);
+        setCustomerFedexAccountNumber('');
+        setBillToCustomerUps(false);
+        setCustomerUpsAccountNumber('');
     }
   };
   const handleShipmentWeightChange = (e) => setShipmentWeight(e.target.value);
@@ -619,25 +668,29 @@ function OrderDetail() {
     let payloadAssignments = [];
 
     if (isG1OnsiteFulfillmentMode) {
-        const currentSelectedShipOption = getSelectedShippingOption(shipmentMethod);
-        if (originalLineItems.length > 0) { 
+        if (originalLineItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight for G1 Onsite Fulfillment."); setProcessing(false); return; }
-            if (!shipmentMethod || !currentSelectedShipOption) { setProcessError("Please select a shipment method for G1 Onsite Fulfillment."); setProcessing(false); return; }
-             if (currentSelectedShipOption.carrier === 'fedex' && billToCustomerFedex && !customerFedexAccountNumber.trim()) {
-                setProcessError("Customer FedEx Account Number is required for G1 Onsite Bill Recipient."); setProcessing(false); return;
+            if (!shipmentMethod || !currentSelectedShippingOption) { setProcessError("Please select a shipment method for G1 Onsite Fulfillment."); setProcessing(false); return; }
+            if (currentSelectedShippingOption.carrier === 'fedex' && billToCustomerFedex && !customerFedexAccountNumber.trim()) {
+                setProcessError("Customer FedEx Account Number is required for G1 Onsite Bill Recipient (FedEx)."); setProcessing(false); return;
+            }
+            if (currentSelectedShippingOption.carrier === 'ups' && billToCustomerUps && !customerUpsAccountNumber.trim()) {
+                setProcessError("Customer UPS Account Number is required for G1 Onsite Bill Recipient (UPS)."); setProcessing(false); return;
             }
         }
         payloadAssignments.push({
             supplier_id: G1_ONSITE_FULFILLMENT_VALUE,
             payment_instructions: "G1 Onsite Fulfillment",
-            po_line_items: [], 
+            po_line_items: [],
             total_shipment_weight_lbs: originalLineItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null,
             shipment_method: originalLineItems.length > 0 ? shipmentMethod : null,
-            carrier: originalLineItems.length > 0 ? (currentSelectedShipOption?.carrier || 'ups') : null,
-            is_bill_to_customer_fedex_account: originalLineItems.length > 0 && currentSelectedShipOption?.carrier === 'fedex' ? billToCustomerFedex : false,
-            customer_fedex_account_number: originalLineItems.length > 0 && currentSelectedShipOption?.carrier === 'fedex' && billToCustomerFedex ? customerFedexAccountNumber.trim() : null,
-            is_blind_drop_ship: isBlindDropShip 
+            carrier: originalLineItems.length > 0 ? (currentSelectedShippingOption?.carrier || null) : null,
+            is_bill_to_customer_fedex_account: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' ? billToCustomerFedex : false,
+            customer_fedex_account_number: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' && billToCustomerFedex ? customerFedexAccountNumber.trim() : null,
+            is_bill_to_customer_ups_account: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' ? billToCustomerUps : false,
+            customer_ups_account_number: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' && billToCustomerUps ? customerUpsAccountNumber.trim() : null,
+            is_blind_drop_ship: isBlindDropShip
         });
     } else if (isMultiSupplierMode) {
         const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id);
@@ -671,11 +724,16 @@ function OrderDetail() {
                 if (currentPoMethod && (!currentPoWeight || parseFloat(currentPoWeight) <= 0)) { setProcessError(`Invalid/missing weight for PO to ${supplier?.name}.`); setProcessing(false); return; }
                 if (!currentPoMethod && currentPoWeight && parseFloat(currentPoWeight) > 0) { setProcessError(`Shipping method required for PO to ${supplier?.name}.`); setProcessing(false); return; }
 
-                const isFedexBillRecipientMulti = shipmentDetailsForThisPo.billToCustomerFedexAccount || false; 
-                const fedexAccountNumMulti = shipmentDetailsForThisPo.customerFedexAccount || '';  
+                const isFedexBillRecipientMulti = shipmentDetailsForThisPo.billToCustomerFedexAccount || false;
+                const fedexAccountNumMulti = shipmentDetailsForThisPo.customerFedexAccount || '';
+                const isUpsBillRecipientMulti = shipmentDetailsForThisPo.billToCustomerUpsAccount || false;
+                const upsAccountNumMulti = shipmentDetailsForThisPo.customerUpsAccount || '';
 
                 if (currentSelectedShipOptionMulti?.carrier === 'fedex' && isFedexBillRecipientMulti && !fedexAccountNumMulti.trim()) {
                     setProcessError(`Customer FedEx Account Number is required for PO to ${supplier?.name} when 'Bill to Customer' is checked.`); setProcessing(false); return;
+                }
+                if (currentSelectedShipOptionMulti?.carrier === 'ups' && isUpsBillRecipientMulti && !upsAccountNumMulti.trim()) {
+                    setProcessError(`Customer UPS Account Number is required for PO to ${supplier?.name} when 'Bill to Customer' is checked.`); setProcessing(false); return;
                 }
 
                 payloadAssignments.push({
@@ -684,10 +742,12 @@ function OrderDetail() {
                     po_line_items: poLineItems,
                     total_shipment_weight_lbs: currentPoWeight ? parseFloat(currentPoWeight).toFixed(1) : null,
                     shipment_method: currentPoMethod || null,
-                    carrier: currentSelectedShipOptionMulti?.carrier || (currentPoMethod ? 'ups' : null),
+                    carrier: currentSelectedShipOptionMulti?.carrier || (currentPoMethod ? null : null),
                     is_bill_to_customer_fedex_account: currentSelectedShipOptionMulti?.carrier === 'fedex' ? isFedexBillRecipientMulti : false,
                     customer_fedex_account_number: currentSelectedShipOptionMulti?.carrier === 'fedex' && isFedexBillRecipientMulti ? fedexAccountNumMulti.trim() : null,
-                    is_blind_drop_ship: isBlindDropShip 
+                    is_bill_to_customer_ups_account: currentSelectedShipOptionMulti?.carrier === 'ups' ? isUpsBillRecipientMulti : false,
+                    customer_ups_account_number: currentSelectedShipOptionMulti?.carrier === 'ups' && isUpsBillRecipientMulti ? upsAccountNumMulti.trim() : null,
+                    is_blind_drop_ship: isBlindDropShip
                 });
             }
         }
@@ -699,14 +759,16 @@ function OrderDetail() {
             setProcessError("Please select a supplier."); setProcessing(false); return;
         }
         const currentPurchaseItems = purchaseItems;
-        const currentSelectedShipOptionSingle = getSelectedShippingOption(shipmentMethod);
 
-        if (currentPurchaseItems.length > 0) { 
+        if (currentPurchaseItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight."); setProcessing(false); return; }
-            if (!shipmentMethod || !currentSelectedShipOptionSingle) { setProcessError("Please select a shipment method."); setProcessing(false); return; }
-            if (currentSelectedShipOptionSingle.carrier === 'fedex' && billToCustomerFedex && !customerFedexAccountNumber.trim()) {
-                setProcessError("Customer FedEx Account Number is required when 'Bill to Customer' is checked."); setProcessing(false); return;
+            if (!shipmentMethod || !currentSelectedShippingOption) { setProcessError("Please select a shipment method."); setProcessing(false); return; }
+            if (currentSelectedShippingOption.carrier === 'fedex' && billToCustomerFedex && !customerFedexAccountNumber.trim()) {
+                setProcessError("Customer FedEx Account Number is required when 'Bill to Customer' (FedEx) is checked."); setProcessing(false); return;
+            }
+            if (currentSelectedShippingOption.carrier === 'ups' && billToCustomerUps && !customerUpsAccountNumber.trim()) {
+                setProcessError("Customer UPS Account Number is required when 'Bill to Customer' (UPS) is checked."); setProcessing(false); return;
             }
         }
 
@@ -723,17 +785,19 @@ function OrderDetail() {
         if (itemValidationError) { setProcessError(itemValidationError); setProcessing(false); return; }
         if (finalPurchaseItems.length === 0 && originalLineItems.length > 0) { setProcessError("No valid line items for PO."); setProcessing(false); return; }
 
-        if (finalPurchaseItems.length > 0 || originalLineItems.length === 0) { 
+        if (finalPurchaseItems.length > 0 || originalLineItems.length === 0) {
             payloadAssignments.push({
                 supplier_id: parseInt(singleSelectedSupId, 10),
                 payment_instructions: singleOrderPoNotes,
                 total_shipment_weight_lbs: finalPurchaseItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null,
                 shipment_method: finalPurchaseItems.length > 0 ? shipmentMethod : null,
                 po_line_items: finalPurchaseItems,
-                carrier: finalPurchaseItems.length > 0 ? (currentSelectedShipOptionSingle?.carrier || 'ups') : null,
-                is_bill_to_customer_fedex_account: finalPurchaseItems.length > 0 && currentSelectedShipOptionSingle?.carrier === 'fedex' ? billToCustomerFedex : false,
-                customer_fedex_account_number: finalPurchaseItems.length > 0 && currentSelectedShipOptionSingle?.carrier === 'fedex' && billToCustomerFedex ? customerFedexAccountNumber.trim() : null,
-                is_blind_drop_ship: isBlindDropShip 
+                carrier: finalPurchaseItems.length > 0 ? (currentSelectedShippingOption?.carrier || null) : null,
+                is_bill_to_customer_fedex_account: finalPurchaseItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' ? billToCustomerFedex : false,
+                customer_fedex_account_number: finalPurchaseItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' && billToCustomerFedex ? customerFedexAccountNumber.trim() : null,
+                is_bill_to_customer_ups_account: finalPurchaseItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' ? billToCustomerUps : false,
+                customer_ups_account_number: finalPurchaseItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' && billToCustomerUps ? customerUpsAccountNumber.trim() : null,
+                is_blind_drop_ship: isBlindDropShip
             });
         }
     }
@@ -777,18 +841,14 @@ function OrderDetail() {
   let displayOrderDate = 'N/A';
   if (order?.order_date) try { displayOrderDate = new Date(order.order_date).toLocaleDateString(); } catch (e) { /* ignore */ }
 
-  let displayShipMethodInOrderInfo = 'N/A';
-  if (order) {
-    if (order.is_bill_to_customer_account && order.customer_selected_freight_service) { 
-        displayShipMethodInOrderInfo = formatShippingMethod(order.customer_selected_freight_service);
-    } else if (order.is_bill_to_customer_fedex_account && order.customer_selected_fedex_service) { 
-        displayShipMethodInOrderInfo = formatShippingMethod(order.customer_selected_fedex_service);
-    } else if (order.customer_shipping_method) {
-        displayShipMethodInOrderInfo = formatShippingMethod(order.customer_shipping_method);
-    }
-  }
+  const displayShipMethodInOrderInfo = formatShippingMethod(
+    (order?.is_bill_to_customer_account && order?.customer_selected_freight_service) // UPS
+        ? order.customer_selected_freight_service
+        : (order?.is_bill_to_customer_fedex_account && order?.customer_selected_fedex_service) // FedEx
+            ? order.customer_selected_fedex_service
+            : order?.customer_shipping_method // Default
+  );
 
-  const currentSelectedShippingOption = getSelectedShippingOption(shipmentMethod);
 
   return (
     <div className="order-detail-container">
@@ -816,13 +876,13 @@ function OrderDetail() {
       {processSuccess && (
         <div className="process-success-container card">
           <p className="success-message-large">ORDER PROCESSED SUCCESSFULLY!</p>
-          
+
           <div className="dashboard-link-container" style={{ marginTop: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)', textAlign: 'center' }}>
             <a
               href="https://store-g6oxherh18.mybigcommerce.com/manage/orders"
               target="_blank"
               rel="noopener noreferrer"
-              className="btn btn-info" 
+              className="btn btn-info"
             >
               G1 BC Order Dashboard
             </a>
@@ -831,25 +891,7 @@ function OrderDetail() {
           {processSuccessMessage && (
             <p className="success-message-detail" style={{textAlign: 'center', marginBottom: 'var(--spacing-lg)'}}>{processSuccessMessage}</p>
           )}
-            {processedPOsInfo.length > 0 && (
-                <div className="processed-pos-info">
-                    <h4>Generated Documents:</h4>
-                    <ul>
-                        {processedPOsInfo.map((poInfo, index) => (
-                            <li key={index}>
-                                <strong>PO #: {poInfo.po_number}</strong> (Supplier ID: {poInfo.supplier_id})
-                                {poInfo.is_blind_drop_ship && <span style={{color: 'var(--primary-accent)', fontStyle: 'italic'}}> (Blind Drop Ship)</span>}
-                                {poInfo.tracking_number && <span> - Tracking: {poInfo.tracking_number}</span>}
-                                <div className="doc-links">
-                                    {poInfo.po_pdf_gcs_uri && <a href={poInfo.po_pdf_gcs_uri} target="_blank" rel="noopener noreferrer" className="link-button">PO PDF</a>}
-                                    {poInfo.packing_slip_gcs_uri && <a href={poInfo.packing_slip_gcs_uri} target="_blank" rel="noopener noreferrer" className="link-button">Packing Slip</a>}
-                                    {poInfo.label_gcs_uri && <a href={poInfo.label_gcs_uri} target="_blank" rel="noopener noreferrer" className="link-button">Shipping Label</a>}
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
+
         </div>
       )}
 
@@ -872,26 +914,28 @@ function OrderDetail() {
         </section>
       )}
 
-      {orderData && order && !processSuccess && !isActuallyProcessed && ( 
+      {orderData && order && !processSuccess && !isActuallyProcessed && (
        <section className="order-info card">
         <h3>Order Information</h3>
         <div><strong>Rec'd:</strong> {displayOrderDate}</div>
         <div><strong>Customer:</strong> {order.customer_company || order.customer_name || 'N/A'}</div>
         <div><strong>Paid by:</strong> {order.payment_method || 'N/A'}</div>
-        <div><strong>Ship:</strong> {displayShipMethodInOrderInfo} to {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
+        <div><strong>Ship:</strong> {displayShipMethodInOrderInfo}<br />to {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
 
         {order.is_bill_to_customer_account && order.customer_ups_account_number && (
-          <div className="customer-account-info">
-            <strong>Bill Shipping To:</strong> Customer UPS Account # {order.customer_ups_account_number}
+          <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg, #e6f7ff)', color: 'var(--info-text, #00529B)', border: '1px dashed var(--info-border, #b3e0ff)'}}>
+            <strong>Bill Shipping To:</strong> Customer UPS Acct # {order.customer_ups_account_number}
             {order.customer_selected_freight_service && ` (Service: ${formatShippingMethod(order.customer_selected_freight_service)})`}
+            {order.customer_ups_account_zipcode && ` (Zip: ${order.customer_ups_account_zipcode})`}
           </div>
         )}
-        {order.is_bill_to_customer_fedex_account && order.customer_fedex_account_number && (
-            <div className="customer-account-info">
-                <strong>Bill Shipping To:</strong> Customer FedEx Account # {order.customer_fedex_account_number}
-                {order.customer_selected_fedex_service && ` (Service: ${formatShippingMethod(order.customer_selected_fedex_service)})`}
-            </div>
+         {order.is_bill_to_customer_fedex_account && order.customer_fedex_account_number && (
+          <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg-alt, #e6fff2)', color: 'var(--info-text-alt, #006421)', border: '1px dashed var(--info-border-alt, #b3ffcc)'}}>
+            <strong>Bill Shipping To:</strong> Customer FedEx Acct # {order.customer_fedex_account_number}
+            {order.customer_selected_fedex_service && ` (Service: ${formatShippingMethod(order.customer_selected_fedex_service)})`}
+          </div>
         )}
+
 
         {order.customer_notes && (<div style={{ marginTop: '5px' }}><strong>Comments:</strong> {order.customer_notes}</div>)}
         <hr style={{ margin: '10px 0' }} />
@@ -978,54 +1022,45 @@ function OrderDetail() {
               <h3>Shipment Information</h3>
               <div className="form-grid">
                 <label htmlFor="shipmentMethodSingle">Method:</label>
-                <select 
-                  id="shipmentMethodSingle" 
-                  value={shipmentMethod} 
-                  onChange={handleShipmentMethodChange} 
-                  disabled={disableEditableFormFields} 
+                <select
+                  id="shipmentMethodSingle"
+                  value={shipmentMethod}
+                  onChange={handleShipmentMethodChange}
+                  disabled={disableEditableFormFields}
                   required={originalLineItems.length > 0 && !isG1OnsiteFulfillmentMode && purchaseItems.length > 0}
                 >
                     {SHIPPING_METHODS_OPTIONS.map(opt => <option key={`${opt.value}-${opt.carrier}`} value={opt.value}>{opt.label}</option>)}
                 </select>
-                
+
                 <label htmlFor="shipmentWeightSingle">Weight (lbs):</label>
-                <input 
-                    type="number" 
-                    id="shipmentWeightSingle" 
+                <input
+                    type="number"
+                    id="shipmentWeightSingle"
                     className="weight-input-field"
-                    value={shipmentWeight} 
-                    onChange={handleShipmentWeightChange} 
-                    step="0.1" min="0.1" 
-                    placeholder="e.g., 5.0" 
+                    value={shipmentWeight}
+                    onChange={handleShipmentWeightChange}
+                    step="0.1" min="0.1"
+                    placeholder="e.g., 5.0"
                     required={originalLineItems.length > 0 && !isG1OnsiteFulfillmentMode && purchaseItems.length > 0}
-                    disabled={disableEditableFormFields} 
+                    disabled={disableEditableFormFields}
                 />
-                
-                {/* "Blind Ship?" Label occupies the first column of a new grid row */}
-                <label htmlFor="isBlindDropShipSingle" className="blind-ship-grid-label-col1">Blind Ship?</label>
-                {/* Empty cell removed as layout is now 4-column handled by .shipment-info .form-grid */}
-                
 
-                {/* Checkbox wrapper occupies the first column of the next grid row, visually under its label */}
-                <div className="blind-ship-checkbox-wrapper-col1"> 
-                    <input
-                        type="checkbox"
-                        id="isBlindDropShipSingle" // ID is linked from the label above
-                        className="blind-ship-checkbox-input"
-                        checked={isBlindDropShip}
-                        onChange={(e) => setIsBlindDropShip(e.target.checked)}
-                        disabled={disableEditableFormFields}
-                    />
-                </div>
-                {/* Empty cell removed as layout is now 4-column handled by .shipment-info .form-grid */}
-                
+                <label htmlFor="brandingOptionSingle">Branding:</label>
+                <select
+                    id="brandingOptionSingle"
+                    value={isBlindDropShip ? 'blind' : 'g1'}
+                    onChange={handleBrandingChange}
+                    disabled={disableEditableFormFields}
+                >
+                    <option value="g1">G1 Branding</option>
+                    <option value="blind">Blind/No Branding</option>
+                </select>
 
-              </div>
-              {currentSelectedShippingOption?.carrier === 'fedex' && (
+                {/* FedEx Billing Options */}
+                {currentSelectedShippingOption?.carrier === 'fedex' && (
                 <>
-                    <div className="form-grid" style={{marginTop: '10px'}}>
-                        <label htmlFor="billToCustomerFedexSingle">Bill to Customer's FedEx Account:</label>
-                        <input
+                    <label htmlFor="billToCustomerFedexSingle">Bill Customer FedEx:</label>
+                    <input
                         type="checkbox"
                         id="billToCustomerFedexSingle"
                         checked={billToCustomerFedex}
@@ -1038,12 +1073,11 @@ function OrderDetail() {
                             }
                         }}
                         disabled={disableEditableFormFields}
-                        style={{ justifySelf: 'start' }} 
-                        />
-                    </div>
+                    />
+
                     {billToCustomerFedex && (
-                        <div className="form-grid" style={{marginTop: '5px'}}>
-                        <label htmlFor="customerFedexAccountSingle">Customer FedEx Account #:</label>
+                    <>
+                        <label htmlFor="customerFedexAccountSingle">Customer FedEx Acct #:</label>
                         <input
                             type="text"
                             id="customerFedexAccountSingle"
@@ -1053,13 +1087,48 @@ function OrderDetail() {
                             required
                             disabled={disableEditableFormFields}
                         />
-                        </div>
+                    </>
                     )}
                 </>
                )}
+               {/* UPS Billing Options */}
+               {currentSelectedShippingOption?.carrier === 'ups' && (
+                <>
+                    <label htmlFor="billToCustomerUpsSingle">Bill Customer UPS:</label>
+                    <input
+                        type="checkbox"
+                        id="billToCustomerUpsSingle"
+                        checked={billToCustomerUps}
+                        onChange={(e) => {
+                            setBillToCustomerUps(e.target.checked);
+                            if (e.target.checked && orderData?.order?.is_bill_to_customer_account && orderData?.order?.customer_ups_account_number) {
+                                setCustomerUpsAccountNumber(orderData.order.customer_ups_account_number);
+                            } else if (!e.target.checked) {
+                                setCustomerUpsAccountNumber('');
+                            }
+                        }}
+                        disabled={disableEditableFormFields}
+                    />
+                    {billToCustomerUps && (
+                    <>
+                        <label htmlFor="customerUpsAccountSingle">Customer UPS Acct #:</label>
+                        <input
+                            type="text"
+                            id="customerUpsAccountSingle"
+                            value={customerUpsAccountNumber}
+                            onChange={(e) => setCustomerUpsAccountNumber(e.target.value)}
+                            placeholder="UPS Account Number"
+                            required
+                            disabled={disableEditableFormFields}
+                        />
+                    </>
+                    )}
+                </>
+               )}
+              </div>
             </section>
              <div className="order-actions">
-                <button type="submit" disabled={disableAllActions || processing} className="btn btn-gradient btn-shadow-lift btn-success process-order-button-specifics">
+                <button type="submit" disabled={disableAllActions || processing} className="process-order-button">
                     {processing ? 'Processing Single PO...' : 'PROCESS SINGLE SUPPLIER PO'}
                 </button>
             </div>
@@ -1073,9 +1142,9 @@ function OrderDetail() {
                 <h3>Assign Original Items to Suppliers</h3>
                 {originalLineItems.length === 0 && <p>No original line items to assign.</p>}
                 {originalLineItems.map((item) => (
-                    <div key={`assign-item-${item.line_item_id}`} className="item-assignment-row">
-                        <span>({item.quantity}) {item.original_sku || 'N/A'}</span>
-                        <select value={lineItemAssignments[item.line_item_id] || ''} onChange={(e) => handleLineItemSupplierAssignment(item.line_item_id, e.target.value)} disabled={disableAllActions || suppliers.length === 0}>
+                    <div key={`assign-item-${item.line_item_id}`} className="item-assignment-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-sm)'}}>
+                        <span style={{ flexBasis: '60%' }}>({item.quantity}) {item.original_sku || 'N/A'}</span>
+                        <select value={lineItemAssignments[item.line_item_id] || ''} onChange={(e) => handleLineItemSupplierAssignment(item.line_item_id, e.target.value)} disabled={disableAllActions || suppliers.length === 0} style={{flexBasis: '35%'}}>
                             <option value="">-- Assign Supplier --</option>
                             {(suppliers || []).map(supplier => (<option key={supplier.id} value={supplier.id}>{supplier.name}</option>))}
                         </select>
@@ -1088,7 +1157,9 @@ function OrderDetail() {
                 const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supplierId);
                 const currentPoShipDetails = multiSupplierShipmentDetails[supplierId] || {};
                 const selectedPoShipOption = getSelectedShippingOption(currentPoShipDetails.method);
-                const isFedexBillRecipientMulti = currentPoShipDetails.billToCustomerFedexAccount || false;
+                // const isFedexBillRecipientMulti = currentPoShipDetails.billToCustomerFedexAccount || false; // Already in currentPoShipDetails
+                // const isUpsBillRecipientMulti = currentPoShipDetails.billToCustomerUpsAccount || false; // Already in currentPoShipDetails
+
 
                 return (
                     <section key={supplierId} className="supplier-po-draft card">
@@ -1108,58 +1179,43 @@ function OrderDetail() {
                                 </div>
                             ))}
                         </div>
-                        <div className="form-grid shipment-details-multi card-inset">
-                            <h5>Shipment Details for this PO (Optional - for Label Generation)</h5>
-                            <div className="form-group"> {/* form-group for label-on-top layout */}
+                        <div className="form-grid shipment-details-multi card-inset" style={{border: '1px solid var(--border-medium)', padding: 'var(--spacing-md)', borderRadius: '4px', marginTop: 'var(--spacing-md)'}}>
+                            <h5 style={{gridColumn: '1 / -1', marginBottom: 'var(--spacing-sm)'}}>Shipment Details for this PO (Optional - for Label Generation)</h5>
+                            <div className="form-group" style={{gridColumn: '1 / -1'}}>
                                 <label htmlFor={`shipMethod-multi-${supplierId}`}>Method:</label>
                                 <select
                                     id={`shipMethod-multi-${supplierId}`}
                                     value={currentPoShipDetails.method || ''}
-                                    onChange={(e) => {
-                                        const newMethod = e.target.value;
-                                        const newSelectedOpt = getSelectedShippingOption(newMethod);
-                                        handleMultiSupplierShipmentDetailChange(supplierId, 'method', newMethod);
-                                        if (newSelectedOpt?.carrier !== 'fedex') {
-                                            handleMultiSupplierShipmentDetailChange(supplierId, 'billToCustomerFedexAccount', false);
-                                            handleMultiSupplierShipmentDetailChange(supplierId, 'customerFedexAccount', '');
-                                        } else if (newSelectedOpt?.carrier === 'fedex' && orderData?.order?.is_bill_to_customer_fedex_account) {
-                                            handleMultiSupplierShipmentDetailChange(supplierId, 'billToCustomerFedexAccount', true);
-                                            handleMultiSupplierShipmentDetailChange(supplierId, 'customerFedexAccount', orderData.order.customer_fedex_account_number || '');
-                                        }
-                                    }}
+                                    onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'method', e.target.value)}
                                     disabled={disableAllActions}
+                                    style={{width: '100%'}}
                                 >
                                     <option value="">-- No Label / Method --</option>
                                     {SHIPPING_METHODS_OPTIONS.map(opt => <option key={`${opt.value}-${opt.carrier}-multi-${supplierId}`} value={opt.value}>{opt.label}</option>)}
                                 </select>
                             </div>
-                             {/* Combined Weight and Blind Ship for Multi-Supplier */}
-                             <div className="form-group"> {/* Using form-group for label-on-top for weight */}
+                             <div className="form-group" style={{gridColumn: '1 / -1'}}>
                                 <label htmlFor={`shipWeight-multi-${supplierId}`}>Weight (lbs):</label>
-                                <div className="weight-blind-ship-row">
-                                    <input 
-                                        id={`shipWeight-multi-${supplierId}`} 
-                                        type="number" 
-                                        className="weight-input-split"
-                                        value={currentPoShipDetails.weight || ''} 
-                                        onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'weight', e.target.value)} 
-                                        step="0.1" 
-                                        min="0.1" 
-                                        placeholder="e.g., 5.0" 
-                                        disabled={disableAllActions || !currentPoShipDetails.method} 
-                                    />
-                                    {/* Note: Blind ship is global, not per-PO in multi-mode in this implementation */}
-                                    {/* If per-PO blind ship is needed, isBlindDropShip state needs to be an object */}
-                                </div>
+                                <input
+                                    id={`shipWeight-multi-${supplierId}`}
+                                    type="number"
+                                    className="weight-input-field"
+                                    value={currentPoShipDetails.weight || ''}
+                                    onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'weight', e.target.value)}
+                                    step="0.1"
+                                    min="0.1"
+                                    placeholder="e.g., 5.0"
+                                    disabled={disableAllActions || !currentPoShipDetails.method}
+                                    style={{width: '100%'}}
+                                />
                             </div>
                             {selectedPoShipOption?.carrier === 'fedex' && (
                                 <>
-                                    <div className="form-group"> {/* Changed to form-group */}
-                                        <label htmlFor={`billToCustomerFedexMulti-${supplierId}`}>Bill Customer FedEx:</label>
+                                    <div className="form-group" style={{gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)'}}>
                                         <input
                                             type="checkbox"
                                             id={`billToCustomerFedexMulti-${supplierId}`}
-                                            checked={isFedexBillRecipientMulti}
+                                            checked={currentPoShipDetails.billToCustomerFedexAccount || false}
                                             onChange={(e) => {
                                                 handleMultiSupplierShipmentDetailChange(supplierId, 'billToCustomerFedexAccount', e.target.checked);
                                                 if (e.target.checked && orderData?.order?.is_bill_to_customer_fedex_account && orderData?.order?.customer_fedex_account_number) {
@@ -1169,11 +1225,11 @@ function OrderDetail() {
                                                 }
                                             }}
                                             disabled={disableAllActions}
-                                            // style={{ justifySelf: 'start' }} // Removed as form-group handles block
                                         />
+                                        <label htmlFor={`billToCustomerFedexMulti-${supplierId}`} style={{fontWeight: 'normal', marginBottom: 0}}>Bill Customer FedEx:</label>
                                     </div>
-                                    {isFedexBillRecipientMulti && (
-                                        <div className="form-group"> {/* Changed to form-group */}
+                                    {currentPoShipDetails.billToCustomerFedexAccount && (
+                                        <div className="form-group" style={{gridColumn: '1 / -1'}}>
                                             <label htmlFor={`customerFedexAccountMulti-${supplierId}`}>Cust. FedEx Acct #:</label>
                                             <input
                                                 type="text"
@@ -1183,35 +1239,73 @@ function OrderDetail() {
                                                 placeholder="FedEx Account"
                                                 required
                                                 disabled={disableAllActions}
+                                                style={{width: '100%'}}
+                                            />
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                            {selectedPoShipOption?.carrier === 'ups' && (
+                                <>
+                                    <div className="form-group" style={{gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)'}}>
+                                        <input
+                                            type="checkbox"
+                                            id={`billToCustomerUpsMulti-${supplierId}`}
+                                            checked={currentPoShipDetails.billToCustomerUpsAccount || false}
+                                            onChange={(e) => {
+                                                handleMultiSupplierShipmentDetailChange(supplierId, 'billToCustomerUpsAccount', e.target.checked);
+                                                if (e.target.checked && orderData?.order?.is_bill_to_customer_account && orderData?.order?.customer_ups_account_number) {
+                                                    handleMultiSupplierShipmentDetailChange(supplierId, 'customerUpsAccount', orderData.order.customer_ups_account_number);
+                                                } else if (!e.target.checked) {
+                                                    handleMultiSupplierShipmentDetailChange(supplierId, 'customerUpsAccount', '');
+                                                }
+                                            }}
+                                            disabled={disableAllActions}
+                                        />
+                                        <label htmlFor={`billToCustomerUpsMulti-${supplierId}`} style={{fontWeight: 'normal', marginBottom: 0}}>Bill Customer UPS:</label>
+                                    </div>
+                                    {currentPoShipDetails.billToCustomerUpsAccount && (
+                                        <div className="form-group" style={{gridColumn: '1 / -1'}}>
+                                            <label htmlFor={`customerUpsAccountMulti-${supplierId}`}>Cust. UPS Acct #:</label>
+                                            <input
+                                                type="text"
+                                                id={`customerUpsAccountMulti-${supplierId}`}
+                                                value={currentPoShipDetails.customerUpsAccount || ''}
+                                                onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'customerUpsAccount', e.target.value)}
+                                                placeholder="UPS Account"
+                                                required
+                                                disabled={disableAllActions}
+                                                style={{width: '100%'}}
                                             />
                                         </div>
                                     )}
                                 </>
                             )}
                         </div>
-                        <div className="form-grid">
-                            <label htmlFor={`poNotes-${supplierId}`}>PO Notes for {supplier.name}:</label>
-                            <textarea id={`poNotes-${supplierId}`} value={poNotesBySupplier[supplierId] || ''} onChange={(e) => handlePoNotesBySupplierChange(supplierId, e.target.value)} rows="3" disabled={disableAllActions} />
+                        <div className="form-grid" style={{marginTop: 'var(--spacing-md)'}}>
+                            <label htmlFor={`poNotes-${supplierId}`} style={{gridColumn: '1 / -1', textAlign: 'left'}}>PO Notes for {supplier.name}:</label>
+                            <textarea id={`poNotes-${supplierId}`} value={poNotesBySupplier[supplierId] || ''} onChange={(e) => handlePoNotesBySupplierChange(supplierId, e.target.value)} rows="3" disabled={disableAllActions} style={{gridColumn: '1 / -1', width: '100%'}}/>
                         </div>
                     </section>
                 );
             })}
             <section className="card" style={{marginTop: 'var(--spacing-lg)'}}>
                  <h3>Global Options</h3>
-                 <div className="form-grid"> {}
-                    <label htmlFor="isBlindDropShipMultiGlobal" style={{textAlign: 'right', paddingRight: 'var(--spacing-md)'}}>Blind Ship all?</label>
-                    <input
-                        type="checkbox"
-                        id="isBlindDropShipMultiGlobal"
-                        checked={isBlindDropShip}
-                        onChange={(e) => setIsBlindDropShip(e.target.checked)}
+                 <div className="form-grid">
+                    <label htmlFor="brandingOptionMultiGlobal">Branding:</label>
+                    <select
+                        id="brandingOptionMultiGlobal"
+                        value={isBlindDropShip ? 'blind' : 'g1'}
+                        onChange={handleBrandingChange}
                         disabled={disableEditableFormFields}
-                        style={{ justifySelf: 'start' }}
-                    />
+                    >
+                        <option value="g1">G1 Branding</option>
+                        <option value="blind">Blind/No Branding</option>
+                    </select>
                 </div>
             </section>
             <div className="order-actions">
-                 <button type="submit" disabled={disableAllActions || processing || [...new Set(Object.values(lineItemAssignments))].filter(id => id).length === 0} className="btn btn-gradient btn-shadow-lift btn-success process-order-button-specifics">
+                 <button type="submit" disabled={disableAllActions || processing || [...new Set(Object.values(lineItemAssignments))].filter(id => id).length === 0} className="process-order-button">
                     {processing ? 'Processing Multiple POs...' : 'PROCESS ALL ASSIGNED POs'}
                 </button>
             </div>
@@ -1224,56 +1318,47 @@ function OrderDetail() {
           <section className="shipment-info card">
             <h3>Shipment Information</h3>
             <div className="form-grid">
-                <label htmlFor="shipmentMethodG1">Method:</label>
-                <select 
-                    id="shipmentMethodG1" 
-                    value={shipmentMethod} 
-                    onChange={handleShipmentMethodChange} 
-                    disabled={disableEditableFormFields} 
-                    required={originalLineItems.length > 0}
+              <label htmlFor="shipmentMethodG1">Method:</label>
+              <select
+                id="shipmentMethodG1"
+                value={shipmentMethod}
+                onChange={handleShipmentMethodChange}
+                disabled={disableEditableFormFields}
+                required={originalLineItems.length > 0}
+              >
+                  {SHIPPING_METHODS_OPTIONS.map(opt => <option key={`${opt.value}-${opt.carrier}-g1`} value={opt.value}>{opt.label}</option>)}
+              </select>
+
+              <label htmlFor="shipmentWeightG1">Weight (lbs):</label>
+              <input
+                  type="number"
+                  id="shipmentWeightG1"
+                  className="weight-input-field"
+                  value={shipmentWeight}
+                  onChange={handleShipmentWeightChange}
+                  step="0.1"
+                  min="0.1"
+                  placeholder="e.g., 5.0"
+                  required={originalLineItems.length > 0}
+                  disabled={disableEditableFormFields}
+              />
+
+              <label htmlFor="brandingOptionG1">Branding:</label>
+                <select
+                    id="brandingOptionG1"
+                    value={isBlindDropShip ? 'blind' : 'g1'}
+                    onChange={handleBrandingChange}
+                    disabled={disableEditableFormFields}
                 >
-                     {SHIPPING_METHODS_OPTIONS.map(opt => <option key={`${opt.value}-${opt.carrier}-g1`} value={opt.value}>{opt.label}</option>)}
+                    <option value="g1">G1 Branding</option>
+                    <option value="blind">Blind/No Branding</option>
                 </select>
-                
-                <label htmlFor="shipmentWeightG1">Weight (lbs):</label>
-                <input 
-                    type="number" 
-                    id="shipmentWeightG1" 
-                    className="weight-input-field"
-                    value={shipmentWeight} 
-                    onChange={handleShipmentWeightChange} 
-                    step="0.1" 
-                    min="0.1" 
-                    placeholder="e.g., 5.0" 
-                    required={originalLineItems.length > 0} 
-                    disabled={disableEditableFormFields} 
-                />
 
-                {/* "Blind Ship?" Label for the grid's first column */}
-                <label htmlFor="isBlindDropShipG1" className="blind-ship-grid-label-col1">Blind Ship?</label>
-                {/* Empty cell removed as layout is now 4-column handled by .shipment-info .form-grid */}
-                
-
-                {/* Checkbox on a new conceptual row, centered in the first column's space */}
-                <div className="blind-ship-checkbox-wrapper-col1"> 
-                    <input
-                        type="checkbox"
-                        id="isBlindDropShipG1" // ID linked from label above
-                        className="blind-ship-checkbox-input"
-                        checked={isBlindDropShip}
-                        onChange={(e) => setIsBlindDropShip(e.target.checked)}
-                        disabled={disableEditableFormFields}
-                    />
-                </div>
-                {/* Empty cell removed as layout is now 4-column handled by .shipment-info .form-grid */}
-                
-
-            </div>
+              {/* FedEx Billing Options for G1 Onsite */}
               {currentSelectedShippingOption?.carrier === 'fedex' && originalLineItems.length > 0 && (
                 <>
-                    <div className="form-grid" style={{marginTop: '10px'}}>
-                        <label htmlFor="billToCustomerFedexG1">Bill to Customer's FedEx Account:</label>
-                        <input
+                    <label htmlFor="billToCustomerFedexG1">Bill Customer FedEx:</label>
+                    <input
                         type="checkbox"
                         id="billToCustomerFedexG1"
                         checked={billToCustomerFedex}
@@ -1286,12 +1371,10 @@ function OrderDetail() {
                             }
                         }}
                         disabled={disableEditableFormFields}
-                        style={{ justifySelf: 'start' }}
-                        />
-                    </div>
+                    />
                     {billToCustomerFedex && (
-                        <div className="form-grid" style={{marginTop: '5px'}}>
-                        <label htmlFor="customerFedexAccountG1">Customer FedEx Account #:</label>
+                    <>
+                        <label htmlFor="customerFedexAccountG1">Customer FedEx Acct #:</label>
                         <input
                             type="text"
                             id="customerFedexAccountG1"
@@ -1301,13 +1384,48 @@ function OrderDetail() {
                             required
                             disabled={disableEditableFormFields}
                         />
-                        </div>
+                    </>
                     )}
                 </>
                )}
+               {/* UPS Billing Options for G1 Onsite */}
+               {currentSelectedShippingOption?.carrier === 'ups' && originalLineItems.length > 0 && (
+                <>
+                    <label htmlFor="billToCustomerUpsG1">Bill Customer UPS:</label>
+                    <input
+                        type="checkbox"
+                        id="billToCustomerUpsG1"
+                        checked={billToCustomerUps}
+                        onChange={(e) => {
+                            setBillToCustomerUps(e.target.checked);
+                             if (e.target.checked && orderData?.order?.is_bill_to_customer_account && orderData?.order?.customer_ups_account_number) {
+                                setCustomerUpsAccountNumber(orderData.order.customer_ups_account_number);
+                            } else if (!e.target.checked) {
+                                setCustomerUpsAccountNumber('');
+                            }
+                        }}
+                        disabled={disableEditableFormFields}
+                    />
+                    {billToCustomerUps && (
+                    <>
+                        <label htmlFor="customerUpsAccountG1">Customer UPS Acct #:</label>
+                        <input
+                            type="text"
+                            id="customerUpsAccountG1"
+                            value={customerUpsAccountNumber}
+                            onChange={(e) => setCustomerUpsAccountNumber(e.target.value)}
+                            placeholder="UPS Account Number"
+                            required
+                            disabled={disableEditableFormFields}
+                        />
+                    </>
+                    )}
+                </>
+               )}
+            </div>
             </section>
             <div className="order-actions">
-                <button type="submit" disabled={disableAllActions || processing} className="btn btn-gradient btn-shadow-lift btn-success">
+                <button type="submit" disabled={disableAllActions || processing} className="process-order-button">
                     {processing ? 'Processing G1 Fulfillment...' : 'PROCESS G1 ONSITE FULFILLMENT'}
                 </button>
             </div>
@@ -1316,7 +1434,7 @@ function OrderDetail() {
 
       <div className="manual-actions-section" style={{marginTop: "20px"}}>
            {order && (order.status?.toLowerCase() === 'international_manual' || order.status?.toLowerCase() === 'pending') && !isActuallyProcessed && (
-              <button onClick={() => handleManualStatusUpdate('Completed Offline')} className="btn btn-gradient btn-shadow-lift btn-success manual-action-button-specifics" disabled={disableAllActions}>
+              <button onClick={() => handleManualStatusUpdate('Completed Offline')} className="manual-action-button button-mark-completed" disabled={disableAllActions}>
                   {manualStatusUpdateInProgress && (order.status?.toLowerCase() === 'international_manual' || order.status?.toLowerCase() === 'pending') ? 'Updating...' : 'Mark as Completed Offline'}
               </button>
           )}
@@ -1334,7 +1452,7 @@ function OrderDetail() {
 
       <div className="order-actions" style={{ marginTop: '20px', textAlign: 'center' }}>
           {(isActuallyProcessed || processSuccess) && (
-              <button type="button" onClick={() => navigate('/')} className="btn btn-gradient btn-shadow-lift btn-primary back-to-dashboard-button-specifics" disabled={processing && !processSuccess}>
+              <button type="button" onClick={() => navigate('/')} className="back-to-dashboard-button" disabled={processing && !processSuccess}>
                   BACK TO DASHBOARD
               </button>
           )}

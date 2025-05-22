@@ -265,58 +265,19 @@ h3 { letter-spacing: 0.5px; }
 
 .form-grid {
     display: grid;
-    grid-template-columns: 120px 1fr;
+    grid-template-columns: 120px 1fr; /* Label column and input/control column */
     gap: var(--spacing-sm) var(--spacing-md);
-    align-items: center; /* Default alignment for items in cells */
+    align-items: center; 
     margin-bottom: var(--spacing-lg);
 }
 
-/* Specific overrides for shipment info section */
-.shipment-info .form-grid {
-  grid-template-columns: auto minmax(0, 1fr) auto auto; /* Goal: col1+2 ~50-60%, col3+4 take rest */
-  /* Example: grid-template-columns: auto minmax(0, 2.5fr) auto auto; -> for ~50% target for first two */
-  /* Using 1fr for weight input to be more flexible with other auto columns */
-  align-items: center; /* Ensure vertical alignment for all items */
-}
-
-.shipment-info label[for="shipmentWeightSingle"] {
-  text-align: left;
-  padding-right: 0; /* Override default right padding */
-  align-self: center; /* Explicit vertical centering */
-}
-
-.shipment-info #shipmentWeightSingle {
-  width: 100%; /* Ensure input takes full width of its column */
-}
-
-.shipment-info label[for="isBlindDropShipSingle"] {
-  /* This label will be in the 3rd column */
-  text-align: right; /* Align text to the right, towards the checkbox */
-  padding-right: var(--spacing-xs); /* Small padding so text isn't touching checkbox */
-  align-self: center; /* Explicit vertical centering */
-  /* No grid-column needed, it flows naturally */
-}
-
-.shipment-info .blind-ship-checkbox-wrapper-col1 {
-  /* This wrapper will be in the 4th column */
-  display: flex;
-  justify-content: flex-start; /* Align checkbox to the start of its cell, appears next to label */
-  align-items: center;
-  /* Clear old properties that were for 2-column layout */
-  grid-column: auto; /* Reset any previous grid-column settings */
-  padding-right: 0; /* Reset padding */
-  margin-top: 0; /* Reset margin */
-}
-/* End of specific overrides for shipment info section */
-
-.form-grid label { /* General style for labels in the first column */
+.form-grid label {
   font-weight: 500;
   text-align: right;
   color: var(--text-secondary); 
   font-size: 0.95em;
-  padding-right: var(--spacing-md); /* Space for alignment */
-  /* align-self: center; /* Ensures label text is centered with its control cell */
-                         /* Let's test without this first to see if align-items on grid is enough */
+  padding-right: var(--spacing-md); 
+  align-self: center; /* Vertically center label text with the control in the next column */
 }
 
 .form-grid select,
@@ -332,7 +293,6 @@ h3 { letter-spacing: 0.5px; }
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
   background-color: var(--bg-input); 
   color: var(--text-main); 
-  /* margin-bottom: 15px; /* REMOVED - Let grid gap handle this */
 }
 .form-grid select:focus,
 .form-grid input:focus,
@@ -446,7 +406,7 @@ h3 { letter-spacing: 0.5px; }
   margin-bottom: var(--spacing-md);
   display: flex;
   flex-direction: column; 
-  align-items: flex-start; 
+  align-items: center; /* This will center the button */
   gap: var(--spacing-md); 
 }
 
@@ -565,14 +525,13 @@ h3 { letter-spacing: 0.5px; }
 
    .form-grid {
         grid-template-columns: 1fr; /* Stack all items in the form grid */
-        gap: var(--spacing-sm) 0; /* Reduced gap for stacked items */
+        gap: var(--spacing-xs) 0; /* Reduced gap for stacked items */
     }
-    /* General label adjustment for stacked mobile view */
     .form-grid > label {
         text-align: left;
         padding-right: 0; /* Remove right padding */
         margin-bottom: var(--spacing-xs); /* Space below label */
-        /* align-self: flex-start; /* Align to the start of the cell */
+        align-self: flex-start; /* Align labels to start on mobile */
     }
     .order-title-section { align-items: flex-start; }
     .order-title-section h2 { margin-bottom: var(--spacing-xs); font-size: 1.6em; }
@@ -599,8 +558,8 @@ h3 { letter-spacing: 0.5px; }
     .qty-cost-row { gap: var(--spacing-sm); }
     .item-row { gap: var(--spacing-sm); }
     h3 { font-size: 1.25em; }
-    /* .form-grid { grid-template-columns: 1fr; } /* Already set above */
-    /* .form-grid label { text-align: left; } /* Already set above */
+    /* .form-grid { grid-template-columns: 1fr; } */ /* Already set above */
+    /* .form-grid label { text-align: left; } */ /* Already set above */
 }
 
 .manual-actions-section { 
@@ -687,8 +646,6 @@ h3 { letter-spacing: 0.5px; }
   font-size: 0.9em;
   color: #ccc;
 }
-
-
 
 .success-message-large {
   font-weight: bold;
@@ -906,113 +863,93 @@ h3 { letter-spacing: 0.5px; }
   width: 100%; 
 }
 
-/* STYLES FROM PREVIOUS ATTEMPT (SIDE-BY-SIDE) - TO BE REMOVED/REPLACED */
-/* These will be removed and replaced by the new layout's CSS */
-/*
-.weight-blind-ship-combined-row {
-  display: flex;            
-  align-items: center;    
-  gap: var(--spacing-sm); 
-  width: 100%;              
-}
 
-.weight-input-area {
-  flex: 2; 
-}
-
-.blind-ship-area {
-  flex: 1; 
-  display: flex;
-  flex-direction: column; 
-  align-items: center;  
-  justify-content: center; 
-  padding-left: var(--spacing-sm); 
-}
-
-.blind-ship-text-label {
-  font-size: 0.85em; 
-  color: var(--text-main);
-  margin-bottom: var(--spacing-xs); 
-  font-weight: normal; 
-  text-align: center; 
-  display: block; 
-}
-
-.blind-ship-checkbox-input {
-  transform: scale(1.2); 
-  display: block; 
-  margin: 0 auto; 
-}
-*/
-/* Styles for the main "Weight (lbs):" label when its content row is complex */
-/* .form-grid > label[for^="shipmentWeight"] {
-   padding-top: calc(var(--spacing-sm) + 0.3em); 
-} */
-
-
-/* === New Styles for "Blind Ship?" Label and Centered Checkbox (in Column 1) === */
-/* These styles below are now superseded by the .shipment-info specific styles above for the 4-column layout */
-/*
-.blind-ship-grid-label-col1 {
-  /* This label will inherit styles from .form-grid > label (like text-align: right) */
-  /* It occupies the first column of its grid row */
-  /* No specific override needed if general label style is okay */
-/*   align-self: center; /* Ensure it's centered with the (empty) second cell in its row */
-/* } */
-/* .blind-ship-checkbox-wrapper-col1 - old styles are cleared by the new .shipment-info .blind-ship-checkbox-wrapper-col1 rule */
-
-
-.blind-ship-checkbox-input { /* This class name was used in T10 for the checkbox - style retained */
-  transform: scale(1.3); 
-}
-
-
-/* OLD .form-grid-empty-cell - can be removed if no longer used in HTML */
-/*
-.form-grid-empty-cell {
-  /* No specific styling needed for an empty cell unless for debugging
-  /* display: none; /* If they are truly unnecessary now */
-/* }
-*/
-
-
-/* Responsive adjustments for the NEW Blind Ship elements */
-/* The .shipment-info .form-grid will also become 1fr on mobile due to general .form-grid rule */
-@media (max-width: 768px) {
-  /* .form-grid is already 1fr on mobile, which handles stacking. */
-  
-  /* Specific adjustments for shipment info if needed on mobile.
-     By default, labels become text-align: left.
-     The new 4-column layout will stack.
-     Weight label, then weight input.
-     Then Blind ship label, then blind ship checkbox wrapper.
-     This should be an acceptable stacking order.
+/* Specific styles for the Shipment Information form grid to achieve 4-column like layout */
+.shipment-info .form-grid {
+  grid-template-columns: 120px auto auto 1fr; /* Label | Method Select | Label | Weight Input + Blind Ship group */
+  /* Or for more control:
+     grid-template-columns: 120px minmax(150px, 1fr) auto auto;
+     Column 1: Method Label
+     Column 2: Method Select
+     Column 3: Weight Label + Blind Ship Group
+     Column 4: Empty or for other controls
   */
+  align-items: center; /* Keep items vertically centered in their row */
+}
 
-  /* .shipment-info .form-grid might need gap adjustments if the default stacking is too spaced out or too tight */
+/* Target Method Label and Select to span if needed or ensure they fit column 1 and 2 */
+.shipment-info > .form-grid > label[for^="shipmentMethod"] {
+  grid-column: 1 / 2;
+  text-align: right;
+  padding-right: var(--spacing-md);
+}
+.shipment-info > .form-grid > select[id^="shipmentMethod"] {
+  grid-column: 2 / -1; /* Span remaining columns for the method dropdown */
+  width: 100%;
+}
+
+/* Container for Weight Label, Weight Input, Blind Ship Label, and Blind Ship Checkbox - This will be a new grid row */
+.shipment-info-weight-blind-row {
+  grid-column: 1 / -1; /* Make this container span all columns of the main form-grid */
+  display: grid;
+  /* 4-column layout: Weight Label | Weight Input | Blind Ship Label | Blind Ship Checkbox */
+  grid-template-columns: 120px minmax(100px, 1.5fr) auto auto; 
+  gap: 0 var(--spacing-md); /* Only column gap, row gap handled by parent */
+  align-items: center;
+  margin-top: var(--spacing-sm); /* Space above this custom row */
+}
+
+.shipment-info-weight-blind-row > label[for^="shipmentWeight"] {
+  grid-column: 1 / 2;
+  text-align: right;
+  padding-right: var(--spacing-md);
+}
+.shipment-info-weight-blind-row > input[id^="shipmentWeight"] {
+  grid-column: 2 / 3;
+  width: 100%; /* Take full width of its allocated grid column */
+}
+
+.shipment-info-weight-blind-row > label[for^="isBlindDropShip"] {
+  grid-column: 3 / 4;
+  text-align: right; /* Align "Blind Ship?" text to the right, towards checkbox */
+  padding-right: var(--spacing-xs);
+  font-weight: normal; /* Make it less prominent than main labels */
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+.shipment-info-weight-blind-row > .blind-ship-checkbox-input { /* Target the checkbox directly */
+  grid-column: 4 / 5;
+  justify-self: start; /* Align checkbox to the start of its cell */
+  transform: scale(1.2);
+}
+
+/* Responsive for the new 4-column inner grid */
+@media (max-width: 768px) {
   .shipment-info .form-grid {
-    /* On mobile, the general .form-grid rule already sets grid-template-columns: 1fr; */
-    /* We might want to adjust gaps or specific item alignments if default stacking isn't ideal */
+    grid-template-columns: 1fr; /* Back to single column for the main container */
+  }
+  .shipment-info > .form-grid > select[id^="shipmentMethod"] {
+    grid-column: 1 / -1; /* Ensure it takes full width */
+  }
+  .shipment-info-weight-blind-row {
+    grid-template-columns: 1fr; /* Stack everything in this row */
+    gap: var(--spacing-xs) 0; /* Adjust gap for stacked items */
+    margin-top: var(--spacing-md); /* Space after method dropdown */
   }
 
-  .shipment-info label[for="isBlindDropShipSingle"] {
-    /* On mobile, labels are generally left-aligned by .form-grid > label rule */
-    /* So, reset to left if it was right-aligned for desktop */
+  .shipment-info-weight-blind-row > label,
+  .shipment-info-weight-blind-row > input[type="number"],
+  .shipment-info-weight-blind-row > .blind-ship-checkbox-input {
+    grid-column: 1 / -1; /* Each takes full width when stacked */
     text-align: left;
     padding-right: 0;
   }
-  
-  .shipment-info .blind-ship-checkbox-wrapper-col1 {
-    /* On mobile, this will be a full-width item */
-    justify-content: flex-start; /* Ensure checkbox is at the start of the line */
-    padding-left: 0; /* No special padding needed on left when full width */
+  .shipment-info-weight-blind-row > label[for^="isBlindDropShip"] {
+    margin-top: var(--spacing-sm); /* Space above "Blind Ship?" label */
+    margin-bottom: var(--spacing-xs);
   }
-
-  /* .blind-ship-grid-label-col1 will inherit from .form-grid > label which is text-align: left on mobile */
-  
-  /* The old .blind-ship-checkbox-wrapper-col1 mobile rules are removed as new structure applies */
-
-  /* .form-grid-empty-cell {
-    display: none; /* No need for empty cells when it's single column */
-  /* } */
+  .shipment-info-weight-blind-row > .blind-ship-checkbox-input {
+    justify-self: start; /* Align checkbox to the left */
+    margin-left: 0; /* If it had specific margins */
+  }
 }
