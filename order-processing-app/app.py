@@ -68,13 +68,22 @@ except Exception as e_dotenv:
 app = Flask(__name__)
 print("DEBUG APP_SETUP: Flask object created.")
 
-CORS(app,
-     resources={r"/api/*": {"origins": "https://g1-po-app-77790.web.app"}},
-     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-     allow_headers=["Content-Type", "Authorization"],
-     supports_credentials=True
-)
-print("DEBUG APP_SETUP: CORS configured.")
+# --- Replace the existing CORS block with this ---
+# This new block reads the allowed origin from an environment variable,
+# making it work for both local development and your deployed app.
+allowed_origin = os.environ.get('ALLOWED_CORS_ORIGIN')
+
+if allowed_origin:
+    print(f"DEBUG APP_SETUP: CORS configured for origin: {allowed_origin}")
+    CORS(app,
+         resources={r"/api/*": {"origins": [allowed_origin]}}, # It's best practice for origins to be a list
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         allow_headers=["Content-Type", "Authorization"],
+         supports_credentials=True
+    )
+else:
+    print("WARN APP_SETUP: ALLOWED_CORS_ORIGIN environment variable not set. CORS will not be configured.")
+# -----------------------------------------------
 
 app.debug = os.getenv("FLASK_DEBUG", "False").lower() == "true"
 
@@ -358,6 +367,7 @@ print("DEBUG APP_SETUP: All Blueprints registered.")
 # === Entry point for running the Flask app (remains the same) ===
 if __name__ == '__main__':
     print(f"Starting G1 PO App Backend...")
+    app.run(host='0.0.0.0', port=8080, debug=True)
     if engine is None:
         print("CRITICAL MAIN: Database engine not initialized. Flask app might not work correctly with DB operations.")
     # else: # Blueprints are already registered above globally for both __main__ and WSGI

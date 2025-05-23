@@ -953,3 +953,39 @@ h3 { letter-spacing: 0.5px; }
     margin-left: 0; /* If it had specific margins */
   }
 }
+
+/* === Add to OrderDetail.css === */
+
+.profit-display-card {
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: 1px solid var(--primary-accent);
+  background-color: color-mix(in srgb, var(--primary-accent) 5%, var(--bg-card));
+  border-radius: 6px;
+}
+
+.profit-display-card h4 {
+  margin-top: 0;
+  margin-bottom: var(--spacing-md);
+  color: var(--primary-accent-dark);
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: var(--spacing-sm);
+}
+
+.profit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* Two equal columns */
+  justify-content: space-between;
+  gap: var(--spacing-sm) var(--spacing-lg);
+  font-size: 1.0em;
+}
+
+.profit-grid span:nth-child(odd) {
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.profit-grid span:nth-child(even) {
+  text-align: left;
+  font-weight: 600;
+}

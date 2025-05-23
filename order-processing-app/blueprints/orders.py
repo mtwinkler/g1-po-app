@@ -5,12 +5,12 @@ from flask import Blueprint, jsonify, request, g, current_app
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal
+from decimal import Decimal # Ensure Decimal is imported
 import base64
 import sys
 import re
 import html
-import json # Added for robust JSON parsing
+import json
 
 from app import (
     engine, storage_client, verify_firebase_token,
@@ -74,7 +74,9 @@ def get_order_details(order_id):
         if not order_record:
             print(f"WARN GET_ORDER: Order with ID {order_id} not found.")
             return jsonify({"error": f"Order with ID {order_id} not found"}), 404
+        
         order_data_dict = convert_row_to_dict(order_record)
+        
         base_line_items_sql = """
             SELECT oli.id AS line_item_id, oli.order_id AS parent_order_id, oli.bigcommerce_line_item_id,
                    oli.sku AS original_sku, oli.name AS line_item_name, oli.quantity, oli.sale_price,
@@ -94,9 +96,31 @@ def get_order_details(order_id):
                 custom_desc_result = db_conn.execute(desc_query, {"option_pn": hpe_option_pn}).scalar_one_or_none()
                 if custom_desc_result: item_dict['hpe_po_description'] = custom_desc_result
             augmented_line_items_list.append(item_dict)
+        
         print(f"DEBUG GET_ORDER: Found order ID {order_id} with {len(augmented_line_items_list)} augmented line items.")
+
+        # --- MODIFICATION START: Fetch actual cost for "Processed" orders ---
+        if order_data_dict.get('status') == 'Processed':
+            print(f"DEBUG GET_ORDER: Order {order_id} is 'Processed'. Fetching actual cost of goods sold.")
+            cost_query = text("""
+                SELECT SUM(poli.quantity * poli.unit_cost)
+                FROM po_line_items poli
+                JOIN purchase_orders po ON poli.purchase_order_id = po.id
+                WHERE po.order_id = :order_id_param
+            """)
+            total_actual_cost = db_conn.execute(cost_query, {"order_id_param": order_id}).scalar_one_or_none()
+            
+            if total_actual_cost is not None:
+                order_data_dict['actual_cost_of_goods_sold'] = total_actual_cost
+                print(f"DEBUG GET_ORDER: Actual cost of goods for Processed order {order_id} is {total_actual_cost}")
+            else:
+                order_data_dict['actual_cost_of_goods_sold'] = Decimal('0.00') # Default to 0 if no POs/costs found
+                print(f"DEBUG GET_ORDER: No PO costs found for Processed order {order_id}. Defaulting actual_cost_of_goods_sold to 0.")
+        # --- MODIFICATION END ---
+
         response_data = {"order": make_json_safe(order_data_dict), "line_items": make_json_safe(augmented_line_items_list)}
         return jsonify(response_data), 200
+        
     except Exception as e:
         original_error_traceback = traceback.format_exc()
         print(f"ERROR GET_ORDER: Error fetching order {order_id}: {e}")
@@ -106,6 +130,9 @@ def get_order_details(order_id):
         if db_conn and not db_conn.closed:
             db_conn.close()
             print(f"DEBUG GET_ORDER: Database connection closed for order ID {order_id}.")
+
+# ... (rest of the routes in orders.py remain the same) ...
+# Make sure to only replace the get_order_details function.
 
 @orders_bp.route('/orders/status-counts', methods=['GET'])
 @verify_firebase_token
@@ -195,11 +222,10 @@ def ingest_orders_route():
         print(f"DEBUG INGEST: Fetching orders with status ID {target_status_id} from {orders_list_endpoint}", flush=True)
 
         response = requests.get(orders_list_endpoint, headers=bc_headers, params=api_params)
-        response.raise_for_status() # Will raise an exception for 4xx/5xx errors
+        response.raise_for_status() 
 
-        # Robust JSON parsing
         orders_list_from_bc = []
-        if response.text and response.text.strip(): # Check if response text is not empty
+        if response.text and response.text.strip(): 
             try:
                 orders_list_from_bc = response.json()
             except json.JSONDecodeError as json_err:
@@ -496,9 +522,8 @@ def process_order_route(order_id):
             g1_ps_signed_url, g1_label_signed_url = None, None
             po_pdf_signed_url, ps_signed_url_supplier, label_signed_url_supplier = None, None, None
 
-            order_data_for_label = order_data_dict_original.copy() # Start with all original order data
+            order_data_for_label = order_data_dict_original.copy() 
             
-            # Update order_data_for_label with specific billing info from the current assignment
             if carrier_from_payload == 'fedex':
                 order_data_for_label['is_bill_to_customer_fedex_account'] = is_bill_to_customer_fedex_from_payload
                 order_data_for_label['customer_fedex_account_number'] = customer_fedex_account_from_payload
@@ -561,7 +586,7 @@ def process_order_route(order_id):
                  method_for_label_generation = order_data_dict_original.get('customer_selected_fedex_service')
             elif not shipment_method_from_processing_form and (local_order_line_items_list or supplier_id_from_payload == G1_ONSITE_FULFILLMENT_IDENTIFIER):
                 method_for_label_generation = order_data_dict_original.get('customer_shipping_method', 'UPS Ground')
-            elif not (local_order_line_items_list or (supplier_id_from_payload == G1_ONSITE_FULFILLMENT_IDENTIFIER and po_line_items_input)):
+            elif not (local_order_line_items_list or (supplier_id_from_payload == G1_ONSITE_FULFILLMENT_IDENTIFIER and po_line_items_input)): # Changed from local_order_line_items_list to po_line_items_input for G1
                 method_for_label_generation = None
 
             if supplier_id_from_payload == G1_ONSITE_FULFILLMENT_IDENTIFIER:
@@ -569,13 +594,14 @@ def process_order_route(order_id):
                 g1_tracking_number = None
                 generated_label_pdf_bytes = None
 
-                if not local_order_line_items_list:
+                if not local_order_line_items_list: # G1 Onsite fulfillment, but order has no line items in DB
                     print(f"DEBUG PROCESS_ORDER (G1 Onsite): No line items for order {order_id}. Skipping PS/Label.", flush=True)
-                else:
+                else: # G1 Onsite, and there are line items
                     if not total_shipment_weight_lbs_str or not method_for_label_generation:
-                        if is_blind_drop_ship_from_payload and (not total_shipment_weight_lbs_str or not method_for_label_generation):
+                        # Error only if blind drop ship OR not blind but has items that would need a label
+                         if is_blind_drop_ship_from_payload and (not total_shipment_weight_lbs_str or not method_for_label_generation):
                              raise ValueError("Blind Drop Ship (G1): Shipment method and weight are required when items exist.")
-                        elif not is_blind_drop_ship_from_payload:
+                         elif not is_blind_drop_ship_from_payload: # Not blind, but implies shipping from G1
                              raise ValueError("Shipment method and weight are required for G1 Onsite Fulfillment with items.")
                     try:
                         current_g1_weight = float(total_shipment_weight_lbs_str)
@@ -623,7 +649,7 @@ def process_order_route(order_id):
                                         order_data=order_data_for_label, ship_from_address=current_ship_from_address,
                                         total_weight_lbs=float(total_shipment_weight_lbs_str),
                                         customer_shipping_method_name=method_for_label_generation )
-                                else: # Default to UPS or if carrier_from_payload == 'ups'
+                                else: 
                                     generated_label_pdf_bytes, g1_tracking_number = shipping_service.generate_ups_label(
                                         order_data=order_data_for_label, ship_from_address=current_ship_from_address,
                                         total_weight_lbs=float(total_shipment_weight_lbs_str),
@@ -663,9 +689,10 @@ def process_order_route(order_id):
                         if local_order_line_items_list:
                             if g1_packing_slip_pdf_bytes and generated_label_pdf_bytes:
                                 send_g1_email = True
-                            else:
-                                raise ValueError(f"G1 Onsite: Not all documents generated for shipping order {order_data_for_label['bigcommerce_order_id']}. PS: {bool(g1_packing_slip_pdf_bytes)}, Label: {bool(generated_label_pdf_bytes)}. Email not sent.")
-                        elif g1_packing_slip_pdf_bytes :
+                            # else: # Removed original error raise, now it will print a warning if email not sent
+                                # print(f"WARN G1 Onsite Email: Not all documents generated for shipping order {order_data_for_label['bigcommerce_order_id']}. PS: {bool(g1_packing_slip_pdf_bytes)}, Label: {bool(generated_label_pdf_bytes)}. Email not sent.", flush=True)
+
+                        elif g1_packing_slip_pdf_bytes : # No line items, but PS generated (e.g. for a service order)
                             send_g1_email = True
                             email_html_body_g1 = (f"<p>Order {order_data_for_label['bigcommerce_order_id']} processed (G1 Onsite - Packing Slip Only{email_subject_g1_suffix}). Docs attached.</p>")
                             email_text_body_g1 = (f"Order {order_data_for_label['bigcommerce_order_id']} processed (G1 Onsite - Packing Slip Only{email_subject_g1_suffix}). Docs attached.")
@@ -674,7 +701,8 @@ def process_order_route(order_id):
                             if hasattr(email_service, 'send_sales_notification_email'):
                                 email_service.send_sales_notification_email( recipient_email="sales@globalonetechnology.com", subject=email_subject_g1, html_body=email_html_body_g1, text_body=email_text_body_g1, attachments=g1_email_attachments )
                         elif local_order_line_items_list and not send_g1_email:
-                             print(f"WARN G1 Onsite Email: Email not sent for order {order_data_for_label['bigcommerce_order_id']} despite having items. Check document generation.", flush=True)
+                             print(f"WARN G1 Onsite Email: Email not sent for order {order_data_for_label['bigcommerce_order_id']} due to missing documents, despite having items.", flush=True)
+
 
                 bc_order_id_for_update = order_data_for_label.get('bigcommerce_order_id')
                 if shipping_service and bc_api_base_url_v2 and bc_order_id_for_update:
@@ -683,13 +711,12 @@ def process_order_route(order_id):
                         bc_items_for_g1_shipment = [{"order_product_id": item_d.get('bigcommerce_line_item_id'), "quantity": item_d.get('quantity')} for item_d in local_order_line_items_list if item_d.get('bigcommerce_line_item_id')]
                         if bc_address_id is not None and bc_items_for_g1_shipment:
                             shipping_service.create_bigcommerce_shipment( bigcommerce_order_id=bc_order_id_for_update, tracking_number=g1_tracking_number, shipping_method_name=method_for_label_generation, line_items_in_shipment=bc_items_for_g1_shipment, order_address_id=bc_address_id, shipping_provider=carrier_from_payload )
-                    if bc_shipped_status_id and (g1_tracking_number or not local_order_line_items_list):
+                    if bc_shipped_status_id and (g1_tracking_number or not local_order_line_items_list): # Mark as shipped if tracking or no items
                         shipping_service.set_bigcommerce_order_status(bc_order_id_for_update, int(bc_shipped_status_id))
                 db_conn.execute(text("UPDATE orders SET status = 'Completed Offline', updated_at = :now WHERE id = :order_id"), {"now": current_utc_datetime, "order_id": order_id})
                 processed_pos_info_for_response.append({ "po_number": "N/A (G1 Onsite)", "supplier_id": G1_ONSITE_FULFILLMENT_IDENTIFIER, "tracking_number": g1_tracking_number, "po_pdf_gcs_uri": None, "packing_slip_gcs_uri": g1_ps_signed_url, "label_gcs_uri": g1_label_signed_url, "is_blind_drop_ship": is_blind_drop_ship_from_payload })
 
-            # Supplier PO Logic
-            else:
+            else: # Supplier PO Logic
                 if not po_line_items_input:
                     print(f"WARN PROCESS_ORDER: No line items provided for supplier PO to supplier ID {supplier_id_from_payload}. Skipping PO generation for this assignment.", flush=True)
                     processed_pos_info_for_response.append({ "po_number": "N/A (No Items)", "supplier_id": supplier_id_from_payload, "tracking_number": None, "po_pdf_gcs_uri": None, "packing_slip_gcs_uri": None, "label_gcs_uri": None, "status": "Skipped - No Items", "is_blind_drop_ship": is_blind_drop_ship_from_payload})
@@ -762,13 +789,13 @@ def process_order_route(order_id):
                                 label_pdf_bytes_supplier, tracking_this_po = shipping_service.generate_fedex_label(
                                     order_data=order_data_for_label, ship_from_address=current_ship_from_address,
                                     total_weight_lbs=current_weight_supplier, customer_shipping_method_name=method_for_label_generation )
-                            else: # Default to UPS or if carrier_from_payload == 'ups'
+                            else: 
                                 label_pdf_bytes_supplier, tracking_this_po = shipping_service.generate_ups_label(
                                     order_data=order_data_for_label, ship_from_address=current_ship_from_address,
                                     total_weight_lbs=current_weight_supplier, customer_shipping_method_name=method_for_label_generation,
                                     is_bill_to_customer_ups_account=is_bill_to_customer_ups_from_payload,
                                     customer_ups_account_number=customer_ups_account_from_payload,
-                                    customer_ups_account_zipcode=effective_ups_third_party_zip # Use effective zip
+                                    customer_ups_account_zipcode=effective_ups_third_party_zip 
                                 )
 
                             if label_pdf_bytes_supplier and tracking_this_po:
@@ -797,27 +824,27 @@ def process_order_route(order_id):
                     common_prefix_supplier = f"processed_orders/order_{order_data_for_label['bigcommerce_order_id']}_PO_{generated_po_number}{blind_suffix}"
                     bucket = storage_client.bucket(GCS_BUCKET_NAME)
                     gs_po_pdf_path_supplier, gs_ps_path_supplier, gs_label_path_supplier = None, None, None
-                    cloud_run_service_account_email = "992027428168-compute@developer.gserviceaccount.com" # Replace with your actual service account if different
+                    # cloud_run_service_account_email = "992027428168-compute@developer.gserviceaccount.com" # From previous logs; ensure this is correct or remove if not needed for local/default ADC
                     if po_pdf_bytes:
                         po_blob_name = f"{common_prefix_supplier}/po_{generated_po_number}_{ts_suffix}.pdf"
                         gs_po_pdf_path_supplier = f"gs://{GCS_BUCKET_NAME}/{po_blob_name}"
                         po_blob = bucket.blob(po_blob_name); po_blob.upload_from_string(po_pdf_bytes, content_type='application/pdf')
                         db_conn.execute(text("UPDATE purchase_orders SET po_pdf_gcs_path = :path WHERE id = :id"), {"path": gs_po_pdf_path_supplier, "id": new_purchase_order_id})
-                        try: po_pdf_signed_url = po_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET", service_account_email=cloud_run_service_account_email, access_token=None)
+                        try: po_pdf_signed_url = po_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET") # Removed service_account_email for ADC
                         except Exception as e_sign_po: print(f"ERROR gen signed URL PO: {e_sign_po}", flush=True)
                     if ps_pdf_bytes_supplier:
                         ps_blob_name = f"{common_prefix_supplier}/ps_{generated_po_number}_{ts_suffix}.pdf"
                         gs_ps_path_supplier = f"gs://{GCS_BUCKET_NAME}/{ps_blob_name}"
                         ps_blob = bucket.blob(ps_blob_name); ps_blob.upload_from_string(ps_pdf_bytes_supplier, content_type='application/pdf')
                         db_conn.execute(text("UPDATE purchase_orders SET packing_slip_gcs_path = :path WHERE id = :id"), {"path": gs_ps_path_supplier, "id": new_purchase_order_id})
-                        try: ps_signed_url_supplier = ps_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET",service_account_email=cloud_run_service_account_email, access_token=None)
+                        try: ps_signed_url_supplier = ps_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET")
                         except Exception as e_sign_ps: print(f"ERROR gen signed URL PS: {e_sign_ps}", flush=True)
                     if label_pdf_bytes_supplier and tracking_this_po:
                         label_blob_name = f"{common_prefix_supplier}/label_{carrier_from_payload.upper()}_{tracking_this_po}_{ts_suffix}.pdf"
                         gs_label_path_supplier = f"gs://{GCS_BUCKET_NAME}/{label_blob_name}"
                         label_blob = bucket.blob(label_blob_name); label_blob.upload_from_string(label_pdf_bytes_supplier, content_type='application/pdf')
                         db_conn.execute(text("UPDATE shipments SET label_gcs_path = :path WHERE purchase_order_id = :po_id AND tracking_number = :track"), {"path": gs_label_path_supplier, "po_id": new_purchase_order_id, "track": tracking_this_po})
-                        try: label_signed_url_supplier = label_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET",service_account_email=cloud_run_service_account_email, access_token=None)
+                        try: label_signed_url_supplier = label_blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET")
                         except Exception as e_sign_label: print(f"ERROR gen signed URL Label: {e_sign_label}", flush=True)
 
                 attachments_to_supplier = []
@@ -849,16 +876,30 @@ def process_order_route(order_id):
 
         is_only_g1_onsite_processed = all(a.get('supplier_id') == G1_ONSITE_FULFILLMENT_IDENTIFIER for a in assignments)
         if is_only_g1_onsite_processed:
+            # If only G1 Onsite, status already set to Completed Offline
             pass
-        else:
+        else: # One or more supplier POs were generated
             db_conn.execute(text("UPDATE orders SET status = 'Processed', updated_at = :now WHERE id = :order_id"), {"now": current_utc_datetime, "order_id": order_id})
+            
+            # Only update BC to "Shipped" if all original items were part of generated supplier POs (not G1)
+            # AND at least one of those POs generated a tracking number.
             if all_original_order_line_item_db_ids.issubset(processed_original_order_line_item_db_ids_this_batch):
                 if shipping_service and bc_api_base_url_v2 and bc_shipped_status_id and order_data_dict_original.get('bigcommerce_order_id'):
-                    any_supplier_tracking = any(po_info.get('tracking_number') for po_info in processed_pos_info_for_response if po_info.get("supplier_id") != G1_ONSITE_FULFILLMENT_IDENTIFIER and po_info.get("status") == "Processed")
-                    if any_supplier_tracking:
-                        shipping_service.set_bigcommerce_order_status( bigcommerce_order_id=order_data_dict_original.get('bigcommerce_order_id'), status_id=int(bc_shipped_status_id) )
+                    any_supplier_po_with_tracking = any(
+                        po_info.get('tracking_number') 
+                        for po_info in processed_pos_info_for_response 
+                        if po_info.get("supplier_id") != G1_ONSITE_FULFILLMENT_IDENTIFIER and po_info.get("status") == "Processed"
+                    )
+                    if any_supplier_po_with_tracking:
+                        shipping_service.set_bigcommerce_order_status( 
+                            bigcommerce_order_id=order_data_dict_original.get('bigcommerce_order_id'), 
+                            status_id=int(bc_shipped_status_id) 
+                        )
                     else:
-                        print(f"INFO PROCESS_ORDER: Order {order_id} fully processed for app, but no supplier tracking numbers generated for *processed* POs. BC status NOT set to Shipped.", flush=True)
+                        print(f"INFO PROCESS_ORDER: Order {order_id} fully processed for app, but no supplier tracking numbers from *processed* POs. BC status NOT set to Shipped.", flush=True)
+            else:
+                 print(f"INFO PROCESS_ORDER: Order {order_id} processed for app, but not all original line items were part of this batch of supplier POs. BC status NOT set to Shipped by this operation.", flush=True)
+
 
         transaction.commit()
         final_message = f"Order {order_id} processed successfully."
@@ -878,4 +919,3 @@ def process_order_route(order_id):
         if db_conn and not db_conn.closed:
             db_conn.close()
             print(f"DEBUG PROCESS_ORDER: DB Connection closed for order {order_id}", flush=True)
-

@@ -17,31 +17,27 @@ from functools import partial
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-FONTS_DIR_IN_CONTAINER = '/app/fonts'
-
 try:
-    # Register individual TTF files
-    pdfmetrics.registerFont(TTFont('EloquiaDisplay-Regular', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-regular.ttf')))
-    pdfmetrics.registerFont(TTFont('EloquiaDisplay-SemiBold', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-semibold.ttf')))
-    pdfmetrics.registerFont(TTFont('EloquiaDisplay-ExtraBold', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-display-extrabold.ttf')))
-    pdfmetrics.registerFont(TTFont('EloquiaText-ExtraLight', os.path.join(FONTS_DIR_IN_CONTAINER, 'eloquia-text-extralight.ttf')))
+    # Get the absolute path of the directory where this script is located
+    _this_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Build a robust path to the 'fonts' directory relative to this file
+    FONTS_DIR = os.path.join(_this_dir, 'fonts')
 
-    # Map EloquiaDisplay variants to Helvetica
-    pdfmetrics.addMapping('Helvetica', 0, 0, 'EloquiaDisplay-Regular')    # Normal Helvetica uses EloquiaDisplay-Regular
-    pdfmetrics.addMapping('Helvetica', 1, 0, 'EloquiaDisplay-SemiBold') # Bold Helvetica uses EloquiaDisplay-SemiBold
+    # Construct the full path to each font file
+    eloquia_regular_path = os.path.join(FONTS_DIR, 'eloquia-display-regular.ttf')
+    # If you have a bold version, its path would be defined here too
+    # eloquia_bold_path = os.path.join(FONTS_DIR, 'eloquia-display-bold.ttf') 
 
-    # Map EloquiaText-ExtraLight to Times-Roman
-    pdfmetrics.addMapping('Times-Roman', 0, 0, 'EloquiaText-ExtraLight')
-
-    pdfmetrics.registerFontFamily('EloquiaDisplay', normal='EloquiaDisplay-Regular', bold='EloquiaDisplay-SemiBold')
-    pdfmetrics.registerFontFamily('EloquiaText', normal='EloquiaText-ExtraLight')
-
-    print("DEBUG DOC_GEN: Successfully registered Eloquia fonts and mapped to Helvetica/Times-Roman.")
+    # Register the fonts with ReportLab
+    pdfmetrics.registerFont(TTFont('EloquiaDisplay-Regular', eloquia_regular_path))
+    # pdfmetrics.registerFont(TTFont('EloquiaDisplay-Bold', eloquia_bold_path))
+    
+    print("DEBUG DOC_GEN: Successfully registered custom Eloquia fonts.")
 
 except Exception as e:
     print(f"ERROR DOC_GEN: Failed to register/map custom Eloquia fonts. PDFs may use a default font. Error: {e}")
     traceback.print_exc()
-# --- END FONT REGISTRATION ---
 
 try:
     from PIL import Image as PILImage
@@ -347,7 +343,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
         # order_ref_text remains empty for blind slips
     else: # Not a blind slip
         logo_element_to_use = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch, is_blind_slip=False)
-        company_header_address_text_non_blind = f"{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE1}\n{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE2}"
+        company_header_address_text_non_blind = f"{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE2}"
         company_address_display_ps_para = Paragraph(escape(company_header_address_text_non_blind).replace('\n', '<br/>'), styles['Normal_Eloquia_Small'])
         if is_g1_onsite_fulfillment:
             packing_slip_title_text = "PACKING SLIP"

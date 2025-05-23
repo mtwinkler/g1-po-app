@@ -131,7 +131,7 @@ function Dashboard({ initialView = 'orders' }) {
         } finally {
             if (!signal || !signal.aborted) setLoadingCounts(false);
         }
-    }, [VITE_API_BASE_URL, currentUser, errorOrders]);
+    }, [VITE_API_BASE_URL, currentUser]);
 
     const handleIngestOrders = useCallback(async () => {
         if (!VITE_API_BASE_URL) {

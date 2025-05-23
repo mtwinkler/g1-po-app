@@ -3,7 +3,7 @@ docker build -t gcr.io/order-processing-app-458900/g1-po-app-backend-service:202
 docker push gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250520b
 
 gcloud run deploy g1-po-app-backend-service `
-      --image gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250520b `
+      --image gcr.io/order-processing-app-458900/g1-po-app-backend-service:20250520d `
       --project order-processing-app-458900 `
       --region us-central1 `
       --platform managed `

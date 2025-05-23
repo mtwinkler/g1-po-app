@@ -94,6 +94,61 @@ const getSelectedShippingOption = (methodValue) => {
   return foundOption || { value: methodValue, label: methodValue || 'N/A', carrier: null };
 };
 
+// --- Profit Display Component with conditional background ---
+const ProfitDisplay = ({ info }) => {
+    if (!info || !info.isCalculable) {
+        return null;
+    }
+
+    const formatCurrency = (value) => {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+        }).format(value);
+    };
+
+    const isProfitable = info.profitAmount >= 0;
+    
+    const profitableBgColor = 'rgba(40, 167, 69, 0.6)'; 
+    const lossBgColor = 'rgba(220, 53, 69, 0.6)';       
+
+    const cardStyle = {
+        backgroundColor: isProfitable ? profitableBgColor : lossBgColor,
+    };
+
+    const profitAmountColor = isProfitable ? 'var(--success-text)' : 'var(--error-text)';
+
+    return (
+        <div className="profit-display-card card" style={cardStyle}>
+            <h3>Profitability Analysis</h3>
+            <div className="profit-grid">
+                <span>Revenue:</span>
+                <span>{formatCurrency(info.totalRevenue)}</span>
+
+                <span>Cost:</span>
+                <span>{formatCurrency(info.totalCost)}</span>
+
+                <hr style={{ gridColumn: '1 / -1', border: 'none', borderTop: '1px solid #ccc', margin: '12px 0' }} />
+
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontWeight: 'bold' }}>Profit:</div>
+                    <div style={{ fontWeight: 'bold', color: profitAmountColor, fontSize: '2em' }}>
+                        {formatCurrency(info.profitAmount)}
+                    </div>
+                </div>
+
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontWeight: 'bold' }}>Margin:</div>
+                    <div style={{ fontWeight: 'bold', color: profitAmountColor, fontSize: '2em' }}>
+                        {info.profitMargin.toFixed(2)}%
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 function OrderDetail() {
   const { orderId } = useParams();
   const { currentUser, loading: authLoading, apiService } = useAuth();
@@ -128,22 +183,24 @@ function OrderDetail() {
   const [multiSupplierShipmentDetails, setMultiSupplierShipmentDetails] = useState({});
   const [originalCustomerShippingMethod, setOriginalCustomerShippingMethod] = useState('UPS Ground');
 
-  // FedEx Billing State
   const [billToCustomerFedex, setBillToCustomerFedex] = useState(false);
   const [customerFedexAccountNumber, setCustomerFedexAccountNumber] = useState('');
-  
-  // UPS Billing State
   const [billToCustomerUps, setBillToCustomerUps] = useState(false);
   const [customerUpsAccountNumber, setCustomerUpsAccountNumber] = useState('');
-
-
   const [isBlindDropShip, setIsBlindDropShip] = useState(false);
-
   const [lineItemSpares, setLineItemSpares] = useState({});
   const [loadingSpares, setLoadingSpares] = useState(false);
 
+  const [profitInfo, setProfitInfo] = useState({
+      totalRevenue: 0,
+      totalCost: 0,
+      profitAmount: 0,
+      profitMargin: 0,
+      isCalculable: false
+  });
+
   const cleanPullSuffix = " - clean pull";
-  const originalLineItems = orderData?.line_items || [];
+  const originalLineItems = orderData?.line_items || []; 
 
   const currentSelectedShippingOption = getSelectedShippingOption(shipmentMethod);
 
@@ -171,8 +228,7 @@ function OrderDetail() {
   };
 
   useEffect(() => {
-    const currentLineItemsCount = originalLineItems.length;
-    if (isMultiSupplierMode && currentLineItemsCount <= 1) {
+    if (isMultiSupplierMode && originalLineItems.length <= 1) {
       setIsMultiSupplierMode(false);
       if (selectedMainSupplierTrigger === MULTI_SUPPLIER_MODE_VALUE) {
         setSelectedMainSupplierTrigger('');
@@ -204,7 +260,7 @@ function OrderDetail() {
         ]);
         if (signal?.aborted) return;
 
-        setOrderData(fetchedOrderData);
+        setOrderData(fetchedOrderData); 
         setSuppliers(fetchedSuppliers || []);
 
         if (!isPostProcessRefresh) {
@@ -218,7 +274,6 @@ function OrderDetail() {
                 const orderDetails = fetchedOrderData.order;
                 let determinedInitialShipMethod = 'UPS Ground';
                 
-                // Prioritize customer's selected service if billing their account
                 if (orderDetails.is_bill_to_customer_account && orderDetails.customer_selected_freight_service) {
                     const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_freight_service);
                     const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService && opt.carrier === 'ups');
@@ -235,12 +290,11 @@ function OrderDetail() {
                         setBillToCustomerFedex(true);
                         setCustomerFedexAccountNumber(orderDetails.customer_fedex_account_number || '');
                     }
-                } else if (orderDetails.customer_shipping_method) { // Fallback to general customer_shipping_method
+                } else if (orderDetails.customer_shipping_method) { 
                     const parsedOrderMethod = formatShippingMethod(orderDetails.customer_shipping_method);
                     const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === parsedOrderMethod);
                     if (matchedOption) {
                         determinedInitialShipMethod = matchedOption.value;
-                        // If this method is UPS and the order indicates UPS third party billing, set those states
                         if (matchedOption.carrier === 'ups' && orderDetails.is_bill_to_customer_account) {
                            setBillToCustomerUps(true);
                            setCustomerUpsAccountNumber(orderDetails.customer_ups_account_number || '');
@@ -316,6 +370,131 @@ function OrderDetail() {
     return () => abortController.abort();
   }, [orderId, currentUser, authLoading, fetchOrderAndSuppliers, apiService]);
 
+  // --- Profit Calculation useEffect ---
+  useEffect(() => {
+    if (!orderData || !orderData.order || !orderData.line_items) {
+        if (profitInfo.isCalculable) { 
+            setProfitInfo(prev => ({ ...prev, isCalculable: false }));
+        }
+        return;
+    }
+
+    let calculatedItemsRevenue = 0;
+    if (originalLineItems && originalLineItems.length > 0) {
+        calculatedItemsRevenue = originalLineItems.reduce((sum, item) => {
+            const price = parseFloat(item.sale_price || 0);
+            const quantity = parseInt(item.quantity || 0, 10);
+            return sum + (price * quantity);
+        }, 0);
+    }
+    const revenue = calculatedItemsRevenue;
+
+    let cost = 0;
+    let isCalculable = false;
+    const orderStatus = orderData.order.status?.toLowerCase();
+
+    if (orderStatus === 'processed') {
+        if (orderData.order.hasOwnProperty('actual_cost_of_goods_sold')) {
+            cost = parseFloat(orderData.order.actual_cost_of_goods_sold || 0);
+        } else {
+            cost = 0; 
+            console.warn("Profit Calc (Processed Order): 'actual_cost_of_goods_sold' field not found in orderData.order. Cost will be shown as $0. Backend needs to provide this for accuracy.");
+        }
+        isCalculable = true; 
+        if (!revenue && originalLineItems.length === 0) {
+            isCalculable = false; 
+        }
+    } else if (isG1OnsiteFulfillmentMode) {
+        cost = 0;
+        isCalculable = revenue > 0 || originalLineItems.length === 0;
+    } else if (isMultiSupplierMode) {
+        const currentOriginalLineItems = orderData.line_items || [];
+        const assignedItems = currentOriginalLineItems.filter(item => lineItemAssignments[item.line_item_id]);
+        
+        if (assignedItems.length > 0 && assignedItems.length === currentOriginalLineItems.length) {
+            const allCostsEntered = assignedItems.every(item => {
+                const itemCost = multiSupplierItemCosts[item.line_item_id];
+                return itemCost !== undefined && itemCost !== '' && !isNaN(parseFloat(itemCost));
+            });
+            if (allCostsEntered) {
+                cost = assignedItems.reduce((total, item) => {
+                    const itemCostNum = parseFloat(multiSupplierItemCosts[item.line_item_id]);
+                    const quantityNum = parseInt(item.quantity, 10);
+                    return total + (itemCostNum * quantityNum);
+                }, 0);
+                isCalculable = true;
+            }
+        }
+    } else if (selectedMainSupplierTrigger && !isG1OnsiteFulfillmentMode && !isMultiSupplierMode) {
+        if (purchaseItems.length > 0) {
+            const allCostsEntered = purchaseItems.every(item => {
+                return item.unit_cost !== undefined && item.unit_cost !== '' && !isNaN(parseFloat(item.unit_cost));
+            });
+            if (allCostsEntered) {
+                cost = purchaseItems.reduce((total, item) => {
+                    const itemCostNum = parseFloat(item.unit_cost);
+                    const quantityNum = parseInt(item.quantity, 10);
+                    return total + (itemCostNum * quantityNum);
+                }, 0);
+                isCalculable = true;
+            }
+        } else { 
+            isCalculable = true; 
+            cost = 0;
+        }
+    }
+    
+    if (!revenue && originalLineItems.length === 0 && orderStatus !== 'processed') {
+        isCalculable = false;
+    }
+    if (revenue === 0 && orderStatus === 'processed' && originalLineItems.length === 0) {
+        isCalculable = true;
+        cost = 0;
+    }
+
+    setProfitInfo(currentProfitInfo => {
+        let shouldUpdate = false;
+        if (currentProfitInfo.isCalculable !== isCalculable) shouldUpdate = true;
+        if (currentProfitInfo.totalRevenue !== revenue) shouldUpdate = true;
+        if (isCalculable && currentProfitInfo.totalCost !== cost) shouldUpdate = true;
+        if (!isCalculable && currentProfitInfo.isCalculable) shouldUpdate = true;
+
+        if (shouldUpdate) {
+            if (isCalculable) {
+                const profit = revenue - cost;
+                const margin = revenue > 0 ? (profit / revenue) * 100 : 0; 
+                return {
+                    totalRevenue: revenue,
+                    totalCost: cost,
+                    profitAmount: profit,
+                    profitMargin: margin,
+                    isCalculable: true
+                };
+            } else {
+                return { 
+                    totalRevenue: revenue, 
+                    totalCost: 0, 
+                    profitAmount: 0, 
+                    profitMargin: 0, 
+                    isCalculable: false 
+                };
+            }
+        }
+        return currentProfitInfo; 
+    });
+
+  }, [
+      orderData, 
+      purchaseItems, 
+      multiSupplierItemCosts, 
+      isMultiSupplierMode, 
+      isG1OnsiteFulfillmentMode, 
+      selectedMainSupplierTrigger, 
+      lineItemAssignments,
+      originalLineItems 
+  ]);
+
+
   useEffect(() => {
     if (!currentUser || !orderData?.line_items || orderData.line_items.length === 0 || !apiService) return;
     const fetchAllSpares = async () => {
@@ -384,7 +563,6 @@ function OrderDetail() {
     setProcessSuccessMessage(''); setProcessedPOsInfo([]);
 
     let defaultMethodForThisMode = 'UPS Ground';
-    // let defaultCarrier = 'ups'; // Not directly used for setting state here
 
     if (orderData?.order) {
         const orderDetails = orderData.order;
@@ -393,21 +571,18 @@ function OrderDetail() {
             const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService && opt.carrier === 'ups');
             if (matchedOption) {
                 defaultMethodForThisMode = matchedOption.value;
-                // defaultCarrier = 'ups';
             }
         } else if (orderDetails.is_bill_to_customer_fedex_account && orderDetails.customer_selected_fedex_service) {
             const customerSelectedService = formatShippingMethod(orderDetails.customer_selected_fedex_service);
             const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === customerSelectedService && opt.carrier === 'fedex');
             if (matchedOption) {
                 defaultMethodForThisMode = matchedOption.value;
-                // defaultCarrier = 'fedex';
             }
         } else if (orderDetails.customer_shipping_method) {
             const parsedOrderMethod = formatShippingMethod(orderDetails.customer_shipping_method);
             const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === parsedOrderMethod);
             if (matchedOption) {
                 defaultMethodForThisMode = matchedOption.value;
-                // defaultCarrier = matchedOption.carrier;
             }
         }
     }
@@ -447,8 +622,9 @@ function OrderDetail() {
         setSingleOrderPoNotes('');
         setPurchaseItems([]);
         const initialMultiDesc = {};
-        if (originalLineItems) {
-            originalLineItems.forEach(item => {
+        const currentOriginalLineItems = orderData?.line_items || []; 
+        if (currentOriginalLineItems) {
+            currentOriginalLineItems.forEach(item => {
                 let defaultDescription = item.hpe_po_description || item.line_item_name || '';
                 if (defaultDescription && !defaultDescription.endsWith(cleanPullSuffix)) defaultDescription += cleanPullSuffix;
                 else if (!defaultDescription && item.original_sku) defaultDescription = `${item.original_sku}${cleanPullSuffix}`;
@@ -459,10 +635,8 @@ function OrderDetail() {
         setLineItemAssignments({}); setPoNotesBySupplier({});
         setMultiSupplierItemCosts({});
         const newMultiShipDetails = {};
-        // Initialize multi-supplier shipment details based on the original customer method
-        // and check for pre-existing third-party billing info for each carrier
         const initialShipOptionForMulti = getSelectedShippingOption(originalCustomerShippingMethod);
-        Object.keys(lineItemAssignments).forEach(itemId => {
+        Object.keys(lineItemAssignments).forEach(itemId => { 
             const supId = lineItemAssignments[itemId];
             if (supId && !newMultiShipDetails[supId]) {
                 newMultiShipDetails[supId] = {
@@ -476,12 +650,13 @@ function OrderDetail() {
             }
         });
         setMultiSupplierShipmentDetails(newMultiShipDetails);
-    } else {
+    } else { 
         setIsG1OnsiteFulfillmentMode(false); setIsMultiSupplierMode(false);
         const s = suppliers.find(sup => sup.id === parseInt(value, 10));
         setSingleOrderPoNotes(s?.defaultponotes || '');
-        if (originalLineItems) {
-            const initialItemsForPoForm = originalLineItems.map(item => ({
+        const currentOriginalLineItems = orderData?.line_items || []; 
+        if (currentOriginalLineItems) {
+            const initialItemsForPoForm = currentOriginalLineItems.map(item => ({
                 original_order_line_item_id: item.line_item_id, sku: item.hpe_option_pn || item.original_sku || '',
                 description: (item.hpe_po_description || item.line_item_name || '') + ( (item.hpe_po_description || item.line_item_name || '').endsWith(cleanPullSuffix) ? '' : cleanPullSuffix),
                 skuInputValue: item.hpe_option_pn || item.original_sku || '', quantity: item.quantity || 1, unit_cost: '', condition: 'New',
@@ -551,7 +726,7 @@ function OrderDetail() {
                 newDetailsForSupplier.customerFedexAccount = (orderData?.order?.is_bill_to_customer_fedex_account && orderData?.order?.customer_fedex_account_number) ? orderData.order.customer_fedex_account_number : '';
                 newDetailsForSupplier.billToCustomerUpsAccount = false;
                 newDetailsForSupplier.customerUpsAccount = '';
-            } else { // Neither UPS nor FedEx, or no specific carrier
+            } else { 
                 newDetailsForSupplier.billToCustomerUpsAccount = false;
                 newDetailsForSupplier.customerUpsAccount = '';
                 newDetailsForSupplier.billToCustomerFedexAccount = false;
@@ -666,9 +841,10 @@ function OrderDetail() {
     setProcessSuccessMessage(''); setProcessedPOsInfo([]); setStatusUpdateMessage('');
 
     let payloadAssignments = [];
+    const currentOriginalLineItems = orderData?.line_items || []; 
 
     if (isG1OnsiteFulfillmentMode) {
-        if (originalLineItems.length > 0) {
+        if (currentOriginalLineItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setProcessError("Invalid shipment weight for G1 Onsite Fulfillment."); setProcessing(false); return; }
             if (!shipmentMethod || !currentSelectedShippingOption) { setProcessError("Please select a shipment method for G1 Onsite Fulfillment."); setProcessing(false); return; }
@@ -683,25 +859,25 @@ function OrderDetail() {
             supplier_id: G1_ONSITE_FULFILLMENT_VALUE,
             payment_instructions: "G1 Onsite Fulfillment",
             po_line_items: [],
-            total_shipment_weight_lbs: originalLineItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null,
-            shipment_method: originalLineItems.length > 0 ? shipmentMethod : null,
-            carrier: originalLineItems.length > 0 ? (currentSelectedShippingOption?.carrier || null) : null,
-            is_bill_to_customer_fedex_account: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' ? billToCustomerFedex : false,
-            customer_fedex_account_number: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' && billToCustomerFedex ? customerFedexAccountNumber.trim() : null,
-            is_bill_to_customer_ups_account: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' ? billToCustomerUps : false,
-            customer_ups_account_number: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' && billToCustomerUps ? customerUpsAccountNumber.trim() : null,
+            total_shipment_weight_lbs: currentOriginalLineItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null,
+            shipment_method: currentOriginalLineItems.length > 0 ? shipmentMethod : null,
+            carrier: currentOriginalLineItems.length > 0 ? (currentSelectedShippingOption?.carrier || null) : null,
+            is_bill_to_customer_fedex_account: currentOriginalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' ? billToCustomerFedex : false,
+            customer_fedex_account_number: currentOriginalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' && billToCustomerFedex ? customerFedexAccountNumber.trim() : null,
+            is_bill_to_customer_ups_account: currentOriginalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' ? billToCustomerUps : false,
+            customer_ups_account_number: currentOriginalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' && billToCustomerUps ? customerUpsAccountNumber.trim() : null,
             is_blind_drop_ship: isBlindDropShip
         });
     } else if (isMultiSupplierMode) {
         const assignedSupplierIds = [...new Set(Object.values(lineItemAssignments))].filter(id => id);
-        if (originalLineItems.length > 0) {
+        if (currentOriginalLineItems.length > 0) {
              if (assignedSupplierIds.length === 0) { setProcessError("Multi-Supplier Mode: Assign items to at least one supplier."); setProcessing(false); return; }
-             if (!originalLineItems.every(item => !!lineItemAssignments[item.line_item_id])) { setProcessError("Multi-Supplier Mode: Assign all original items to a supplier."); setProcessing(false); return; }
+             if (!currentOriginalLineItems.every(item => !!lineItemAssignments[item.line_item_id])) { setProcessError("Multi-Supplier Mode: Assign all original items to a supplier."); setProcessing(false); return; }
         }
 
         for (const supId of assignedSupplierIds) {
             const supplier = suppliers.find(s => s.id === parseInt(supId, 10));
-            const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supId);
+            const itemsForThisSupplier = currentOriginalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supId);
             if (itemsForThisSupplier.length > 0) {
                 let itemCostValidationError = null;
                 const poLineItems = itemsForThisSupplier.map(item => {
@@ -751,14 +927,14 @@ function OrderDetail() {
                 });
             }
         }
-        if (payloadAssignments.length === 0 && originalLineItems.length > 0) { setProcessError("No items assigned for PO generation in multi-supplier mode."); setProcessing(false); return; }
+        if (payloadAssignments.length === 0 && currentOriginalLineItems.length > 0) { setProcessError("No items assigned for PO generation in multi-supplier mode."); setProcessing(false); return; }
 
     } else { // Single Supplier Mode
         const singleSelectedSupId = selectedMainSupplierTrigger;
         if (!singleSelectedSupId || singleSelectedSupId === MULTI_SUPPLIER_MODE_VALUE || singleSelectedSupId === G1_ONSITE_FULFILLMENT_VALUE) {
             setProcessError("Please select a supplier."); setProcessing(false); return;
         }
-        const currentPurchaseItems = purchaseItems;
+        const currentPurchaseItems = purchaseItems; 
 
         if (currentPurchaseItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
@@ -783,9 +959,9 @@ function OrderDetail() {
         }).filter(Boolean);
 
         if (itemValidationError) { setProcessError(itemValidationError); setProcessing(false); return; }
-        if (finalPurchaseItems.length === 0 && originalLineItems.length > 0) { setProcessError("No valid line items for PO."); setProcessing(false); return; }
+        if (finalPurchaseItems.length === 0 && currentOriginalLineItems.length > 0) { setProcessError("No valid line items for PO."); setProcessing(false); return; }
 
-        if (finalPurchaseItems.length > 0 || originalLineItems.length === 0) {
+        if (finalPurchaseItems.length > 0 || currentOriginalLineItems.length === 0) { 
             payloadAssignments.push({
                 supplier_id: parseInt(singleSelectedSupId, 10),
                 payment_instructions: singleOrderPoNotes,
@@ -802,8 +978,8 @@ function OrderDetail() {
         }
     }
 
-    if (payloadAssignments.length === 0 && originalLineItems.length > 0 && !isG1OnsiteFulfillmentMode) { setProcessError("No data for POs. Check assignments/details."); setProcessing(false); return; }
-    if (payloadAssignments.length === 0 && originalLineItems.length === 0 && selectedMainSupplierTrigger === "") { setProcessError("Select supplier/mode."); setProcessing(false); return; }
+    if (payloadAssignments.length === 0 && currentOriginalLineItems.length > 0 && !isG1OnsiteFulfillmentMode) { setProcessError("No data for POs. Check assignments/details."); setProcessing(false); return; }
+    if (payloadAssignments.length === 0 && currentOriginalLineItems.length === 0 && selectedMainSupplierTrigger === "") { setProcessError("Select supplier/mode."); setProcessing(false); return; }
 
 
     try {
@@ -828,12 +1004,13 @@ function OrderDetail() {
   if (error && !loading) return <div className="error-message" style={{ margin: '20px', padding: '20px', border: '1px solid red' }}>Error: {error}</div>;
 
   const order = orderData?.order;
+  const orderStatus = orderData?.order?.status?.toLowerCase(); 
 
   if (!order && !processSuccess && !loading) {
       return <p style={{ textAlign: 'center', marginTop: '20px' }}>Order details not found or error loading.</p>;
   }
 
-  const isActuallyProcessed = order?.status?.toLowerCase() === 'processed' || order?.status?.toLowerCase() === 'completed offline';
+  const isActuallyProcessed = orderStatus === 'processed' || orderStatus === 'completed offline';
   const canDisplayProcessingForm = !processSuccess && !isActuallyProcessed;
   const disableAllActions = processing || manualStatusUpdateInProgress;
   const disableEditableFormFields = isActuallyProcessed || disableAllActions || processSuccess;
@@ -842,11 +1019,11 @@ function OrderDetail() {
   if (order?.order_date) try { displayOrderDate = new Date(order.order_date).toLocaleDateString(); } catch (e) { /* ignore */ }
 
   const displayShipMethodInOrderInfo = formatShippingMethod(
-    (order?.is_bill_to_customer_account && order?.customer_selected_freight_service) // UPS
+    (order?.is_bill_to_customer_account && order?.customer_selected_freight_service) 
         ? order.customer_selected_freight_service
-        : (order?.is_bill_to_customer_fedex_account && order?.customer_selected_fedex_service) // FedEx
+        : (order?.is_bill_to_customer_fedex_account && order?.customer_selected_fedex_service) 
             ? order.customer_selected_fedex_service
-            : order?.customer_shipping_method // Default
+            : order?.customer_shipping_method 
   );
 
 
@@ -876,7 +1053,6 @@ function OrderDetail() {
       {processSuccess && (
         <div className="process-success-container card">
           <p className="success-message-large">ORDER PROCESSED SUCCESSFULLY!</p>
-
           <div className="dashboard-link-container" style={{ marginTop: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)', textAlign: 'center' }}>
             <a
               href="https://store-g6oxherh18.mybigcommerce.com/manage/orders"
@@ -887,13 +1063,21 @@ function OrderDetail() {
               G1 BC Order Dashboard
             </a>
           </div>
-
           {processSuccessMessage && (
             <p className="success-message-detail" style={{textAlign: 'center', marginBottom: 'var(--spacing-lg)'}}>{processSuccessMessage}</p>
           )}
-
+           {/* Display Profitability Analysis if the order was just successfully processed and not G1 Onsite */}
+           {!isG1OnsiteFulfillmentMode && profitInfo.isCalculable && (
+             <ProfitDisplay info={profitInfo} />
+           )}
         </div>
       )}
+
+      {/* MODIFIED: Show ProfitDisplay for already "Processed" orders (and not G1 Onsite) */}
+      {orderStatus === 'processed' && !processSuccess && !isG1OnsiteFulfillmentMode && profitInfo.isCalculable && (
+        <ProfitDisplay info={profitInfo} />
+      )}
+
 
       {orderData?.order?.status?.toLowerCase() === 'rfq sent' && orderData?.order?.bigcommerce_order_id && !isActuallyProcessed && !processSuccess && (
         <section className="see-quotes-gmail-card card">
@@ -940,7 +1124,7 @@ function OrderDetail() {
 
         {order.customer_notes && (<div style={{ marginTop: '5px' }}><strong>Comments:</strong> {order.customer_notes}</div>)}
         <hr style={{ margin: '10px 0' }} />
-        {originalLineItems.map((item) => (
+        {(orderData?.line_items || []).map((item) => (
             <p key={`orig-item-${item.line_item_id}`} className="order-info-sku-line">
                 <span>({item.quantity || 0}) </span>
                 <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.original_sku}`} onClick={(e) => handlePartNumberLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
@@ -962,7 +1146,7 @@ function OrderDetail() {
                 id="mainSupplierTrigger"
                 value={selectedMainSupplierTrigger}
                 onChange={handleMainSupplierTriggerChange}
-                disabled={disableAllActions || (suppliers.length === 0 && originalLineItems.length === 0) }
+                disabled={disableAllActions || (suppliers.length === 0 && (orderData?.line_items || []).length === 0) }
                 style={{ flexGrow: 1 }}
             >
                 <option value="">-- Select Supplier --</option>
@@ -971,10 +1155,10 @@ function OrderDetail() {
                         {supplier.name || 'Unnamed Supplier'}
                     </option>
                 ))}
-                {originalLineItems.length > 1 && (
+                {(orderData?.line_items || []).length > 1 && (
                     <option value={MULTI_SUPPLIER_MODE_VALUE}>** Use Multiple Suppliers **</option>
                 )}
-                {originalLineItems.length > 0 && (
+                {(orderData?.line_items || []).length > 0 && (
                    <option value={G1_ONSITE_FULFILLMENT_VALUE}>G1 Onsite Fulfillment</option>
                 )}
             </select>
@@ -1028,9 +1212,9 @@ function OrderDetail() {
                   value={shipmentMethod}
                   onChange={handleShipmentMethodChange}
                   disabled={disableEditableFormFields}
-                  required={originalLineItems.length > 0 && !isG1OnsiteFulfillmentMode && purchaseItems.length > 0}
+                  required={(orderData?.line_items || []).length > 0 && !isG1OnsiteFulfillmentMode && purchaseItems.length > 0}
                 >
-                    {SHIPPING_METHODS_OPTIONS.map(opt => <option key={`${opt.value}-${opt.carrier}`} value={opt.value}>{opt.label}</option>)}
+                    {SHIPPING_METHODS_OPTIONS.map((opt, index) => <option key={`${opt.value}-${opt.carrier}-single-${index}`} value={opt.value}>{opt.label}</option>)}
                 </select>
 
                 <label htmlFor="shipmentWeightSingle">Weight (lbs):</label>
@@ -1042,11 +1226,10 @@ function OrderDetail() {
                     onChange={handleShipmentWeightChange}
                     step="0.1" min="0.1"
                     placeholder="e.g., 5.0"
-                    required={originalLineItems.length > 0 && !isG1OnsiteFulfillmentMode && purchaseItems.length > 0}
+                    required={(orderData?.line_items || []).length > 0 && !isG1OnsiteFulfillmentMode && purchaseItems.length > 0}
                     disabled={disableEditableFormFields}
                 />
 
-                {/* FedEx Billing Options */}
                 {currentSelectedShippingOption?.carrier === 'fedex' && (
                 <>
                     <label htmlFor="billToCustomerFedexSingle">Bill Customer FedEx:</label>
@@ -1081,7 +1264,6 @@ function OrderDetail() {
                     )}
                 </>
                )}
-               {/* UPS Billing Options */}
                {currentSelectedShippingOption?.carrier === 'ups' && (
                 <>
                     <label htmlFor="billToCustomerUpsSingle">Bill Customer UPS:</label>
@@ -1118,9 +1300,9 @@ function OrderDetail() {
               </div>
             </section>
 
-            <section className="branding-options-section card" style={{ marginTop: 'var(--spacing-lg)' }}> {/* Or use a simpler div */}
+            <section className="branding-options-section card" style={{ marginTop: 'var(--spacing-lg)' }}>
                 <h3>Branding Options</h3>
-                <div className="form-grid"> {/* You can reuse form-grid or a simpler structure */}
+                <div className="form-grid"> 
                     <label htmlFor="brandingOptionSingle">Branding:</label>
                     <select
                         id="brandingOptionSingle"
@@ -1133,6 +1315,8 @@ function OrderDetail() {
                     </select>
                 </div>
             </section>   
+
+            <ProfitDisplay info={profitInfo} />
            
              <div className="order-actions">
                 <button type="submit" disabled={disableAllActions || processing} className="process-order-button">
@@ -1147,8 +1331,8 @@ function OrderDetail() {
         <form onSubmit={handleProcessOrder} className={`processing-form multi-supplier-active ${disableEditableFormFields ? 'form-disabled' : ''}`}>
             <section className="multi-supplier-assignment card">
                 <h3>Assign Original Items to Suppliers</h3>
-                {originalLineItems.length === 0 && <p>No original line items to assign.</p>}
-                {originalLineItems.map((item) => (
+                {(orderData?.line_items || []).length === 0 && <p>No original line items to assign.</p>}
+                {(orderData?.line_items || []).map((item) => (
                     <div key={`assign-item-${item.line_item_id}`} className="item-assignment-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-sm)'}}>
                         <span style={{ flexBasis: '60%' }}>({item.quantity}) {item.original_sku || 'N/A'}</span>
                         <select value={lineItemAssignments[item.line_item_id] || ''} onChange={(e) => handleLineItemSupplierAssignment(item.line_item_id, e.target.value)} disabled={disableAllActions || suppliers.length === 0} style={{flexBasis: '35%'}}>
@@ -1161,12 +1345,9 @@ function OrderDetail() {
             {[...new Set(Object.values(lineItemAssignments))].filter(id => id).map(supplierId => {
                 const supplier = suppliers.find(s => s.id === parseInt(supplierId, 10));
                 if (!supplier) return null;
-                const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supplierId);
+                const itemsForThisSupplier = (orderData?.line_items || []).filter(item => lineItemAssignments[item.line_item_id] === supplierId);
                 const currentPoShipDetails = multiSupplierShipmentDetails[supplierId] || {};
                 const selectedPoShipOption = getSelectedShippingOption(currentPoShipDetails.method);
-                // const isFedexBillRecipientMulti = currentPoShipDetails.billToCustomerFedexAccount || false; // Already in currentPoShipDetails
-                // const isUpsBillRecipientMulti = currentPoShipDetails.billToCustomerUpsAccount || false; // Already in currentPoShipDetails
-
 
                 return (
                     <section key={supplierId} className="supplier-po-draft card">
@@ -1198,7 +1379,7 @@ function OrderDetail() {
                                     style={{width: '100%'}}
                                 >
                                     <option value="">-- No Label / Method --</option>
-                                    {SHIPPING_METHODS_OPTIONS.map(opt => <option key={`${opt.value}-${opt.carrier}-multi-${supplierId}`} value={opt.value}>{opt.label}</option>)}
+                                    {SHIPPING_METHODS_OPTIONS.map((opt, index) => <option key={`${opt.value}-${opt.carrier}-multi-${supplierId}-${index}`} value={opt.value}>{opt.label}</option>)}
                                 </select>
                             </div>
                              <div className="form-group" style={{gridColumn: '1 / -1'}}>
@@ -1311,6 +1492,9 @@ function OrderDetail() {
                     </select>
                 </div>
             </section>
+            
+            <ProfitDisplay info={profitInfo} />
+            
             <div className="order-actions">
                  <button type="submit" disabled={disableAllActions || processing || [...new Set(Object.values(lineItemAssignments))].filter(id => id).length === 0} className="process-order-button">
                     {processing ? 'Processing Multiple POs...' : 'PROCESS ALL ASSIGNED POs'}
@@ -1331,9 +1515,9 @@ function OrderDetail() {
                 value={shipmentMethod}
                 onChange={handleShipmentMethodChange}
                 disabled={disableEditableFormFields}
-                required={originalLineItems.length > 0}
+                required={(orderData?.line_items || []).length > 0}
               >
-                  {SHIPPING_METHODS_OPTIONS.map(opt => <option key={`${opt.value}-${opt.carrier}-g1`} value={opt.value}>{opt.label}</option>)}
+                  {SHIPPING_METHODS_OPTIONS.map((opt, index) => <option key={`${opt.value}-${opt.carrier}-g1-${index}`} value={opt.value}>{opt.label}</option>)}
               </select>
 
               <label htmlFor="shipmentWeightG1">Weight (lbs):</label>
@@ -1346,7 +1530,7 @@ function OrderDetail() {
                   step="0.1"
                   min="0.1"
                   placeholder="e.g., 5.0"
-                  required={originalLineItems.length > 0}
+                  required={(orderData?.line_items || []).length > 0}
                   disabled={disableEditableFormFields}
               />
 
@@ -1361,8 +1545,7 @@ function OrderDetail() {
                     <option value="blind">Blind Ship (Generic Packing Slip)</option>
                 </select>
 
-              {/* FedEx Billing Options for G1 Onsite */}
-              {currentSelectedShippingOption?.carrier === 'fedex' && originalLineItems.length > 0 && (
+              {currentSelectedShippingOption?.carrier === 'fedex' && (orderData?.line_items || []).length > 0 && (
                 <>
                     <label htmlFor="billToCustomerFedexG1">Bill Customer FedEx:</label>
                     <input
@@ -1395,8 +1578,7 @@ function OrderDetail() {
                     )}
                 </>
                )}
-               {/* UPS Billing Options for G1 Onsite */}
-               {currentSelectedShippingOption?.carrier === 'ups' && originalLineItems.length > 0 && (
+               {currentSelectedShippingOption?.carrier === 'ups' && (orderData?.line_items || []).length > 0 && (
                 <>
                     <label htmlFor="billToCustomerUpsG1">Bill Customer UPS:</label>
                     <input
@@ -1431,6 +1613,9 @@ function OrderDetail() {
                )}
             </div>
             </section>
+            
+            {/* ProfitDisplay is intentionally REMOVED from G1 Onsite Fulfillment active processing form */}
+            
             <div className="order-actions">
                 <button type="submit" disabled={disableAllActions || processing} className="process-order-button">
                     {processing ? 'Processing G1 Fulfillment...' : 'PROCESS G1 ONSITE FULFILLMENT'}
