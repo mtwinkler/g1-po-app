@@ -144,18 +144,38 @@ COUNTRY_ISO_TO_NAME = {
 app = Flask(__name__)
 print("DEBUG APP_SETUP: Flask object created.")
 
+from flask import make_response
+
+@app.before_request
+def handle_cors_preflight():
+    if request.method == 'OPTIONS':
+        resp = make_response()
+        origin = request.headers.get("Origin")
+        allowed_origin = os.environ.get('ALLOWED_CORS_ORIGIN')
+
+        if origin == allowed_origin:
+            resp.headers['Access-Control-Allow-Origin'] = allowed_origin
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+            resp.headers['Access-Control-Max-Age'] = '3600'
+        return resp
+
 # --- Replace the existing CORS block with this ---
 # This new block reads the allowed origin from an environment variable,
 # making it work for both local development and your deployed app.
 allowed_origin = os.environ.get('ALLOWED_CORS_ORIGIN')
+print(f"DEBUG APP_SETUP: ALLOWED_CORS_ORIGIN from env is: {allowed_origin}")
+
 
 if allowed_origin:
     print(f"DEBUG APP_SETUP: CORS configured for origin: {allowed_origin}")
     CORS(app,
-         resources={r"/api/*": {"origins": [allowed_origin]}}, # It's best practice for origins to be a list
-         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-         allow_headers=["Content-Type", "Authorization"],
-         supports_credentials=True
+        resources={r"/api/*": {"origins": [allowed_origin]}},
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
+        expose_headers=["Content-Type", "Authorization"],
+        supports_credentials=True,
+        max_age=3600  # optional: cache preflight responses for an hour
     )
 else:
     print("WARN APP_SETUP: ALLOWED_CORS_ORIGIN environment variable not set. CORS will not be configured.")
@@ -351,16 +371,6 @@ def get_hpe_mapping_with_fallback(original_sku_from_order, db_conn): # Needs eng
                 hpe_option_pn, hpe_pn_type = result_fallback.option_pn, result_fallback.pn_type
                 sku_actually_mapped = sku_after_underscore
     return hpe_option_pn, hpe_pn_type, sku_actually_mapped
-
-
-def get_country_name_from_iso(iso_code):
-    """
-    Converts a 2-letter ISO country code to its full name.
-    Returns None if the iso_code is not found or is None.
-    """
-    if not iso_code:
-        return None
-    return COUNTRY_ISO_TO_NAME.get(iso_code.upper())
 
 
 # --- Firebase Token Verification Decorator (kept here or moved to auth.py later) ---

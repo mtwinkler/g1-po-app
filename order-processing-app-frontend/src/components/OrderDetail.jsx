@@ -71,14 +71,6 @@ const formatShippingMethod = (methodString) => {
   return String(methodString).trim();
 };
 
-// TEMPORARY CODE FOR TESTING - In a React component after user is logged in
-const { currentUser } = useAuth(); // Assuming you use useAuth
-if (currentUser) {
-  currentUser.getIdToken(true).then((idToken) => {
-    console.log("Firebase ID Token:", idToken);
-  });
-}
-
 const MULTI_SUPPLIER_MODE_VALUE = "_MULTI_SUPPLIER_MODE_";
 const G1_ONSITE_FULFILLMENT_VALUE = "_G1_ONSITE_FULFILLMENT_";
 

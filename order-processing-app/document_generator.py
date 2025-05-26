@@ -25,7 +25,7 @@ try:
     FONTS_DIR = os.path.join(_this_dir, 'fonts')
 
     # Construct the full path to each font file
-    eloquia_regular_path = os.path.join(FONTS_DIR, 'eloquia-display-regular.ttf')
+    eloquia_regular_path = os.path.join(FONTS_DIR, 'eloquia-display-regular-fixed.ttf')
     # If you have a bold version, its path would be defined here too
     # eloquia_bold_path = os.path.join(FONTS_DIR, 'eloquia-display-bold.ttf') 
 

@@ -10,7 +10,7 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 console.log("AuthContext: API_BASE_URL is set to:", API_BASE_URL);
 
 

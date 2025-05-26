@@ -124,10 +124,14 @@ function Dashboard({ initialView = 'orders' }) {
             setStatusCounts(counts || {});
             setHasPendingOrInternational(!!(counts && (counts.pending > 0 || counts.international_manual > 0)));
         } catch (error) {
-            console.error("Error fetching status counts:", error.message);
-            if (!errorOrders) setErrorOrders("Could not load status counts.");
-            setStatusCounts({});
-            setHasPendingOrInternational(false);
+            // *** THIS IS THE FIX ***
+            // Ignore AbortError, which is common in React Strict Mode (dev environment)
+            if (error.name !== 'AbortError') {
+                console.error("Error fetching status counts:", error.message);
+                if (!errorOrders) setErrorOrders("Could not load status counts.");
+                setStatusCounts({});
+                setHasPendingOrInternational(false);
+            }
         } finally {
             if (!signal || !signal.aborted) setLoadingCounts(false);
         }

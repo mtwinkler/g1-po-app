@@ -31,7 +31,7 @@ import requests
 
 orders_bp = Blueprint('orders_bp', __name__)
 
-@orders_bp.route('/orders', methods=['GET'])
+@orders_bp.route('/orders', methods=['GET', 'OPTIONS'])
 @verify_firebase_token
 def get_orders():
     print("DEBUG GET_ORDERS: Received request")
@@ -58,7 +58,7 @@ def get_orders():
         if db_conn and not db_conn.closed: db_conn.close()
         print("DEBUG GET_ORDERS: DB connection closed.")
 
-@orders_bp.route('/orders/<int:order_id>', methods=['GET'])
+@orders_bp.route('/orders/<int:order_id>', methods=['GET', 'OPTIONS'])
 @verify_firebase_token
 def get_order_details(order_id):
     print(f"DEBUG GET_ORDER: Received request for order ID: {order_id}")
@@ -134,7 +134,7 @@ def get_order_details(order_id):
 # ... (rest of the routes in orders.py remain the same) ...
 # Make sure to only replace the get_order_details function.
 
-@orders_bp.route('/orders/status-counts', methods=['GET'])
+@orders_bp.route('/orders/status-counts', methods=['GET', 'OPTIONS'])
 @verify_firebase_token
 def get_order_status_counts():
     print("DEBUG GET_STATUS_COUNTS: Received request")
@@ -222,10 +222,10 @@ def ingest_orders_route():
         print(f"DEBUG INGEST: Fetching orders with status ID {target_status_id} from {orders_list_endpoint}", flush=True)
 
         response = requests.get(orders_list_endpoint, headers=bc_headers, params=api_params)
-        response.raise_for_status() 
+        response.raise_for_status()
 
         orders_list_from_bc = []
-        if response.text and response.text.strip(): 
+        if response.text and response.text.strip():
             try:
                 orders_list_from_bc = response.json()
             except json.JSONDecodeError as json_err:
@@ -233,7 +233,7 @@ def ingest_orders_route():
                 return jsonify({"message": "Ingestion failed: Could not parse response from BigCommerce."}), 500
         else:
             print("INFO INGEST: BigCommerce API returned an empty response. No orders to process for this status.", flush=True)
-        
+
         if not isinstance(orders_list_from_bc, list):
             print(f"ERROR INGEST: Unexpected API response format after JSON parse. Expected list, got {type(orders_list_from_bc)}", flush=True)
             return jsonify({"message": "Ingestion failed: Unexpected API response format."}), 500
@@ -282,28 +282,64 @@ def ingest_orders_route():
                     except requests.exceptions.RequestException as sub_req_e:
                         print(f"ERROR INGEST: Could not fetch sub-resources for BC Order {order_id_from_bc}: {sub_req_e}. Skipping this order.", flush=True)
                         continue
+                    
+                    # --- START: REVISED COMMENT PARSING LOGIC ---
+                    raw_customer_message = bc_order_summary.get('customer_message', '').strip()
+                    
+                    compliance_ids_data = {} 
+                    message_for_freight_and_user_notes = raw_customer_message 
+                    compliance_block_raw = None
+
+                    compliance_separator_literal = " ||| "
+                    # Find the last occurrence of the compliance block
+                    # A compliance block looks like "[...];" possibly preceded by " ||| "
+                    # Regex to find the compliance block, optionally preceded by the separator
+                    # It captures (group 1) text before the separator, (group 2) the separator itself, and (group 3) the compliance block
+                    match = re.search(r'^(.*?)(\s*' + re.escape(compliance_separator_literal) + r'\s*)?(\[.*?\];)$', raw_customer_message, re.DOTALL)
+
+                    if match:
+                        # Group 3 is the compliance block like "[Data: Value;]"
+                        compliance_block_raw = match.group(3) 
+                        # Group 1 is everything before the separator (or everything if separator not present but block is)
+                        message_for_freight_and_user_notes = match.group(1).strip() if match.group(1) else ""
+                        
+                        # If group 2 (separator) was not found, it means the entire message might have been just the compliance block
+                        if not match.group(2) and message_for_freight_and_user_notes == compliance_block_raw:
+                            message_for_freight_and_user_notes = "" # Correctly set to empty if only compliance block
+
+                    if compliance_block_raw and compliance_block_raw.startswith("[") and compliance_block_raw.endswith("];"):
+                        compliance_content = compliance_block_raw[1:-2] # Remove [ and ];
+                        id_pairs = compliance_content.split(';')
+                        for pair in id_pairs:
+                            pair = pair.strip() 
+                            if pair and ':' in pair: 
+                                label, value = pair.split(':', 1)
+                                compliance_ids_data[label.strip()] = value.strip()
+                    # message_for_freight_and_user_notes now contains text excluding the compliance block
 
                     parsed_customer_carrier, parsed_customer_selected_ups_service, parsed_customer_ups_account_num = None, None, None
                     is_bill_to_customer_ups_acct = False
                     parsed_customer_selected_fedex_service, parsed_customer_fedex_account_num = None, None
                     is_bill_to_customer_fedex_acct = False
                     customer_ups_account_zipcode = None
+                    customer_notes_for_db = message_for_freight_and_user_notes 
 
-                    raw_customer_message = bc_order_summary.get('customer_message', '')
-                    customer_notes_for_db = raw_customer_message
-                    freight_delimiter_present = "|| Carrier:" in raw_customer_message and "|| Account#:" in raw_customer_message
-
-                    if freight_delimiter_present:
-                        parts = raw_customer_message.split(' || ')
+                    freight_delimiter_pattern = " || " 
+                    if freight_delimiter_pattern + "Carrier:" in message_for_freight_and_user_notes and \
+                       freight_delimiter_pattern + "Account#:" in message_for_freight_and_user_notes:
+                        
+                        freight_parts = message_for_freight_and_user_notes.split(freight_delimiter_pattern)
                         temp_carrier, temp_service, temp_account, temp_zip = None, None, None, None
-                        for part_idx, part_content in enumerate(parts):
-                            if part_idx == 0: customer_notes_for_db = part_content.strip()
-                            else:
-                                content_lower = part_content.lower()
-                                if content_lower.startswith("carrier:"): temp_carrier = part_content.split(":", 1)[1].strip()
-                                elif content_lower.startswith("service:"): temp_service = part_content.split(":", 1)[1].strip()
-                                elif content_lower.startswith("account#:"): temp_account = part_content.split(":", 1)[1].strip()
-                                elif content_lower.startswith("zip:"): temp_zip = part_content.split(":",1)[1].strip()
+                        
+                        customer_notes_for_db = freight_parts[0].strip()
+                        
+                        for i in range(1, len(freight_parts)): 
+                            part_content = freight_parts[i]
+                            content_lower = part_content.lower()
+                            if content_lower.startswith("carrier:"): temp_carrier = part_content.split(":", 1)[1].strip()
+                            elif content_lower.startswith("service:"): temp_service = part_content.split(":", 1)[1].strip()
+                            elif content_lower.startswith("account#:"): temp_account = part_content.split(":", 1)[1].strip()
+                            elif content_lower.startswith("zip:"): temp_zip = part_content.split(":",1)[1].strip()
 
                         if temp_carrier and temp_account:
                             parsed_customer_carrier = temp_carrier
@@ -316,14 +352,22 @@ def ingest_orders_route():
                                 parsed_customer_selected_fedex_service = temp_service
                                 parsed_customer_fedex_account_num = temp_account
                                 is_bill_to_customer_fedex_acct = True
-
-                    if not freight_delimiter_present and customer_notes_for_db:
+                    else: 
+                        customer_notes_for_db = message_for_freight_and_user_notes.strip()
+                    
+                    if customer_notes_for_db: 
                         sensitive_pattern = re.compile(r'\*{10}.*?\*{10}', re.DOTALL)
                         customer_notes_for_db = sensitive_pattern.sub('', customer_notes_for_db).strip()
+                    # --- END: REVISED COMMENT PARSING LOGIC ---
+
+                    if compliance_ids_data:
+                        print(f"DEBUG INGEST: Parsed Compliance IDs for BC Order {order_id_from_bc}: {compliance_ids_data}", flush=True)
+                    
+                    db_compliance_info = json.dumps(compliance_ids_data) if compliance_ids_data else None
 
                     existing_order_row = conn.execute(
                         text("""SELECT id, status, is_international, payment_method,
-                                      bigcommerce_order_tax, customer_notes,
+                                      bigcommerce_order_tax, customer_notes, compliance_info,
                                       customer_selected_freight_service, customer_ups_account_number, customer_ups_account_zipcode,
                                       is_bill_to_customer_account,
                                       customer_selected_fedex_service, customer_fedex_account_number,
@@ -352,10 +396,28 @@ def ingest_orders_route():
                         if existing_order_row.is_international != is_international: update_fields['is_international'] = is_international
                         if existing_order_row.payment_method != bc_order_summary.get('payment_method'): update_fields['payment_method'] = bc_order_summary.get('payment_method')
                         if existing_order_row.bigcommerce_order_tax != bc_total_tax: update_fields['bigcommerce_order_tax'] = bc_total_tax
-                        if existing_order_row.customer_notes != customer_notes_for_db: update_fields['customer_notes'] = customer_notes_for_db
+                        
+                        if existing_order_row.customer_notes != customer_notes_for_db: 
+                            update_fields['customer_notes'] = customer_notes_for_db
+                        
+                        existing_compliance_info_from_db = existing_order_row.compliance_info
+                        # Ensure comparison handles None from DB correctly. db_compliance_info is JSON string or None.
+                        # If existing_compliance_info_from_db is a dict (from JSONB), convert to string for comparison, or compare dicts.
+                        # For simplicity, we'll compare string forms if one of them is a string or both are None/dict.
+                        
+                        parsed_existing_compliance_dict = {}
+                        if isinstance(existing_compliance_info_from_db, str):
+                            try: parsed_existing_compliance_dict = json.loads(existing_compliance_info_from_db) if existing_compliance_info_from_db else {}
+                            except json.JSONDecodeError:  parsed_existing_compliance_dict = {}
+                        elif isinstance(existing_compliance_info_from_db, dict): # Already a dict if JSONB
+                            parsed_existing_compliance_dict = existing_compliance_info_from_db if existing_compliance_info_from_db else {}
+
+                        if parsed_existing_compliance_dict != compliance_ids_data:
+                             update_fields['compliance_info'] = db_compliance_info # db_compliance_info is already a JSON string or None
+                        
                         if not hasattr(existing_order_row, 'bc_shipping_cost_ex_tax') or existing_order_row.bc_shipping_cost_ex_tax != bc_shipping_cost_from_api:
                             update_fields['bc_shipping_cost_ex_tax'] = bc_shipping_cost_from_api
-
+                        
                         billing_fields_to_check = {
                             'customer_billing_first_name': bc_billing_address.get('first_name'), 'customer_billing_last_name': bc_billing_address.get('last_name'),
                             'customer_billing_company': bc_billing_address.get('company'), 'customer_billing_street_1': bc_billing_address.get('street_1'),
@@ -386,38 +448,56 @@ def ingest_orders_route():
                             set_clauses = [f"{key} = :{key}" for key in update_fields.keys()]
                             conn.execute(text(f"UPDATE orders SET {', '.join(set_clauses)} WHERE id = :id"), {"id": existing_order_row.id, **update_fields})
                             updated_count_this_run += 1
-                    else:
+                    else: 
                         target_app_status = 'international_manual' if is_international else 'new'
                         order_values = {
                             "bigcommerce_order_id": order_id_from_bc,
                             "customer_company": customer_shipping_address.get('company'),
                             "customer_name": f"{customer_shipping_address.get('first_name', '')} {customer_shipping_address.get('last_name', '')}".strip(),
-                            "customer_shipping_address_line1": customer_shipping_address.get('street_1'), "customer_shipping_address_line2": customer_shipping_address.get('street_2'),
-                            "customer_shipping_city": customer_shipping_address.get('city'), "customer_shipping_state": customer_shipping_address.get('state'),
+                            "customer_shipping_address_line1": customer_shipping_address.get('street_1'), 
+                            "customer_shipping_address_line2": customer_shipping_address.get('street_2'),
+                            "customer_shipping_city": customer_shipping_address.get('city'), 
+                            "customer_shipping_state": customer_shipping_address.get('state'),
                             "customer_shipping_zip": customer_shipping_address.get('zip'),
                             "customer_shipping_country": customer_shipping_address.get('country'),
                             "customer_shipping_country_iso2": customer_shipping_address.get('country_iso2'),
-                            "customer_phone": customer_shipping_address.get('phone'), "customer_email": bc_billing_address.get('email', customer_shipping_address.get('email')),
-                            "customer_shipping_method": calculated_shipping_method_name, "customer_notes": customer_notes_for_db,
+                            "customer_phone": customer_shipping_address.get('phone'), 
+                            "customer_email": bc_billing_address.get('email', customer_shipping_address.get('email')),
+                            "customer_shipping_method": calculated_shipping_method_name, 
+                            "customer_notes": customer_notes_for_db, 
+                            "compliance_info": db_compliance_info, 
                             "order_date": datetime.strptime(bc_order_summary['date_created'], '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=timezone.utc) if bc_order_summary.get('date_created') else current_time_utc,
-                            "total_sale_price": bc_total_inc_tax, "bigcommerce_order_tax": bc_total_tax, "bc_shipping_cost_ex_tax": bc_shipping_cost_from_api,
-                            "status": target_app_status, "is_international": is_international, "payment_method": bc_order_summary.get('payment_method'),
+                            "total_sale_price": bc_total_inc_tax, 
+                            "bigcommerce_order_tax": bc_total_tax, 
+                            "bc_shipping_cost_ex_tax": bc_shipping_cost_from_api,
+                            "status": target_app_status, 
+                            "is_international": is_international, 
+                            "payment_method": bc_order_summary.get('payment_method'),
                             "created_at": current_time_utc, "updated_at": current_time_utc,
-                            "customer_selected_freight_service": parsed_customer_selected_ups_service, "customer_ups_account_number": parsed_customer_ups_account_num,
+                            "customer_selected_freight_service": parsed_customer_selected_ups_service, 
+                            "customer_ups_account_number": parsed_customer_ups_account_num,
                             "customer_ups_account_zipcode": customer_ups_account_zipcode,
                             "is_bill_to_customer_account": is_bill_to_customer_ups_acct,
-                            "customer_selected_fedex_service": parsed_customer_selected_fedex_service, "customer_fedex_account_number": parsed_customer_fedex_account_num,
+                            "customer_selected_fedex_service": parsed_customer_selected_fedex_service, 
+                            "customer_fedex_account_number": parsed_customer_fedex_account_num,
                             "is_bill_to_customer_fedex_account": is_bill_to_customer_fedex_acct,
-                            "customer_billing_first_name": bc_billing_address.get('first_name'), "customer_billing_last_name": bc_billing_address.get('last_name'),
-                            "customer_billing_company": bc_billing_address.get('company'), "customer_billing_street_1": bc_billing_address.get('street_1'),
-                            "customer_billing_street_2": bc_billing_address.get('street_2'), "customer_billing_city": bc_billing_address.get('city'),
-                            "customer_billing_state": bc_billing_address.get('state'), "customer_billing_zip": bc_billing_address.get('zip'),
-                            "customer_billing_country": bc_billing_address.get('country'), "customer_billing_country_iso2": bc_billing_address.get('country_iso2'),
+                            "customer_billing_first_name": bc_billing_address.get('first_name'), 
+                            "customer_billing_last_name": bc_billing_address.get('last_name'),
+                            "customer_billing_company": bc_billing_address.get('company'), 
+                            "customer_billing_street_1": bc_billing_address.get('street_1'),
+                            "customer_billing_street_2": bc_billing_address.get('street_2'), 
+                            "customer_billing_city": bc_billing_address.get('city'),
+                            "customer_billing_state": bc_billing_address.get('state'), 
+                            "customer_billing_zip": bc_billing_address.get('zip'),
+                            "customer_billing_country": bc_billing_address.get('country'), 
+                            "customer_billing_country_iso2": bc_billing_address.get('country_iso2'),
                             "customer_billing_phone": bc_billing_address.get('phone')
                         }
+                        
                         order_columns = list(order_values.keys())
                         order_placeholders = [f":{col}" for col in order_columns]
-                        insert_sql = text(f"INSERT INTO orders ({', '.join(order_columns)}) VALUES ({', '.join(order_placeholders)}) RETURNING id")
+                        insert_sql_str = f"INSERT INTO orders ({', '.join(order_columns)}) VALUES ({', '.join(order_placeholders)}) RETURNING id"
+                        insert_sql = text(insert_sql_str)
                         inserted_order_id = conn.execute(insert_sql, order_values).scalar_one()
                         inserted_count_this_run += 1
 
