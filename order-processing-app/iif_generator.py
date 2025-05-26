@@ -286,13 +286,13 @@ def generate_po_iif_content_for_date(db_engine_ref, target_date_str=None, proces
                 iif_lines.append("SPL\t" + "\t".join(spl_data_ordered))
 
             if po_row.payment_instructions:
-                memo_spl_values_dict = { "TRNSTYPE": "PURCHORD", "DATE": po_date_formatted, "ACCNT": QUICKBOOKS_DEFAULT_EXPENSE_ACCOUNT, "AMOUNT": "0.00", "DOCNUM": po_row.po_number, "MEMO": sanitize_field(po_row.payment_instructions, 4095)}
+                memo_spl_values_dict = { "TRNSTYPE": "PURCHORD", "DATE": po_date_formatted, "ACCNT": "", "AMOUNT": "", "DOCNUM": po_row.po_number, "MEMO": sanitize_field(po_row.payment_instructions, 4095)}
                 memo_spl_data_ordered = [sanitize_field(memo_spl_values_dict.get(field, "")) for field in spl_header_fields]
                 iif_lines.append("SPL\t" + "\t".join(memo_spl_data_ordered))
 
             if po_row.bigcommerce_order_id:
                 fulfillment_note = f"Fulfillment of G1 Order #{po_row.bigcommerce_order_id}"
-                fulfillment_spl_values_dict = { "TRNSTYPE": "PURCHORD", "DATE": po_date_formatted, "ACCNT": QUICKBOOKS_DEFAULT_EXPENSE_ACCOUNT, "AMOUNT": "0.00", "DOCNUM": po_row.po_number, "MEMO": sanitize_field(fulfillment_note, 4095)}
+                fulfillment_spl_values_dict = { "TRNSTYPE": "PURCHORD", "DATE": po_date_formatted, "ACCNT": "", "AMOUNT": "", "DOCNUM": po_row.po_number, "MEMO": sanitize_field(fulfillment_note, 4095)}
                 fulfillment_spl_data_ordered = [sanitize_field(fulfillment_spl_values_dict.get(field, "")) for field in spl_header_fields]
                 iif_lines.append("SPL\t" + "\t".join(fulfillment_spl_data_ordered))
 
@@ -398,6 +398,11 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
             bc_order_id_str = str(order_row.bigcommerce_order_id)
             invoice_total_amount = Decimal(order_row.total_sale_price if order_row.total_sale_price is not None else '0.00')
 
+            # --- PAYMENT LOGIC START ---
+            payment_method = str(order_row.payment_method or '').lower().strip()
+            should_create_payment = payment_method in ["braintree (paypal)", "credit card"]
+            # --- PAYMENT LOGIC END ---
+
             _bill_lines = []
             bill_comp = getattr(order_row, 'customer_billing_company', None)
             bill_first = getattr(order_row, 'customer_billing_first_name', None)
@@ -486,7 +491,8 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
                 "TERMS": terms_for_invoice,
                 "ADDR1": addr1_inv, "ADDR2": addr2_inv, "ADDR3": addr3_inv, "ADDR4": addr4_inv, "ADDR5": addr5_inv,
                 "SADDR1": saddr1_inv, "SADDR2": saddr2_inv, "SADDR3": saddr3_inv, "SADDR4": saddr4_inv, "SADDR5": saddr5_inv,
-                "MEMO": f"Order #{bc_order_id_str}", "TOPRINT": "Y", "PAID": "Y",
+                "MEMO": f"Order #{bc_order_id_str}", "TOPRINT": "Y", 
+                "PAID": "Y" if should_create_payment else "N",
                 "SHIPDATE": order_date_formatted,
                 "PONUM": sanitize_field(customer_po_num_from_order, 25)
             }
@@ -554,15 +560,16 @@ def generate_sales_iif_content_for_date(db_engine_ref, target_date_str=None, pro
                 iif_lines.append("SPL\t" + "\t".join(spl_data_ordered))
             iif_lines.append("ENDTRNS")
 
-            payment_amount = invoice_total_amount
-            iif_payment_method = "Credit Card"
-            payment_trns_dict = {"TRNSTYPE": "PAYMENT", "DATE": order_date_formatted, "ACCNT": QUICKBOOKS_UNDEPOSITED_FUNDS, "NAME": QUICKBOOKS_CUSTOMER_WEBSITE, "AMOUNT": str(payment_amount), "DOCNUM": bc_order_id_str, "PAYMETH": iif_payment_method, "MEMO": f"Payment for Order #{bc_order_id_str}"}
-            trns_data_ordered = [sanitize_field(payment_trns_dict.get(field, "")) for field in trns_header_fields]
-            iif_lines.append("TRNS\t" + "\t".join(trns_data_ordered))
-            payment_spl_dict = {"TRNSTYPE": "PAYMENT", "DATE": order_date_formatted, "ACCNT": QUICKBOOKS_ACCOUNTS_RECEIVABLE, "NAME": QUICKBOOKS_CUSTOMER_WEBSITE, "AMOUNT": str(payment_amount * -1), "DOCNUM": bc_order_id_str, "MEMO": f"Applied to Invoice #{bc_order_id_str}"}
-            spl_data_ordered = [sanitize_field(payment_spl_dict.get(field, "")) for field in spl_header_fields]
-            iif_lines.append("SPL\t" + "\t".join(spl_data_ordered))
-            iif_lines.append("ENDTRNS")
+            if should_create_payment:
+                payment_amount = invoice_total_amount
+                iif_payment_method = "Credit Card"
+                payment_trns_dict = {"TRNSTYPE": "PAYMENT", "DATE": order_date_formatted, "ACCNT": QUICKBOOKS_UNDEPOSITED_FUNDS, "NAME": QUICKBOOKS_CUSTOMER_WEBSITE, "AMOUNT": str(payment_amount), "DOCNUM": bc_order_id_str, "PAYMETH": iif_payment_method, "MEMO": f"Payment for Order #{bc_order_id_str}"}
+                trns_data_ordered = [sanitize_field(payment_trns_dict.get(field, "")) for field in trns_header_fields]
+                iif_lines.append("TRNS\t" + "\t".join(trns_data_ordered))
+                payment_spl_dict = {"TRNSTYPE": "PAYMENT", "DATE": order_date_formatted, "ACCNT": QUICKBOOKS_ACCOUNTS_RECEIVABLE, "NAME": QUICKBOOKS_CUSTOMER_WEBSITE, "AMOUNT": str(payment_amount * -1), "DOCNUM": bc_order_id_str, "MEMO": f"Applied to Invoice #{bc_order_id_str}"}
+                spl_data_ordered = [sanitize_field(payment_spl_dict.get(field, "")) for field in spl_header_fields]
+                iif_lines.append("SPL\t" + "\t".join(spl_data_ordered))
+                iif_lines.append("ENDTRNS")
 
             processed_sales_order_db_ids.append(order_row.app_order_id) 
 

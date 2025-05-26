@@ -65,6 +65,82 @@ try:
 except Exception as e_dotenv:
     print(f"ERROR APP_SETUP: load_dotenv failed: {e_dotenv}")
 
+# Add this dictionary at the top level of your app.py,
+# perhaps near other global configurations or constants.
+COUNTRY_ISO_TO_NAME = {
+    'AF': 'Afghanistan', 'AL': 'Albania', 'DZ': 'Algeria', 'AS': 'American Samoa',
+    'AD': 'Andorra', 'AO': 'Angola', 'AI': 'Anguilla', 'AQ': 'Antarctica',
+    'AG': 'Antigua and Barbuda', 'AR': 'Argentina', 'AM': 'Armenia', 'AW': 'Aruba',
+    'AU': 'Australia', 'AT': 'Austria', 'AZ': 'Azerbaijan', 'BS': 'Bahamas',
+    'BH': 'Bahrain', 'BD': 'Bangladesh', 'BB': 'Barbados', 'BY': 'Belarus',
+    'BE': 'Belgium', 'BZ': 'Belize', 'BJ': 'Benin', 'BM': 'Bermuda', 'BT': 'Bhutan',
+    'BO': 'Bolivia', 'BA': 'Bosnia and Herzegovina', 'BW': 'Botswana',
+    'BR': 'Brazil', 'IO': 'British Indian Ocean Territory',
+    'VG': 'British Virgin Islands', 'BN': 'Brunei', 'BG': 'Bulgaria',
+    'BF': 'Burkina Faso', 'BI': 'Burundi', 'KH': 'Cambodia', 'CM': 'Cameroon',
+    'CA': 'Canada', 'CV': 'Cape Verde', 'KY': 'Cayman Islands',
+    'CF': 'Central African Republic', 'TD': 'Chad', 'CL': 'Chile', 'CN': 'China',
+    'CX': 'Christmas Island', 'CC': 'Cocos (Keeling) Islands', 'CO': 'Colombia',
+    'KM': 'Comoros', 'CG': 'Congo - Brazzaville',
+    'CD': 'Congo - Kinshasa (DRC)', 'CK': 'Cook Islands', 'CR': 'Costa Rica',
+    'CI': 'Côte d’Ivoire', 'HR': 'Croatia', 'CU': 'Cuba', 'CY': 'Cyprus',
+    'CZ': 'Czechia', 'DK': 'Denmark', 'DJ': 'Djibouti', 'DM': 'Dominica',
+    'DO': 'Dominican Republic', 'EC': 'Ecuador', 'EG': 'Egypt',
+    'SV': 'El Salvador', 'GQ': 'Equatorial Guinea', 'ER': 'Eritrea',
+    'EE': 'Estonia', 'SZ': 'Eswatini', 'ET': 'Ethiopia',
+    'FK': 'Falkland Islands (Islas Malvinas)', 'FO': 'Faroe Islands', 'FJ': 'Fiji',
+    'FI': 'Finland', 'FR': 'France', 'GF': 'French Guiana',
+    'PF': 'French Polynesia', 'TF': 'French Southern Territories', 'GA': 'Gabon',
+    'GM': 'Gambia', 'GE': 'Georgia', 'DE': 'Germany', 'GH': 'Ghana',
+    'GI': 'Gibraltar', 'GR': 'Greece', 'GL': 'Greenland', 'GD': 'Grenada',
+    'GP': 'Guadeloupe', 'GU': 'Guam', 'GT': 'Guatemala', 'GG': 'Guernsey',
+    'GN': 'Guinea', 'GW': 'Guinea-Bissau', 'GY': 'Guyana', 'HT': 'Haiti',
+    'HN': 'Honduras', 'HK': 'Hong Kong SAR China', 'HU': 'Hungary',
+    'IS': 'Iceland', 'IN': 'India', 'ID': 'Indonesia', 'IR': 'Iran',
+    'IQ': 'Iraq', 'IE': 'Ireland', 'IM': 'Isle of Man', 'IL': 'Israel',
+    'IT': 'Italy', 'JM': 'Jamaica', 'JP': 'Japan', 'JE': 'Jersey',
+    'JO': 'Jordan', 'KZ': 'Kazakhstan', 'KE': 'Kenya', 'KI': 'Kiribati',
+    'KW': 'Kuwait', 'KG': 'Kyrgyzstan', 'LA': 'Laos', 'LV': 'Latvia',
+    'LB': 'Lebanon', 'LS': 'Lesotho', 'LR': 'Liberia', 'LY': 'Libya',
+    'LI': 'Liechtenstein', 'LT': 'Lithuania', 'LU': 'Luxembourg',
+    'MO': 'Macao SAR China', 'MG': 'Madagascar', 'MW': 'Malawi',
+    'MY': 'Malaysia', 'MV': 'Maldives', 'ML': 'Mali', 'MT': 'Malta',
+    'MH': 'Marshall Islands', 'MQ': 'Martinique', 'MR': 'Mauritania',
+    'MU': 'Mauritius', 'YT': 'Mayotte', 'MX': 'Mexico', 'FM': 'Micronesia',
+    'MD': 'Moldova', 'MC': 'Monaco', 'MN': 'Mongolia', 'ME': 'Montenegro',
+    'MS': 'Montserrat', 'MA': 'Morocco', 'MZ': 'Mozambique', 'MM': 'Myanmar (Burma)',
+    'NA': 'Namibia', 'NR': 'Nauru', 'NP': 'Nepal', 'NL': 'Netherlands',
+    'NC': 'New Caledonia', 'NZ': 'New Zealand', 'NI': 'Nicaragua',
+    'NE': 'Niger', 'NG': 'Nigeria', 'NU': 'Niue', 'NF': 'Norfolk Island',
+    'KP': 'North Korea', 'MK': 'North Macedonia', 'MP': 'Northern Mariana Islands',
+    'NO': 'Norway', 'OM': 'Oman', 'PK': 'Pakistan', 'PW': 'Palau',
+    'PS': 'Palestinian Territories', 'PA': 'Panama', 'PG': 'Papua New Guinea',
+    'PY': 'Paraguay', 'PE': 'Peru', 'PH': 'Philippines', 'PN': 'Pitcairn Islands',
+    'PL': 'Poland', 'PT': 'Portugal', 'PR': 'Puerto Rico', 'QA': 'Qatar',
+    'RE': 'Réunion', 'RO': 'Romania', 'RU': 'Russia', 'RW': 'Rwanda',
+    'WS': 'Samoa', 'SM': 'San Marino', 'ST': 'São Tomé & Príncipe',
+    'SA': 'Saudi Arabia', 'SN': 'Senegal', 'RS': 'Serbia', 'SC': 'Seychelles',
+    'SL': 'Sierra Leone', 'SG': 'Singapore', 'SX': 'Sint Maarten',
+    'SK': 'Slovakia', 'SI': 'Slovenia', 'SB': 'Solomon Islands', 'SO': 'Somalia',
+    'ZA': 'South Africa', 'GS': 'South Georgia & South Sandwich Islands',
+    'KR': 'South Korea', 'SS': 'South Sudan', 'ES': 'Spain', 'LK': 'Sri Lanka',
+    'BL': 'St. Barthélemy', 'SH': 'St. Helena', 'KN': 'St. Kitts & Nevis',
+    'LC': 'St. Lucia', 'MF': 'St. Martin', 'PM': 'St. Pierre & Miquelon',
+    'VC': 'St. Vincent & Grenadines', 'SD': 'Sudan', 'SR': 'Suriname',
+    'SJ': 'Svalbard & Jan Mayen', 'SE': 'Sweden', 'CH': 'Switzerland',
+    'SY': 'Syria', 'TW': 'Taiwan', 'TJ': 'Tajikistan', 'TZ': 'Tanzania',
+    'TH': 'Thailand', 'TL': 'Timor-Leste', 'TG': 'Togo', 'TK': 'Tokelau',
+    'TO': 'Tonga', 'TT': 'Trinidad & Tobago', 'TN': 'Tunisia', 'TR': 'Turkey',
+    'TM': 'Turkmenistan', 'TC': 'Turks & Caicos Islands', 'TV': 'Tuvalu',
+    'UM': 'U.S. Outlying Islands', 'VI': 'U.S. Virgin Islands', 'UG': 'Uganda',
+    'UA': 'Ukraine', 'AE': 'United Arab Emirates', 'GB': 'United Kingdom',
+    'US': 'United States', 'UY': 'Uruguay', 'UZ': 'Uzbekistan', 'VU': 'Vanuatu',
+    'VA': 'Vatican City', 'VE': 'Venezuela', 'VN': 'Vietnam',
+    'WF': 'Wallis & Futuna', 'EH': 'Western Sahara', 'YE': 'Yemen',
+    'ZM': 'Zambia', 'ZW': 'Zimbabwe',
+}
+
+
 app = Flask(__name__)
 print("DEBUG APP_SETUP: Flask object created.")
 
@@ -276,6 +352,17 @@ def get_hpe_mapping_with_fallback(original_sku_from_order, db_conn): # Needs eng
                 sku_actually_mapped = sku_after_underscore
     return hpe_option_pn, hpe_pn_type, sku_actually_mapped
 
+
+def get_country_name_from_iso(iso_code):
+    """
+    Converts a 2-letter ISO country code to its full name.
+    Returns None if the iso_code is not found or is None.
+    """
+    if not iso_code:
+        return None
+    return COUNTRY_ISO_TO_NAME.get(iso_code.upper())
+
+
 # --- Firebase Token Verification Decorator (kept here or moved to auth.py later) ---
 def verify_firebase_token(f):
     @wraps(f)
@@ -320,6 +407,7 @@ def verify_firebase_token(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
 # === BASIC ROUTES (Kept in main app.py) ===
 @app.route('/')
 def hello(): return 'G1 PO App Backend is Running!'
@@ -353,6 +441,7 @@ from blueprints.hpe_mappings import hpe_mappings_bp
 from blueprints.quickbooks import quickbooks_bp
 from blueprints.reports import reports_bp
 from blueprints.utils_routes import utils_bp # Matches the filename utils_routes.py
+from blueprints.international import international_bp
 
 # Register blueprints with their respective URL prefixes
 app.register_blueprint(orders_bp, url_prefix='/api')
@@ -361,8 +450,11 @@ app.register_blueprint(hpe_mappings_bp, url_prefix='/api') # Covers /api/hpe-des
 app.register_blueprint(quickbooks_bp, url_prefix='/api')   # Covers /api/tasks/* and /api/quickbooks/*
 app.register_blueprint(reports_bp, url_prefix='/api')    # Covers /api/reports/*
 app.register_blueprint(utils_bp, url_prefix='/api/utils')  # Covers /api/utils/*
+app.register_blueprint(international_bp, url_prefix='/api')  # Covers /api/order/<int:order_id>/international-details
 
 print("DEBUG APP_SETUP: All Blueprints registered.")
+
+
 
 # === Entry point for running the Flask app (remains the same) ===
 if __name__ == '__main__':
