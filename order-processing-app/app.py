@@ -7,18 +7,19 @@ from functools import wraps
 from flask import Flask, jsonify, request, g, current_app
 from flask_cors import CORS
 import sqlalchemy
-from sqlalchemy import text # Keep this for /test_db and potentially direct use in helpers
+from sqlalchemy import text 
 from dotenv import load_dotenv
 from google.cloud.sql.connector import Connector as GcpSqlConnector
 import requests
 from datetime import datetime, timezone, timedelta
-from sqlalchemy.dialects.postgresql import insert # Keep for helpers or if used directly
+from sqlalchemy.dialects.postgresql import insert 
 from decimal import Decimal
 import inspect
 import re
 import base64
 import sys
 import html
+import json # Ensure json is imported for any direct use
 
 # --- Firebase Admin SDK Imports ---
 import firebase_admin
@@ -32,7 +33,6 @@ except ImportError:
     storage = None
 
 # --- Import your custom service modules (blueprints will import these as needed) ---
-# These are fine here as they are not part of the app context itself but standalone modules
 try:
     import document_generator
 except ImportError as e:
@@ -65,8 +65,6 @@ try:
 except Exception as e_dotenv:
     print(f"ERROR APP_SETUP: load_dotenv failed: {e_dotenv}")
 
-# Add this dictionary at the top level of your app.py,
-# perhaps near other global configurations or constants.
 COUNTRY_ISO_TO_NAME = {
     'AF': 'Afghanistan', 'AL': 'Albania', 'DZ': 'Algeria', 'AS': 'American Samoa',
     'AD': 'Andorra', 'AO': 'Angola', 'AI': 'Anguilla', 'AQ': 'Antarctica',
@@ -140,74 +138,38 @@ COUNTRY_ISO_TO_NAME = {
     'ZM': 'Zambia', 'ZW': 'Zimbabwe',
 }
 
-
 app = Flask(__name__)
 print("DEBUG APP_SETUP: Flask object created.")
 
-from flask import make_response
-
-@app.before_request
-def handle_cors_preflight():
-    if request.method == 'OPTIONS':
-        resp = make_response()
-        origin = request.headers.get("Origin")
-        allowed_origin = os.environ.get('ALLOWED_CORS_ORIGIN')
-
-        if origin == allowed_origin:
-            resp.headers['Access-Control-Allow-Origin'] = allowed_origin
-            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-            resp.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
-            resp.headers['Access-Control-Max-Age'] = '3600'
-        return resp
-
-# --- Replace the existing CORS block with this ---
-# This new block reads the allowed origin from an environment variable,
-# making it work for both local development and your deployed app.
 allowed_origin = os.environ.get('ALLOWED_CORS_ORIGIN')
-print(f"DEBUG APP_SETUP: ALLOWED_CORS_ORIGIN from env is: {allowed_origin}")
-
-
 if allowed_origin:
     print(f"DEBUG APP_SETUP: CORS configured for origin: {allowed_origin}")
     CORS(app,
-        resources={r"/api/*": {"origins": [allowed_origin]}},
-        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization"],
-        expose_headers=["Content-Type", "Authorization"],
-        supports_credentials=True,
-        max_age=3600  # optional: cache preflight responses for an hour
+         resources={r"/api/*": {"origins": [allowed_origin]}}, 
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         allow_headers=["Content-Type", "Authorization"],
+         supports_credentials=True
     )
 else:
     print("WARN APP_SETUP: ALLOWED_CORS_ORIGIN environment variable not set. CORS will not be configured.")
-# -----------------------------------------------
 
 app.debug = os.getenv("FLASK_DEBUG", "False").lower() == "true"
 
-# --- Firebase Admin SDK Initialization ---
 try:
     cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    firebase_project_id = "g1-po-app-77790"
-
+    firebase_project_id = "g1-po-app-77790" 
     if cred_path:
         cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred, {
-            'projectId': firebase_project_id,
-        })
+        firebase_admin.initialize_app(cred, {'projectId': firebase_project_id})
         print(f"DEBUG APP_SETUP: Firebase Admin SDK initialized using service account key from: {cred_path} for project {firebase_project_id}")
     else:
-        # Fallback for environments where GOOGLE_APPLICATION_CREDENTIALS might not be set
-        # (e.g., Cloud Run with default service account identity)
-        firebase_admin.initialize_app(options={
-            'projectId': firebase_project_id, # Explicitly set project ID
-        })
+        firebase_admin.initialize_app(options={'projectId': firebase_project_id})
         print(f"DEBUG APP_SETUP: Firebase Admin SDK initialized using default environment credentials, explicitly targeting project {firebase_project_id}.")
-
 except Exception as e_firebase_admin:
     print(f"ERROR APP_SETUP: Firebase Admin SDK initialization failed: {e_firebase_admin}")
     traceback.print_exc()
-# --- End Firebase Admin SDK Init ---
 
-# --- Configuration (remains the same) ---
+# --- Configuration ---
 db_connection_name = os.getenv("DB_CONNECTION_NAME")
 db_user = os.getenv("DB_USER")
 db_password = os.getenv("DB_PASSWORD")
@@ -215,13 +177,16 @@ db_name = os.getenv("DB_NAME")
 db_driver = os.getenv("DB_DRIVER", "pg8000")
 
 bc_store_hash = os.getenv("BIGCOMMERCE_STORE_HASH")
-bc_client_id = os.getenv("BIGCOMMERCE_CLIENT_ID") # Keep if used directly anywhere else
+bc_client_id = os.getenv("BIGCOMMERCE_CLIENT_ID") 
 bc_access_token = os.getenv("BIGCOMMERCE_ACCESS_TOKEN")
 domestic_country_code = os.getenv("DOMESTIC_COUNTRY_CODE", "US")
 bc_processing_status_id = os.getenv("BC_PROCESSING_STATUS_ID")
 bc_shipped_status_id = os.getenv("BC_SHIPPED_STATUS_ID")
 
 G1_ONSITE_FULFILLMENT_IDENTIFIER = "_G1_ONSITE_FULFILLMENT_"
+SHIPPER_EIN = os.getenv("SHIPPER_EIN", "421713620") # <-- ADDED THIS LINE
+print(f"DEBUG APP_SETUP: SHIPPER_EIN set to: {SHIPPER_EIN}")
+
 
 SHIP_FROM_NAME = os.getenv("SHIP_FROM_NAME", "Your Company Name")
 SHIP_FROM_CONTACT = os.getenv("SHIP_FROM_CONTACT", "Shipping Dept")
@@ -233,7 +198,6 @@ SHIP_FROM_ZIP = os.getenv("SHIP_FROM_ZIP")
 SHIP_FROM_COUNTRY = os.getenv("SHIP_FROM_COUNTRY", "US")
 SHIP_FROM_PHONE = os.getenv("SHIP_FROM_PHONE")
 
-# FedEx API Credentials (remain the same)
 FEDEX_CLIENT_ID_SANDBOX = os.getenv("FEDEX_CLIENT_ID_SANDBOX")
 FEDEX_CLIENT_SECRET_SANDBOX = os.getenv("FEDEX_CLIENT_SECRET_SANDBOX")
 FEDEX_ACCOUNT_NUMBER_SANDBOX = os.getenv("FEDEX_ACCOUNT_NUMBER_SANDBOX")
@@ -272,7 +236,6 @@ if bc_store_hash and bc_access_token:
 else:
     print("WARN APP_SETUP: BigCommerce API credentials not fully configured.")
 
-# --- Database Engine (remains the same) ---
 engine = None
 gcp_connector_instance = None
 try:
@@ -306,7 +269,6 @@ except Exception as e_engine:
     engine = None
 print("DEBUG APP_SETUP: Finished DB engine init block.")
 
-# --- GCS Client (remains the same) ---
 storage_client = None
 if storage:
     try:
@@ -321,7 +283,6 @@ else:
     print("WARN APP_SETUP: Google Cloud Storage library not loaded. File uploads will be skipped.")
 print("DEBUG APP_SETUP: Finished GCS client init block.")
 
-# --- Helper Functions (to be used by blueprints, kept here or moved to a shared utils.py later) ---
 def convert_row_to_dict(row):
     if not row: return None
     row_dict = row._asdict() if hasattr(row, '_asdict') else dict(getattr(row, '_mapping', {}))
@@ -331,6 +292,17 @@ def convert_row_to_dict(row):
         elif isinstance(value, datetime):
             if value.tzinfo is None: value = value.replace(tzinfo=timezone.utc)
             row_dict[key] = value
+        # Handle JSONB fields that might be strings and need parsing
+        elif key == 'compliance_info' and isinstance(value, str): # Specifically for compliance_info
+            try:
+                row_dict[key] = json.loads(value) if value else {}
+            except json.JSONDecodeError:
+                print(f"WARN convert_row_to_dict: Could not parse compliance_info JSON string: {value}")
+                row_dict[key] = {} # Default to empty dict on parse error
+        elif key == 'compliance_info' and value is None: # Ensure None becomes empty dict for frontend
+             row_dict[key] = {}
+
+
     return row_dict
 
 def make_json_safe(data):
@@ -342,7 +314,7 @@ def make_json_safe(data):
         return data.isoformat()
     else: return data
 
-def _get_bc_shipping_address_id(bc_order_id): # Needs bc_api_base_url_v2, bc_headers
+def _get_bc_shipping_address_id(bc_order_id): 
     if not bc_api_base_url_v2 or not bc_headers: return None
     try:
         shipping_addr_url = f"{bc_api_base_url_v2}orders/{bc_order_id}/shippingaddresses"
@@ -356,7 +328,7 @@ def _get_bc_shipping_address_id(bc_order_id): # Needs bc_api_base_url_v2, bc_hea
         print(f"ERROR _get_bc_shipping_address_id for order {bc_order_id}: {e}")
         return None
 
-def get_hpe_mapping_with_fallback(original_sku_from_order, db_conn): # Needs engine for db_conn
+def get_hpe_mapping_with_fallback(original_sku_from_order, db_conn): 
     hpe_option_pn, hpe_pn_type, sku_actually_mapped = None, None, original_sku_from_order
     if not original_sku_from_order: return None, None, original_sku_from_order
     query_map = text("SELECT option_pn, pn_type FROM hpe_part_mappings WHERE sku = :sku")
@@ -373,7 +345,12 @@ def get_hpe_mapping_with_fallback(original_sku_from_order, db_conn): # Needs eng
     return hpe_option_pn, hpe_pn_type, sku_actually_mapped
 
 
-# --- Firebase Token Verification Decorator (kept here or moved to auth.py later) ---
+def get_country_name_from_iso(iso_code):
+    if not iso_code:
+        return None
+    return COUNTRY_ISO_TO_NAME.get(iso_code.upper())
+
+
 def verify_firebase_token(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -418,7 +395,6 @@ def verify_firebase_token(f):
     return decorated_function
 
 
-# === BASIC ROUTES (Kept in main app.py) ===
 @app.route('/')
 def hello(): return 'G1 PO App Backend is Running!'
 print("DEBUG APP_SETUP: Defined / route.")
@@ -439,53 +415,38 @@ def test_db_connection():
         return jsonify({"message": f"DB query failed: {e}"}), 500
 print("DEBUG APP_SETUP: Defined /test_db route.")
 
-# === ALL OTHER /api/* ROUTES ARE MOVED TO BLUEPRINTS ===
-
-# --- Import and Register Blueprints ---
-# Make sure these imports are correctly placed, usually after app initialization
-# and before the app.run() or the end of the file for WSGI.
 
 from blueprints.orders import orders_bp
 from blueprints.suppliers import suppliers_bp
 from blueprints.hpe_mappings import hpe_mappings_bp
 from blueprints.quickbooks import quickbooks_bp
 from blueprints.reports import reports_bp
-from blueprints.utils_routes import utils_bp # Matches the filename utils_routes.py
+from blueprints.utils_routes import utils_bp 
 from blueprints.international import international_bp
 
-# Register blueprints with their respective URL prefixes
 app.register_blueprint(orders_bp, url_prefix='/api')
 app.register_blueprint(suppliers_bp, url_prefix='/api')
-app.register_blueprint(hpe_mappings_bp, url_prefix='/api') # Covers /api/hpe-descriptions/* and /api/lookup/*
-app.register_blueprint(quickbooks_bp, url_prefix='/api')   # Covers /api/tasks/* and /api/quickbooks/*
-app.register_blueprint(reports_bp, url_prefix='/api')    # Covers /api/reports/*
-app.register_blueprint(utils_bp, url_prefix='/api/utils')  # Covers /api/utils/*
-app.register_blueprint(international_bp, url_prefix='/api')  # Covers /api/order/<int:order_id>/international-details
+app.register_blueprint(hpe_mappings_bp, url_prefix='/api') 
+app.register_blueprint(quickbooks_bp, url_prefix='/api')   
+app.register_blueprint(reports_bp, url_prefix='/api')    
+app.register_blueprint(utils_bp, url_prefix='/api/utils')  
+app.register_blueprint(international_bp, url_prefix='/api') 
 
 print("DEBUG APP_SETUP: All Blueprints registered.")
 
 
-
-# === Entry point for running the Flask app (remains the same) ===
 if __name__ == '__main__':
     print(f"Starting G1 PO App Backend...")
-    app.run(host='0.0.0.0', port=8080, debug=True)
     if engine is None:
         print("CRITICAL MAIN: Database engine not initialized. Flask app might not work correctly with DB operations.")
-    # else: # Blueprints are already registered above globally for both __main__ and WSGI
-        # The registration should happen once, globally.
-
+    
     run_host = os.getenv("FLASK_RUN_HOST", "127.0.0.1")
     run_port = int(os.getenv("FLASK_RUN_PORT", 8080))
     print(f"--> Running Flask development server on http://{run_host}:{run_port} with debug={app.debug}")
     app.run(host=run_host, port=run_port, debug=app.debug)
 else:
-    # This block is for when Gunicorn (or another WSGI server) runs the app
     print("DEBUG APP_SETUP: Script imported by WSGI server (like Gunicorn).")
     if engine is None:
         print("CRITICAL GUNICORN: Database engine not initialized during import. DB operations will fail.")
-    # else: # Blueprints are already registered above globally
-        # print("DEBUG GUNICORN: Database engine appears initialized during import.")
-    # The blueprints should be registered globally before this block is reached by Gunicorn.
 
 print("DEBUG APP_SETUP: Reached end of app.py top-level execution.")

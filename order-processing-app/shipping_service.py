@@ -1,7 +1,7 @@
 # shipping_service.py
 # PRINT DIAGNOSTIC VERSION MARKER
 print("DEBUG SHIPPING_SERVICE: TOP OF FILE shipping_service.py REACHED")
-print("DEBUG SHIPPING_SERVICE: --- VERSION WITH CONDITIONAL SHIPPERNUMBER & EXPLICIT BILLING ---")
+print("DEBUG SHIPPING_SERVICE: --- VERSION WITH INTERNATIONAL SHIPMENT FUNCTION ---")
 
 import os
 import requests
@@ -152,7 +152,7 @@ STATE_MAPPING_US_CA = {
     "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", "tennessee": "TN",
     "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA",
     "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY", "puerto rico": "PR",
-    "alberta": "AB", "british columbia": "BC", "manitoba": "MB", "new brunswick": "NB",
+    "alberta": "AB", "british columbia": "BC", "manitota": "MB", "new brunswick": "NB",
     "newfoundland and labrador": "NL", "nova scotia": "NS", "ontario": "ON",
     "prince edward island": "PE", "quebec": "QC", "saskatchewan": "SK",
     "northwest territories": "NT", "nunavut": "NU", "yukon": "YT"
@@ -256,15 +256,22 @@ def map_shipping_method_to_ups_code(method_name_from_bc):
         'next day air early am': '14', 'ups next day air early am': '14',
         'ups® worldwide expedited®': '08', 'ups worldwide expedited': '08', 'worldwide expedited': '08',
         'ups worldwide express': '07', 'worldwide express': '07',
+        'ups® worldwide express plus®': '54', 'ups worldwide express plus': '54', 'worldwide express plus': '54',
         'ups worldwide saver': '65', 'worldwide saver': '65',
         'free shipping': '03',
     }
+    # Direct mapping for service codes passed from the frontend
+    if method_name in shipping_method_mapping.values():
+        print(f"DEBUG UPS_MAP: Directly using provided service code '{method_name}'")
+        return method_name
+        
     code = shipping_method_mapping.get(method_name)
     if code is None:
         if 'next day air early' in method_name or 'early a.m.' in method_name or 'early am' in method_name: code = '14'
         elif 'next day air' in method_name or 'nda' in method_name: code = '01'
         elif '2nd day air' in method_name or 'second day' in method_name: code = '02'
         elif 'worldwide expedited' in method_name: code = '08'
+        elif 'worldwide express plus' in method_name: code = '54'
         elif 'worldwide express' in method_name: code = '07'
         elif 'worldwide saver' in method_name: code = '65'
         elif 'ground' in method_name: code = '03'
@@ -273,6 +280,7 @@ def map_shipping_method_to_ups_code(method_name_from_bc):
             code = '03'
     print(f"DEBUG UPS_MAP: Mapped '{method_name_from_bc}' to UPS Service Code '{code}'")
     return code
+
 
 def map_shipping_method_to_fedex_code(method_name_from_bc):
     print(f"DEBUG FEDEX_MAP: Received method name '{method_name_from_bc}' for FedEx mapping.")
@@ -411,7 +419,6 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
                             "PostalCode": str(customer_ups_account_zipcode).strip(),
                             "CountryCode": third_party_country_code_for_ups
                         }
-                        # Consider adding Name/AttentionName if available/necessary
                     }
                 }
             }
@@ -443,6 +450,8 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
     payload_shipment_part["Shipper"] = shipper_payload_block # Add Shipper block to the shipment part
 
     payload = { "ShipmentRequest": { "Request": {"RequestOption": "nonvalidate", "TransactionReference": {"CustomerContext": f"Order_{bc_order_id_str}"}}, "Shipment": payload_shipment_part, "LabelSpecification": {"LabelImageFormat": {"Code": "GIF"}, "HTTPUserAgent": "Mozilla/5.0"}}}
+    print(f"DEBUG UPS_INTL_SHIPMENT: Sending payload to {UPS_SHIPPING_API_ENDPOINT}") # This line you already have
+
     try:
         response = requests.post(UPS_SHIPPING_API_ENDPOINT, headers=headers, json=payload)
         response_data = response.json()
@@ -478,6 +487,119 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
         print(f"ERROR UPS_LABEL_RAW: JSONDecodeError: {json_err}. Resp text snippet: {response_text_snippet}"); return None, None
     except Exception as e: print(f"ERROR UPS_LABEL_RAW: Unexpected Exception: {e}"); traceback.print_exc(); return None, None
 
+def generate_ups_international_shipment(shipment_payload_from_frontend):
+    """
+    Generates a UPS international shipping label and documents using a detailed payload from the frontend.
+
+    Args:
+        shipment_payload_from_frontend (dict): The complete JSON payload, which is expected
+                                               to contain the 'ShipmentRequest' structure.
+
+    Returns:
+        tuple: A tuple containing (pdf_bytes, tracking_number).
+               Returns (None, None) on failure.
+               Returns (None, tracking_number) if tracking is found but the label is not.
+    """
+    print("DEBUG UPS_INTL_SHIPMENT: Initiating international shipment generation.")
+    
+    access_token = get_ups_oauth_token()
+    if not access_token:
+        print("ERROR UPS_INTL_SHIPMENT: Failed to get UPS OAuth token.")
+        return None, None
+
+    # The frontend payload is expected to contain the 'ShipmentRequest' object directly.
+    payload = shipment_payload_from_frontend
+    if 'ShipmentRequest' not in payload:
+        print(f"ERROR UPS_INTL_SHIPMENT: The provided payload is missing the required 'ShipmentRequest' root object.")
+        return None, None
+
+    customer_context = payload.get('ShipmentRequest', {}).get('Request', {}).get('TransactionReference', {}).get('CustomerContext', 'UnknownOrder')
+    unique_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+    
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "transId": f"{customer_context}_{unique_ts}",
+        "transactionSrc": "G1POApp_v15_UPSIntl"
+    }
+
+    print(f"DEBUG UPS_INTL_SHIPMENT: Sending payload to {UPS_SHIPPING_API_ENDPOINT}")
+    # For security, avoid logging the full payload in production unless necessary for debugging.
+    # print(f"DEBUG UPS_INTL_SHIPMENT: Full Payload: {json.dumps(payload, indent=2)}")
+
+    print(f"DEBUG UPS_INTL_SHIPMENT: EXACT PAYLOAD BEING SENT TO UPS API:\n{json.dumps(payload, indent=2)}")
+
+    try:
+        response = requests.post(UPS_SHIPPING_API_ENDPOINT, headers=headers, json=payload)
+        response_data = response.json()
+        
+        # Log successful responses for debugging purposes
+        if response.status_code == 200 and response_data.get("ShipmentResponse", {}).get("Response", {}).get("ResponseStatus", {}).get("Code") == "1":
+            print(f"DEBUG UPS_INTL_SHIPMENT (Full Response for Success Code 1): {json.dumps(response_data, indent=2, ensure_ascii=False)}", flush=True)
+
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+        shipment_response = response_data.get("ShipmentResponse", {})
+        response_status = shipment_response.get("Response", {}).get("ResponseStatus", {})
+
+        if response_status.get("Code") == "1":  # '1' indicates success
+            shipment_results = shipment_response.get("ShipmentResults", {})
+            tracking_number = shipment_results.get("ShipmentIdentificationNumber")
+            
+            # The label is in PackageResults. The frontend asks for PDF, so GraphicImage is a Base64 PDF.
+            package_results_list = shipment_results.get("PackageResults", [])
+            label_image_base64 = None
+            if package_results_list and isinstance(package_results_list, list) and len(package_results_list) > 0:
+                label_image_base64 = package_results_list[0].get("ShippingLabel", {}).get("GraphicImage")
+
+            if tracking_number and label_image_base64:
+                print(f"INFO UPS_INTL_SHIPMENT: Success! Tracking: {tracking_number}. Label data received.")
+                try:
+                    pdf_bytes = base64.b64decode(label_image_base64)
+                    # Note: Commercial Invoice might be a separate document in the response.
+                    # The `InternationalForms` object in the response will contain links/data for it.
+                    # For now, we are just returning the primary shipping label.
+                    return pdf_bytes, tracking_number
+                except Exception as b64_e:
+                    print(f"ERROR UPS_INTL_SHIPMENT: Failed to decode Base64 label data for tracking {tracking_number}: {b64_e}")
+                    return None, tracking_number # Return tracking even if decode fails
+            elif tracking_number:
+                print(f"WARN UPS_INTL_SHIPMENT: Tracking number {tracking_number} obtained, but no label image was found in the response.")
+                return None, tracking_number
+            else:
+                print("ERROR UPS_INTL_SHIPMENT: API response code was '1' (Success), but no tracking number found.")
+                return None, None
+        else:
+            # Handle API-level errors (e.g., validation errors in the payload)
+            error_description = response_status.get("Description", "Unknown UPS Error")
+            alerts = shipment_response.get("Response", {}).get("Alert", [])
+            if not isinstance(alerts, list): alerts = [alerts]
+            error_details_str = "; ".join([f"Code {alert.get('Code')}: {alert.get('Description')}" for alert in alerts if alert]) if alerts else "No specific alerts."
+            print(f"ERROR UPS_INTL_SHIPMENT: UPS API returned an error. Description: '{error_description}'. Details: '{error_details_str}'.")
+            print(f"Full Error Response: {json.dumps(response_data, indent=2)}")
+            return None, None
+
+    except requests.exceptions.HTTPError as http_err:
+        response_content = "Could not decode JSON or no response body."
+        try:
+            response_content = http_err.response.json() if http_err.response is not None else "No response object."
+        except json.JSONDecodeError:
+            response_content = http_err.response.text if http_err.response is not None else "No response text."
+        print(f"ERROR UPS_INTL_SHIPMENT: HTTPError occurred: {http_err}. Response: {str(response_content)[:1000]}")
+        return None, None
+    except requests.exceptions.RequestException as req_err:
+        print(f"ERROR UPS_INTL_SHIPMENT: RequestException occurred: {req_err}")
+        traceback.print_exc()
+        return None, None
+    except json.JSONDecodeError as json_err:
+        response_text_snippet = response.text[:500] if hasattr(response, 'text') and response.text else "N/A"
+        print(f"ERROR UPS_INTL_SHIPMENT: Failed to decode JSON response from UPS API: {json_err}. Response snippet: {response_text_snippet}")
+        return None, None
+    except Exception as e:
+        print(f"ERROR UPS_INTL_SHIPMENT: An unexpected exception occurred: {e}")
+        traceback.print_exc()
+        return None, None
 
 def generate_fedex_label_raw(order_data, ship_from_address, total_weight_lbs, customer_shipping_method_name, access_token):
     if not access_token: print("ERROR FEDEX_LABEL_RAW: FedEx Access token not provided."); return None, None
@@ -677,6 +799,11 @@ if __name__ == '__main__':
     print(f"\n--- Testing FedEx OAuth Token (Env: {FEDEX_API_ENVIRONMENT}) ---")
     fedex_token = get_fedex_oauth_token()
 
+    # Placeholder for international shipment test
+    print("\n--- Placeholder for International Shipment Test ---")
+    print("To test, create a mock payload similar to the one from InternationalOrderProcessor.jsx")
+    print("and call generate_ups_international_shipment(mock_payload)")
+    
     if fedex_token:
         print(f"\n--- FedEx Test ({FEDEX_API_ENVIRONMENT.upper()} Environment) ---")
         mock_order_data_fedex_test = {

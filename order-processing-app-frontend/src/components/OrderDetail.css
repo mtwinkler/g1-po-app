@@ -989,3 +989,149 @@ h3 { letter-spacing: 0.5px; }
   text-align: left;
   font-weight: 600;
 }
+
+/* Add to OrderDetail.css or a new InternationalOrderProcessor.css and import it */
+
+.international-order-processor .card {
+  margin-bottom: var(--spacing-xl);
+}
+
+.international-order-processor .form-section {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-light);
+}
+.international-order-processor .form-section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.international-order-processor h5 {
+  font-size: 1.1em;
+  color: var(--primary-accent-dark);
+  margin-bottom: var(--spacing-md);
+}
+
+/* Styling for the Captured Compliance IDs block */
+.captured-compliance-ids {
+  margin-top: var(--spacing-md);
+  background-color: var(--bg-card-alt); /* Use a slightly different background */
+  padding: var(--spacing-md);
+  border-radius: var(--border-radius-medium, 6px);
+  border: 1px solid var(--border-medium);
+}
+.captured-compliance-ids h4 {
+  color: var(--text-main); /* Or your preferred header color for this block */
+  margin-top: 0;
+  font-size: 1.05em;
+}
+.captured-compliance-ids ul {
+  list-style-type: none;
+  padding-left: 0;
+  color: var(--text-secondary);
+  font-size: 0.95em;
+}
+.captured-compliance-ids li {
+  margin-bottom: var(--spacing-xs);
+}
+.captured-compliance-ids li strong {
+  color: var(--text-main);
+}
+
+
+/* Styling for dynamically generated compliance fields */
+.compliance-form-grid { /* You can use this class on the div.form-grid */
+  align-items: center; /* Vertically center labels and inputs */
+}
+.compliance-input-group {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+.compliance-input-group input[type="text"] {
+    flex-grow: 1;
+}
+.compliance-input-group .exempt-checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    white-space: nowrap;
+}
+.compliance-input-group .exempt-label {
+    font-weight: normal;
+    font-size: 0.9em;
+    margin-bottom: 0; /* Override default label margin */
+    padding-right: 0; /* Override form-grid label padding */
+    text-align: left;
+}
+
+
+/* Customs Information Table Styling */
+.customs-items-table-container {
+  overflow-x: auto; /* For responsive tables */
+  margin-top: var(--spacing-sm);
+}
+.customs-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.customs-items-table th,
+.customs-items-table td {
+  border: 1px solid var(--border-medium);
+  padding: var(--spacing-sm);
+  text-align: left;
+  vertical-align: top;
+}
+.customs-items-table th {
+  background-color: var(--bg-card-alt);
+  color: var(--text-main);
+  font-weight: 600;
+}
+.customs-items-table td {
+   color: var(--text-secondary);
+}
+.customs-items-table .customs-item-row:nth-child(even) { /* Optional: zebra striping */
+  background-color: var(--bg-page); /* Or a very light shade */
+}
+
+/* Responsive adjustments for customs table if needed */
+@media (max-width: 768px) {
+  .customs-items-table, 
+  .customs-items-table thead, 
+  .customs-items-table tbody, 
+  .customs-items-table th, 
+  .customs-items-table td, 
+  .customs-items-table tr {
+    display: block;
+  }
+  .customs-items-table thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+  .customs-items-table tr {
+    border: 1px solid var(--border-strong);
+    margin-bottom: var(--spacing-sm);
+  }
+  .customs-items-table td {
+    border: none;
+    border-bottom: 1px solid var(--border-light);
+    position: relative;
+    padding-left: 50%; /* Space for data labels */
+    white-space: normal;
+    text-align: right; /* Align content to the right */
+  }
+  .customs-items-table td::before {
+    content: attr(data-label); /* Use data-label attribute for pseudo-headers */
+    position: absolute;
+    left: var(--spacing-xs);
+    width: calc(50% - var(--spacing-md)); /* Width of the label column */
+    padding-right: var(--spacing-sm);
+    white-space: nowrap;
+    font-weight: bold;
+    text-align: left; /* Align label text to the left */
+  }
+   /* Add data-label attributes in your JSX for table cells for mobile view */
+   /* Example for one cell: <td data-label="SKU">{item.sku}</td> */
+}
