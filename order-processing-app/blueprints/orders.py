@@ -31,7 +31,7 @@ import requests
 
 orders_bp = Blueprint('orders_bp', __name__)
 
-@orders_bp.route('/orders', methods=['GET', 'OPTIONS'])
+@orders_bp.route('/orders', methods=['GET'])
 @verify_firebase_token
 def get_orders():
     print("DEBUG GET_ORDERS: Received request")
@@ -58,7 +58,7 @@ def get_orders():
         if db_conn and not db_conn.closed: db_conn.close()
         print("DEBUG GET_ORDERS: DB connection closed.")
 
-@orders_bp.route('/orders/<int:order_id>', methods=['GET', 'OPTIONS'])
+@orders_bp.route('/orders/<int:order_id>', methods=['GET'])
 @verify_firebase_token
 def get_order_details(order_id):
     print(f"DEBUG GET_ORDER: Received request for order ID: {order_id}")
@@ -69,7 +69,8 @@ def get_order_details(order_id):
             return jsonify({"error": "Database engine not available."}), 500
         db_conn = engine.connect()
         print(f"DEBUG GET_ORDER: DB connection established for order ID: {order_id}")
-        order_query = text("SELECT * FROM orders WHERE id = :order_id")
+        # Ensure compliance_info is selected
+        order_query = text("SELECT *, compliance_info FROM orders WHERE id = :order_id") 
         order_record = db_conn.execute(order_query, {"order_id": order_id}).fetchone()
         if not order_record:
             print(f"WARN GET_ORDER: Order with ID {order_id} not found.")
@@ -77,6 +78,16 @@ def get_order_details(order_id):
         
         order_data_dict = convert_row_to_dict(order_record)
         
+        # Ensure compliance_info (JSONB from DB) is handled correctly if it's a string
+        if 'compliance_info' in order_data_dict and isinstance(order_data_dict['compliance_info'], str):
+            try:
+                order_data_dict['compliance_info'] = json.loads(order_data_dict['compliance_info'])
+            except json.JSONDecodeError:
+                print(f"WARN GET_ORDER: Could not parse compliance_info JSON string for order {order_id}. Setting to empty dict.")
+                order_data_dict['compliance_info'] = {} # Or None, depending on how frontend expects it
+        elif 'compliance_info' not in order_data_dict or order_data_dict['compliance_info'] is None:
+             order_data_dict['compliance_info'] = {} # Ensure it's at least an empty dict if null/missing
+
         base_line_items_sql = """
             SELECT oli.id AS line_item_id, oli.order_id AS parent_order_id, oli.bigcommerce_line_item_id,
                    oli.sku AS original_sku, oli.name AS line_item_name, oli.quantity, oli.sale_price,
@@ -99,7 +110,6 @@ def get_order_details(order_id):
         
         print(f"DEBUG GET_ORDER: Found order ID {order_id} with {len(augmented_line_items_list)} augmented line items.")
 
-        # --- MODIFICATION START: Fetch actual cost for "Processed" orders ---
         if order_data_dict.get('status') == 'Processed':
             print(f"DEBUG GET_ORDER: Order {order_id} is 'Processed'. Fetching actual cost of goods sold.")
             cost_query = text("""
@@ -112,12 +122,9 @@ def get_order_details(order_id):
             
             if total_actual_cost is not None:
                 order_data_dict['actual_cost_of_goods_sold'] = total_actual_cost
-                print(f"DEBUG GET_ORDER: Actual cost of goods for Processed order {order_id} is {total_actual_cost}")
             else:
-                order_data_dict['actual_cost_of_goods_sold'] = Decimal('0.00') # Default to 0 if no POs/costs found
-                print(f"DEBUG GET_ORDER: No PO costs found for Processed order {order_id}. Defaulting actual_cost_of_goods_sold to 0.")
-        # --- MODIFICATION END ---
-
+                order_data_dict['actual_cost_of_goods_sold'] = Decimal('0.00') 
+        
         response_data = {"order": make_json_safe(order_data_dict), "line_items": make_json_safe(augmented_line_items_list)}
         return jsonify(response_data), 200
         
@@ -131,12 +138,11 @@ def get_order_details(order_id):
             db_conn.close()
             print(f"DEBUG GET_ORDER: Database connection closed for order ID {order_id}.")
 
-# ... (rest of the routes in orders.py remain the same) ...
-# Make sure to only replace the get_order_details function.
 
-@orders_bp.route('/orders/status-counts', methods=['GET', 'OPTIONS'])
+@orders_bp.route('/orders/status-counts', methods=['GET'])
 @verify_firebase_token
 def get_order_status_counts():
+    # ... (This function remains unchanged) ...
     print("DEBUG GET_STATUS_COUNTS: Received request")
     db_conn = None
     try:
@@ -168,6 +174,7 @@ def get_order_status_counts():
 @orders_bp.route('/orders/<int:order_id>/status', methods=['POST'])
 @verify_firebase_token
 def update_order_status(order_id):
+    # ... (This function remains unchanged) ...
     print(f"DEBUG UPDATE_STATUS: Received request for order ID: {order_id}")
     data = request.get_json()
     new_status = data.get('status')
@@ -199,6 +206,7 @@ def update_order_status(order_id):
         if db_conn and not db_conn.closed: db_conn.close()
         print(f"DEBUG UPDATE_STATUS: DB connection closed for order ID {order_id}.")
 
+
 @orders_bp.route('/ingest_orders', methods=['POST'])
 @verify_firebase_token
 def ingest_orders_route():
@@ -222,10 +230,10 @@ def ingest_orders_route():
         print(f"DEBUG INGEST: Fetching orders with status ID {target_status_id} from {orders_list_endpoint}", flush=True)
 
         response = requests.get(orders_list_endpoint, headers=bc_headers, params=api_params)
-        response.raise_for_status()
+        response.raise_for_status() 
 
         orders_list_from_bc = []
-        if response.text and response.text.strip():
+        if response.text and response.text.strip(): 
             try:
                 orders_list_from_bc = response.json()
             except json.JSONDecodeError as json_err:
@@ -233,7 +241,7 @@ def ingest_orders_route():
                 return jsonify({"message": "Ingestion failed: Could not parse response from BigCommerce."}), 500
         else:
             print("INFO INGEST: BigCommerce API returned an empty response. No orders to process for this status.", flush=True)
-
+        
         if not isinstance(orders_list_from_bc, list):
             print(f"ERROR INGEST: Unexpected API response format after JSON parse. Expected list, got {type(orders_list_from_bc)}", flush=True)
             return jsonify({"message": "Ingestion failed: Unexpected API response format."}), 500
@@ -283,7 +291,7 @@ def ingest_orders_route():
                         print(f"ERROR INGEST: Could not fetch sub-resources for BC Order {order_id_from_bc}: {sub_req_e}. Skipping this order.", flush=True)
                         continue
                     
-                    # --- START: REVISED COMMENT PARSING LOGIC ---
+                    # --- START: REFINED COMMENT PARSING LOGIC ---
                     raw_customer_message = bc_order_summary.get('customer_message', '').strip()
                     
                     compliance_ids_data = {} 
@@ -291,23 +299,35 @@ def ingest_orders_route():
                     compliance_block_raw = None
 
                     compliance_separator_literal = " ||| "
-                    # Find the last occurrence of the compliance block
-                    # A compliance block looks like "[...];" possibly preceded by " ||| "
-                    # Regex to find the compliance block, optionally preceded by the separator
-                    # It captures (group 1) text before the separator, (group 2) the separator itself, and (group 3) the compliance block
-                    match = re.search(r'^(.*?)(\s*' + re.escape(compliance_separator_literal) + r'\s*)?(\[.*?\];)$', raw_customer_message, re.DOTALL)
+                    # Regex to find the compliance block at the end, optionally preceded by the separator.
+                    # Group 1: Everything before the potential compliance block (includes user notes and freight)
+                    # Group 2: (Optional) The separator " ||| "
+                    # Group 3: (Optional) The compliance block itself "[...];"
+                    match = re.search(r'^(.*?)(?:\s*' + re.escape(compliance_separator_literal) + r'\s*(\[.*?\];))?$', raw_customer_message, re.DOTALL)
 
                     if match:
-                        # Group 3 is the compliance block like "[Data: Value;]"
-                        compliance_block_raw = match.group(3) 
-                        # Group 1 is everything before the separator (or everything if separator not present but block is)
-                        message_for_freight_and_user_notes = match.group(1).strip() if match.group(1) else ""
-                        
-                        # If group 2 (separator) was not found, it means the entire message might have been just the compliance block
-                        if not match.group(2) and message_for_freight_and_user_notes == compliance_block_raw:
-                            message_for_freight_and_user_notes = "" # Correctly set to empty if only compliance block
+                        # If group 3 (compliance block) exists, it was preceded by the separator (group 2 might be None if no separator but block at end)
+                        # or it was the only thing.
+                        potential_compliance_block = match.group(3)
+                        text_before_compliance_block = match.group(1).strip()
 
-                    if compliance_block_raw and compliance_block_raw.startswith("[") and compliance_block_raw.endswith("];"):
+                        if potential_compliance_block and potential_compliance_block.startswith("[") and potential_compliance_block.endswith("];"):
+                            compliance_block_raw = potential_compliance_block
+                            message_for_freight_and_user_notes = text_before_compliance_block
+                        else:
+                            # No valid compliance block found with the separator, so the whole thing is for freight/user notes
+                            message_for_freight_and_user_notes = raw_customer_message
+                    
+                    # Handle case where the *entire message* is just the compliance block without a separator
+                    if not compliance_block_raw and raw_customer_message.startswith("[") and raw_customer_message.endswith("];"):
+                         # Check if this block looks like our compliance format to avoid misinterpreting other bracketed notes
+                        if re.match(r'^\[([A-Za-z0-9\s\(\)\-\.\/]+:\s*[^;]+;\s*)+\];$', raw_customer_message):
+                            compliance_block_raw = raw_customer_message
+                            message_for_freight_and_user_notes = ""
+
+
+                    if compliance_block_raw: # This check is now implicitly done by the regex logic correctly setting it or not
+                        # The check compliance_block_raw.startswith("[") and compliance_block_raw.endswith("];") is important
                         compliance_content = compliance_block_raw[1:-2] # Remove [ and ];
                         id_pairs = compliance_content.split(';')
                         for pair in id_pairs:
@@ -322,16 +342,17 @@ def ingest_orders_route():
                     parsed_customer_selected_fedex_service, parsed_customer_fedex_account_num = None, None
                     is_bill_to_customer_fedex_acct = False
                     customer_ups_account_zipcode = None
-                    customer_notes_for_db = message_for_freight_and_user_notes 
+                    # Initialize customer_notes_for_db with the potentially cleaned message
+                    customer_notes_for_db = message_for_freight_and_user_notes.strip() 
 
                     freight_delimiter_pattern = " || " 
                     if freight_delimiter_pattern + "Carrier:" in message_for_freight_and_user_notes and \
-                       freight_delimiter_pattern + "Account#:" in message_for_freight_and_user_notes:
+                       (freight_delimiter_pattern + "Account#:" in message_for_freight_and_user_notes or "account#:" in message_for_freight_and_user_notes.lower()): # More flexible account check
                         
                         freight_parts = message_for_freight_and_user_notes.split(freight_delimiter_pattern)
                         temp_carrier, temp_service, temp_account, temp_zip = None, None, None, None
                         
-                        customer_notes_for_db = freight_parts[0].strip()
+                        customer_notes_for_db = freight_parts[0].strip() # This is the user's actual notes
                         
                         for i in range(1, len(freight_parts)): 
                             part_content = freight_parts[i]
@@ -352,17 +373,18 @@ def ingest_orders_route():
                                 parsed_customer_selected_fedex_service = temp_service
                                 parsed_customer_fedex_account_num = temp_account
                                 is_bill_to_customer_fedex_acct = True
-                    else: 
-                        customer_notes_for_db = message_for_freight_and_user_notes.strip()
+                    # else: customer_notes_for_db was already set from message_for_freight_and_user_notes
                     
                     if customer_notes_for_db: 
                         sensitive_pattern = re.compile(r'\*{10}.*?\*{10}', re.DOTALL)
                         customer_notes_for_db = sensitive_pattern.sub('', customer_notes_for_db).strip()
-                    # --- END: REVISED COMMENT PARSING LOGIC ---
+                    # --- END: REFINED COMMENT PARSING LOGIC ---
 
                     if compliance_ids_data:
                         print(f"DEBUG INGEST: Parsed Compliance IDs for BC Order {order_id_from_bc}: {compliance_ids_data}", flush=True)
-                    
+                    else:
+                        print(f"DEBUG INGEST: No Compliance IDs parsed for BC Order {order_id_from_bc}. Raw message: '{raw_customer_message}' -> Freight/User Notes part: '{message_for_freight_and_user_notes}'", flush=True)
+
                     db_compliance_info = json.dumps(compliance_ids_data) if compliance_ids_data else None
 
                     existing_order_row = conn.execute(
@@ -401,19 +423,16 @@ def ingest_orders_route():
                             update_fields['customer_notes'] = customer_notes_for_db
                         
                         existing_compliance_info_from_db = existing_order_row.compliance_info
-                        # Ensure comparison handles None from DB correctly. db_compliance_info is JSON string or None.
-                        # If existing_compliance_info_from_db is a dict (from JSONB), convert to string for comparison, or compare dicts.
-                        # For simplicity, we'll compare string forms if one of them is a string or both are None/dict.
                         
                         parsed_existing_compliance_dict = {}
                         if isinstance(existing_compliance_info_from_db, str):
                             try: parsed_existing_compliance_dict = json.loads(existing_compliance_info_from_db) if existing_compliance_info_from_db else {}
                             except json.JSONDecodeError:  parsed_existing_compliance_dict = {}
-                        elif isinstance(existing_compliance_info_from_db, dict): # Already a dict if JSONB
+                        elif isinstance(existing_compliance_info_from_db, dict): 
                             parsed_existing_compliance_dict = existing_compliance_info_from_db if existing_compliance_info_from_db else {}
 
                         if parsed_existing_compliance_dict != compliance_ids_data:
-                             update_fields['compliance_info'] = db_compliance_info # db_compliance_info is already a JSON string or None
+                             update_fields['compliance_info'] = db_compliance_info 
                         
                         if not hasattr(existing_order_row, 'bc_shipping_cost_ex_tax') or existing_order_row.bc_shipping_cost_ex_tax != bc_shipping_cost_from_api:
                             update_fields['bc_shipping_cost_ex_tax'] = bc_shipping_cost_from_api
@@ -520,10 +539,10 @@ def ingest_orders_route():
         print(f"ERROR INGEST: Unexpected error: {e}", flush=True); traceback.print_exc(file=sys.stderr); sys.stderr.flush()
         return jsonify({"message": f"Unexpected error: {str(e)}", "error_type": type(e).__name__}), 500
 
-
 @orders_bp.route('/orders/<int:order_id>/process', methods=['POST'])
 @verify_firebase_token
 def process_order_route(order_id):
+    # ... (This function remains unchanged from the version you provided earlier) ...
     print(f"DEBUG PROCESS_ORDER: Received request to process order ID: {order_id}", flush=True)
     db_conn, transaction, processed_pos_info_for_response = None, None, []
     try:

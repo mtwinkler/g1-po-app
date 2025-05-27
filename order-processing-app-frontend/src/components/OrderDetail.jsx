@@ -1072,7 +1072,6 @@ function OrderDetail() {
         </div>
       )}
 
-      {/* MODIFIED: Show ProfitDisplay for already "Processed" orders (and not G1 Onsite) */}
       {orderStatus === 'processed' && !processSuccess && !isG1OnsiteFulfillmentMode && profitInfo.isCalculable && (
         <ProfitDisplay info={profitInfo} />
       )}
@@ -1098,43 +1097,60 @@ function OrderDetail() {
       )}
 
       {orderData && order && !processSuccess && !isActuallyProcessed && (
-       <section className="order-info card">
-        <h3>Order Information</h3>
-        <div><strong>Rec'd:</strong> {displayOrderDate}</div>
-        <div><strong>Customer:</strong> {order.customer_company || order.customer_name || 'N/A'}</div>
-        <div><strong>Paid by:</strong> {order.payment_method || 'N/A'}</div>
-        <div><strong>Ship via:</strong> {displayShipMethodInOrderInfo}</div>
-        <div><strong>Ship to:</strong> {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'}</div>
+       <> {/* Fragment to wrap Order Info and new Compliance ID section */}
+        <section className="order-info card">
+          <h3>Order Information</h3>
+          <div><strong>Rec'd:</strong> {displayOrderDate}</div>
+          <div><strong>Customer:</strong> {order.customer_company || order.customer_name || 'N/A'}</div>
+          <div><strong>Paid by:</strong> {order.payment_method || 'N/A'}</div>
+          <div><strong>Ship via:</strong> {displayShipMethodInOrderInfo}</div>
+          <div><strong>Ship to:</strong> {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'} ({order.customer_shipping_country_iso2 || 'N/A'})</div>
 
-        {order.is_bill_to_customer_account && order.customer_ups_account_number && (
-          <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg,rgb(255, 0, 0))', color: 'var(--info-text,rgb(255, 255, 255))', border: '1px dashed var(--info-border, #b3e0ff)', opacity: '60%'}}>
-            <strong>Bill Shipping To:</strong> Customer UPS Acct # {order.customer_ups_account_number}
-            {order.customer_selected_freight_service && ` (Service: ${formatShippingMethod(order.customer_selected_freight_service)})`}
-            {order.customer_ups_account_zipcode && ` (Zip: ${order.customer_ups_account_zipcode})`}
-          </div>
+          {order.is_bill_to_customer_account && order.customer_ups_account_number && (
+            <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg,rgb(255, 0, 0))', color: 'var(--info-text,rgb(255, 255, 255))', border: '1px dashed var(--info-border, #b3e0ff)', opacity: '60%'}}>
+              <strong>Bill Shipping To:</strong> Customer UPS Acct # {order.customer_ups_account_number}
+              {order.customer_selected_freight_service && ` (Service: ${formatShippingMethod(order.customer_selected_freight_service)})`}
+              {order.customer_ups_account_zipcode && ` (Zip: ${order.customer_ups_account_zipcode})`}
+            </div>
+          )}
+           {order.is_bill_to_customer_fedex_account && order.customer_fedex_account_number && (
+            <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg-alt,rgb(255, 0, 0))', color: 'var(--info-text-alt,rgb(255, 255, 255))', border: '1px dashed var(--info-border-alt, #b3ffcc)', opacity: '60%'}}>
+              <strong>Bill Shipping To:</strong> Customer FedEx Acct # {order.customer_fedex_account_number}
+              {order.customer_selected_fedex_service && ` (Service: ${formatShippingMethod(order.customer_selected_fedex_service)})`}
+            </div>
+          )}
+
+          {order.customer_notes && (<div style={{ marginTop: '5px' }}><strong>Comments:</strong> {order.customer_notes}</div>)}
+          <hr style={{ margin: '10px 0' }} />
+          {(orderData?.line_items || []).map((item) => (
+              <p key={`orig-item-${item.line_item_id}`} className="order-info-sku-line">
+                  <span>({item.quantity || 0}) </span>
+                  <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.original_sku}`} onClick={(e) => handlePartNumberLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
+                  {loadingSpares && item.hpe_pn_type === 'option' && !lineItemSpares[item.line_item_id] && <span className="loading-text"> (loading spare...)</span>}
+                  {lineItemSpares[item.line_item_id] && ( <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>( <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a> )</span> )}
+                  {item.hpe_option_pn && String(item.hpe_option_pn).trim() !== String(item.original_sku).trim() && String(item.hpe_option_pn).trim() !== lineItemSpares[item.line_item_id] && ( <span>{' ('} <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a> {')'}</span> )}
+                  <span> @ ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
+              </p>
+          ))}
+        </section>
+
+        {/* --- START: Display Captured Compliance IDs --- */}
+        {order.is_international && order.customer_shipping_country_iso2 !== 'US' && order.compliance_info && Object.keys(order.compliance_info).length > 0 && (
+            <section className="card" style={{ marginTop: 'var(--spacing-lg)', backgroundColor: 'var(--info-bg-alt)' }}>
+                <h3 style={{ color: 'var(--info-text-alt)'}}>Captured Compliance IDs (from Checkout)</h3>
+                <ul style={{ listStyleType: 'none', paddingLeft: 0, color: 'var(--info-text-alt)' }}>
+                    {Object.entries(order.compliance_info).map(([key, value]) => (
+                        <li key={key} style={{ marginBottom: 'var(--spacing-xs)' }}>
+                            <strong style={{color: 'var(--info-text-alt)'}}>{key}:</strong> {String(value)}
+                        </li>
+                    ))}
+                </ul>
+            </section>
         )}
-         {order.is_bill_to_customer_fedex_account && order.customer_fedex_account_number && (
-          <div className="customer-ups-account-info" style={{backgroundColor: 'var(--info-bg-alt,rgb(255, 0, 0))', color: 'var(--info-text-alt,rgb(255, 255, 255))', border: '1px dashed var(--info-border-alt, #b3ffcc)', opacity: '60%'}}>
-            <strong>Bill Shipping To:</strong> Customer FedEx Acct # {order.customer_fedex_account_number}
-            {order.customer_selected_fedex_service && ` (Service: ${formatShippingMethod(order.customer_selected_fedex_service)})`}
-          </div>
-        )}
-
-
-        {order.customer_notes && (<div style={{ marginTop: '5px' }}><strong>Comments:</strong> {order.customer_notes}</div>)}
-        <hr style={{ margin: '10px 0' }} />
-        {(orderData?.line_items || []).map((item) => (
-            <p key={`orig-item-${item.line_item_id}`} className="order-info-sku-line">
-                <span>({item.quantity || 0}) </span>
-                <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.original_sku}`} onClick={(e) => handlePartNumberLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
-                {loadingSpares && item.hpe_pn_type === 'option' && !lineItemSpares[item.line_item_id] && <span className="loading-text"> (loading spare...)</span>}
-                {lineItemSpares[item.line_item_id] && ( <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>( <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a> )</span> )}
-                {item.hpe_option_pn && String(item.hpe_option_pn).trim() !== String(item.original_sku).trim() && String(item.hpe_option_pn).trim() !== lineItemSpares[item.line_item_id] && ( <span>{' ('} <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a> {')'}</span> )}
-                <span> @ ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
-            </p>
-        ))}
-      </section>
+        {/* --- END: Display Captured Compliance IDs --- */}
+       </>
       )}
+
 
      {canDisplayProcessingForm && (
         <section className="supplier-mode-selection card">
@@ -1169,6 +1185,7 @@ function OrderDetail() {
       {canDisplayProcessingForm && !isMultiSupplierMode && !isG1OnsiteFulfillmentMode && selectedMainSupplierTrigger &&
        selectedMainSupplierTrigger !== MULTI_SUPPLIER_MODE_VALUE && selectedMainSupplierTrigger !== G1_ONSITE_FULFILLMENT_VALUE && (
         <form onSubmit={handleProcessOrder} className={`processing-form ${disableEditableFormFields ? 'form-disabled' : ''}`}>
+            {/* ... content of single supplier form ... */}
             <section className="purchase-info card">
               <h3>Create PO for {suppliers.find(s=>s.id === parseInt(selectedMainSupplierTrigger, 10))?.name || ''}</h3>
               <div className="form-grid">
@@ -1330,6 +1347,7 @@ function OrderDetail() {
       {/* Form for Multi-Supplier Mode */}
       {canDisplayProcessingForm && isMultiSupplierMode && !isG1OnsiteFulfillmentMode && (
         <form onSubmit={handleProcessOrder} className={`processing-form multi-supplier-active ${disableEditableFormFields ? 'form-disabled' : ''}`}>
+            {/* ... content of multi-supplier form ... */}
             <section className="multi-supplier-assignment card">
                 <h3>Assign Original Items to Suppliers</h3>
                 {(orderData?.line_items || []).length === 0 && <p>No original line items to assign.</p>}
@@ -1507,6 +1525,7 @@ function OrderDetail() {
       {/* Form for G1 Onsite Fulfillment */}
       {canDisplayProcessingForm && isG1OnsiteFulfillmentMode && (
         <form onSubmit={handleProcessOrder} className={`processing-form g1-onsite-fulfillment-active ${disableEditableFormFields ? 'form-disabled' : ''}`}>
+             {/* ... content of G1 onsite form ... */}
           <section className="shipment-info card">
             <h3>Shipment Information</h3>
             <div className="form-grid">
@@ -1614,8 +1633,6 @@ function OrderDetail() {
                )}
             </div>
             </section>
-            
-            {/* ProfitDisplay is intentionally REMOVED from G1 Onsite Fulfillment active processing form */}
             
             <div className="order-actions">
                 <button type="submit" disabled={disableAllActions || processing} className="process-order-button">
