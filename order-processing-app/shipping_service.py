@@ -490,6 +490,7 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
 def generate_ups_international_shipment(shipment_payload_from_frontend):
     """
     Generates a UPS international shipping label and documents using a detailed payload from the frontend.
+    If the label is returned as GIF, it attempts to convert it to PDF.
 
     Args:
         shipment_payload_from_frontend (dict): The complete JSON payload, which is expected
@@ -497,8 +498,9 @@ def generate_ups_international_shipment(shipment_payload_from_frontend):
 
     Returns:
         tuple: A tuple containing (pdf_bytes, tracking_number).
+               The pdf_bytes will be PDF, even if the original label was GIF.
                Returns (None, None) on failure.
-               Returns (None, tracking_number) if tracking is found but the label is not.
+               Returns (None, tracking_number) if tracking is found but the label processing fails.
     """
     print("DEBUG UPS_INTL_SHIPMENT: Initiating international shipment generation.")
     
@@ -507,7 +509,6 @@ def generate_ups_international_shipment(shipment_payload_from_frontend):
         print("ERROR UPS_INTL_SHIPMENT: Failed to get UPS OAuth token.")
         return None, None
 
-    # The frontend payload is expected to contain the 'ShipmentRequest' object directly.
     payload = shipment_payload_from_frontend
     if 'ShipmentRequest' not in payload:
         print(f"ERROR UPS_INTL_SHIPMENT: The provided payload is missing the required 'ShipmentRequest' root object.")
@@ -521,24 +522,24 @@ def generate_ups_international_shipment(shipment_payload_from_frontend):
         "Content-Type": "application/json",
         "Accept": "application/json",
         "transId": f"{customer_context}_{unique_ts}",
-        "transactionSrc": "G1POApp_v15_UPSIntl"
+        "transactionSrc": "G1POApp_v15_UPSIntl" # Consider making this more dynamic if needed
     }
 
-    print(f"DEBUG UPS_INTL_SHIPMENT: Sending payload to {UPS_SHIPPING_API_ENDPOINT}")
-    # For security, avoid logging the full payload in production unless necessary for debugging.
-    # print(f"DEBUG UPS_INTL_SHIPMENT: Full Payload: {json.dumps(payload, indent=2)}")
+    # Determine the requested label format from the payload to decide if conversion is needed
+    requested_label_format_code = payload.get('LabelSpecification', {}).get('LabelImageFormat', {}).get('Code', 'GIF').upper()
+    print(f"DEBUG UPS_INTL_SHIPMENT: Requested label format from payload: {requested_label_format_code}")
 
+    print(f"DEBUG UPS_INTL_SHIPMENT: Sending payload to {UPS_SHIPPING_API_ENDPOINT}")
     print(f"DEBUG UPS_INTL_SHIPMENT: EXACT PAYLOAD BEING SENT TO UPS API:\n{json.dumps(payload, indent=2)}")
 
     try:
         response = requests.post(UPS_SHIPPING_API_ENDPOINT, headers=headers, json=payload)
         response_data = response.json()
         
-        # Log successful responses for debugging purposes
         if response.status_code == 200 and response_data.get("ShipmentResponse", {}).get("Response", {}).get("ResponseStatus", {}).get("Code") == "1":
             print(f"DEBUG UPS_INTL_SHIPMENT (Full Response for Success Code 1): {json.dumps(response_data, indent=2, ensure_ascii=False)}", flush=True)
 
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status() 
 
         shipment_response = response_data.get("ShipmentResponse", {})
         response_status = shipment_response.get("Response", {}).get("ResponseStatus", {})
@@ -547,31 +548,49 @@ def generate_ups_international_shipment(shipment_payload_from_frontend):
             shipment_results = shipment_response.get("ShipmentResults", {})
             tracking_number = shipment_results.get("ShipmentIdentificationNumber")
             
-            # The label is in PackageResults. The frontend asks for PDF, so GraphicImage is a Base64 PDF.
             package_results_list = shipment_results.get("PackageResults", [])
             label_image_base64 = None
+            actual_label_format_from_response = "UNKNOWN" # Initialize
+
             if package_results_list and isinstance(package_results_list, list) and len(package_results_list) > 0:
-                label_image_base64 = package_results_list[0].get("ShippingLabel", {}).get("GraphicImage")
+                shipping_label_data = package_results_list[0].get("ShippingLabel", {})
+                label_image_base64 = shipping_label_data.get("GraphicImage")
+                actual_label_format_from_response = shipping_label_data.get("ImageFormat", {}).get("Code", "UNKNOWN").upper()
+                print(f"DEBUG UPS_INTL_SHIPMENT: Actual label format from UPS response: {actual_label_format_from_response}")
+
 
             if tracking_number and label_image_base64:
-                print(f"INFO UPS_INTL_SHIPMENT: Success! Tracking: {tracking_number}. Label data received.")
+                print(f"INFO UPS_INTL_SHIPMENT: Success! Tracking: {tracking_number}. Label data (format: {actual_label_format_from_response}) received.")
                 try:
-                    pdf_bytes = base64.b64decode(label_image_base64)
-                    # Note: Commercial Invoice might be a separate document in the response.
-                    # The `InternationalForms` object in the response will contain links/data for it.
-                    # For now, we are just returning the primary shipping label.
+                    raw_image_bytes = base64.b64decode(label_image_base64)
+                    
+                    # Check if conversion to PDF is needed
+                    if actual_label_format_from_response == 'GIF': # If UPS confirms it sent a GIF
+                        print(f"DEBUG UPS_INTL_SHIPMENT: Label format is GIF. Attempting conversion to PDF for tracking {tracking_number}.")
+                        pdf_bytes = convert_image_bytes_to_pdf_bytes(raw_image_bytes, image_format="GIF")
+                        if not pdf_bytes:
+                            print(f"ERROR UPS_INTL_SHIPMENT: Failed to convert GIF label to PDF for tracking {tracking_number}.")
+                            return None, tracking_number # Return tracking, but no label PDF
+                        print(f"DEBUG UPS_INTL_SHIPMENT: GIF label successfully converted to PDF for tracking {tracking_number}.")
+                    elif actual_label_format_from_response == 'PDF': # If UPS sent a PDF
+                        print(f"DEBUG UPS_INTL_SHIPMENT: Label format is PDF. Using directly for tracking {tracking_number}.")
+                        pdf_bytes = raw_image_bytes
+                    else: # Unknown or other format that we don't explicitly handle for conversion
+                        print(f"WARN UPS_INTL_SHIPMENT: Label format from UPS is '{actual_label_format_from_response}'. Proceeding with raw bytes. This might not be a PDF.")
+                        pdf_bytes = raw_image_bytes # Pass through, hope for the best or handle downstream
+
                     return pdf_bytes, tracking_number
-                except Exception as b64_e:
-                    print(f"ERROR UPS_INTL_SHIPMENT: Failed to decode Base64 label data for tracking {tracking_number}: {b64_e}")
-                    return None, tracking_number # Return tracking even if decode fails
+                except Exception as processing_err:
+                    print(f"ERROR UPS_INTL_SHIPMENT: Failed to decode/process label data for tracking {tracking_number}: {processing_err}")
+                    traceback.print_exc()
+                    return None, tracking_number 
             elif tracking_number:
-                print(f"WARN UPS_INTL_SHIPMENT: Tracking number {tracking_number} obtained, but no label image was found in the response.")
+                print(f"WARN UPS_INTL_SHIPMENT: Tracking number {tracking_number} obtained, but no label image (GraphicImage) was found in the response.")
                 return None, tracking_number
             else:
                 print("ERROR UPS_INTL_SHIPMENT: API response code was '1' (Success), but no tracking number found.")
                 return None, None
         else:
-            # Handle API-level errors (e.g., validation errors in the payload)
             error_description = response_status.get("Description", "Unknown UPS Error")
             alerts = shipment_response.get("Response", {}).get("Alert", [])
             if not isinstance(alerts, list): alerts = [alerts]
@@ -582,10 +601,8 @@ def generate_ups_international_shipment(shipment_payload_from_frontend):
 
     except requests.exceptions.HTTPError as http_err:
         response_content = "Could not decode JSON or no response body."
-        try:
-            response_content = http_err.response.json() if http_err.response is not None else "No response object."
-        except json.JSONDecodeError:
-            response_content = http_err.response.text if http_err.response is not None else "No response text."
+        try: response_content = http_err.response.json() if http_err.response is not None else "No response object."
+        except json.JSONDecodeError: response_content = http_err.response.text if http_err.response is not None else "No response text."
         print(f"ERROR UPS_INTL_SHIPMENT: HTTPError occurred: {http_err}. Response: {str(response_content)[:1000]}")
         return None, None
     except requests.exceptions.RequestException as req_err:

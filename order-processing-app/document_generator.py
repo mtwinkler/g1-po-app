@@ -18,6 +18,18 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 try:
+    from svglib.svglib import svg2rlg
+    from reportlab.graphics.shapes import Drawing # Drawing is a flowable
+    SVGLIB_AVAILABLE = True
+    print("DEBUG DOC_GEN: svglib imported successfully.")
+except ImportError:
+    SVGLIB_AVAILABLE = False
+    svg2rlg = None
+    Drawing = None # To prevent NameError if not imported
+    print("WARN DOC_GEN: svglib library not found. SVG processing will rely on Pillow or fail.")
+
+
+try:
     # Get the absolute path of the directory where this script is located
     _this_dir = os.path.dirname(os.path.abspath(__file__))
     
@@ -145,12 +157,45 @@ def _get_logo_element_from_gcs(styles, logo_gcs_uri=None, desired_logo_width=1.5
         blob = bucket.blob(blob_name)
         if not blob.exists(): raise FileNotFoundError(f"Logo not found at {logo_gcs_uri}")
         logo_bytes = blob.download_as_bytes()
+
+        if logo_gcs_uri.lower().endswith(".svg") and SVGLIB_AVAILABLE:
+            print(f"DEBUG _get_logo_element_from_gcs: Processing {logo_gcs_uri} as SVG with svglib.")
+            logo_file_like_object = BytesIO(logo_bytes)
+            drawing = svg2rlg(logo_file_like_object) # svg2rlg expects a file path or file-like object
+            logo_file_like_object.close() # Close BytesIO object
+
+            if drawing:
+                # Scale the drawing
+                original_width = drawing.width
+                original_height = drawing.height
+
+                if original_width == 0 or original_height == 0: # Should not happen for valid SVGs
+                    print(f"WARN _get_logo_element_from_gcs: SVG {logo_gcs_uri} has zero width/height after svg2rlg.")
+                    return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Eloquia'])
+
+                scale_factor = desired_logo_width / original_width
+                drawing.width = desired_logo_width
+                drawing.height = original_height * scale_factor
+                drawing.scale(scale_factor, scale_factor) # Scale the drawing contents
+                
+                # The drawing object itself is a flowable
+                return drawing 
+            else:
+                print(f"WARN _get_logo_element_from_gcs: svg2rlg failed to convert {logo_gcs_uri}.")
+                return Paragraph(f"<b>{COMPANY_NAME}</b>", styles['H2_Eloquia'])
+        else: # Fallback to Pillow for other image types (PNG, JPG) or if SVG but svglib is not available
+            if logo_gcs_uri.lower().endswith(".svg") and not SVGLIB_AVAILABLE:
+                print(f"WARN _get_logo_element_from_gcs: SVG detected but svglib not available. Attempting with Pillow (may fail).")
+
+            print(f"DEBUG _get_logo_element_from_gcs: Processing {logo_gcs_uri} with Pillow.")
+
         logo_stream = BytesIO(logo_bytes)
-        logo_stream.seek(0)
+        
         actual_logo_width = desired_logo_width
         actual_logo_height = None
         if PILImage:
             try:
+                logo_stream.seek(0)
                 pillow_img = PILImage.open(logo_stream)
                 pillow_img.verify()
                 logo_stream.seek(0)

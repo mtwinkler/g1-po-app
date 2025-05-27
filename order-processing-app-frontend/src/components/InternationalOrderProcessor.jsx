@@ -59,9 +59,9 @@ function escapeRegExp(string) {
 
 function InternationalOrderProcessor({
     orderData,
-    suppliers, // Added prop
+    suppliers,
     apiService,
-    setProcessError, // This is the global error setter from OrderDetail
+    setProcessError,
     onSuccessRefresh
 }) {
   const { order, line_items: originalLineItemsFromData, billing_address } = orderData;
@@ -72,7 +72,7 @@ function InternationalOrderProcessor({
   // --- International Specific State ---
   const [internationalApiDetails, setInternationalApiDetails] = useState(null);
   const [loadingApiDetails, setLoadingApiDetails] = useState(true);
-  const [apiDetailsError, setApiDetailsError] = useState(null); // Error for fetching intl details
+  const [apiDetailsError, setApiDetailsError] = useState(null);
   const [dynamicComplianceValues, setDynamicComplianceValues] = useState({});
   const [exemptions, setExemptions] = useState({});
 
@@ -81,7 +81,7 @@ function InternationalOrderProcessor({
   const [purchaseItems, setPurchaseItems] = useState([]);
   const [singleOrderPoNotes, setSingleOrderPoNotes] = useState('');
   const [isBlindDropShip, setIsBlindDropShip] = useState(false);
-  const [skuToLookup, setSkuToLookup] = useState({ index: -1, sku: '' }); // For SKU description lookup
+  const [skuToLookup, setSkuToLookup] = useState({ index: -1, sku: '' });
   const debouncedSku = useDebounce(skuToLookup.sku, 500);
 
   // --- Profitability State (from Domestic) ---
@@ -99,7 +99,7 @@ function InternationalOrderProcessor({
   const [paymentType, setPaymentType] = useState('01'); // 01 for Bill Shipper
 
   // --- Process Flow State ---
-  const [isProcessingOrder, setIsProcessingOrder] = useState(false); // Combined processing state
+  const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [processSuccess, setProcessSuccess] = useState(false);
   const [newShipmentInfo, setNewShipmentInfo] = useState({ poNumber: null, trackingNumber: null, labelUrl: null });
 
@@ -284,7 +284,6 @@ function InternationalOrderProcessor({
     setIsProcessingOrder(true);
 
     let poDataPayload = null;
-    const selectedSupplier = suppliers.find(s => s.id === parseInt(selectedMainSupplierTrigger, 10));
 
     if (!internationalApiDetails || !order || !originalLineItems) { if(setProcessError) setProcessError("International details or order data not loaded."); setIsProcessingOrder(false); return; }
     if (!shipmentWeight || parseFloat(shipmentWeight) <= 0) { if(setProcessError) setProcessError("Shipment weight must be a positive number."); setIsProcessingOrder(false); return; }
@@ -297,71 +296,75 @@ function InternationalOrderProcessor({
         if(setProcessError) setProcessError("If dimensions are entered, they must be positive numbers."); setIsProcessingOrder(false); return;
     }
 
-    if (selectedSupplier) {
+    if (selectedMainSupplierTrigger) {
         if (purchaseItems.length === 0 && originalLineItems.length > 0) {
             if(setProcessError) setProcessError("No items defined for the Purchase Order."); setIsProcessingOrder(false); return;
         }
         let itemValidationError = null;
         const finalPoLineItems = purchaseItems.map((item, index) => {
-            const quantityInt = parseInt(item.quantity, 10); const costFloat = parseFloat(item.unit_cost);
+            const quantityInt = parseInt(item.quantity, 10);
+            const costFloat = parseFloat(item.unit_cost);
             if (isNaN(quantityInt) || quantityInt <= 0) { itemValidationError = `PO Item #${index + 1}: Quantity must be > 0.`; return null; }
             if (item.unit_cost === undefined || item.unit_cost === '' || isNaN(costFloat) || costFloat < 0) { itemValidationError = `PO Item #${index + 1}: Unit cost is invalid.`; return null; }
             if (!String(item.sku).trim()) { itemValidationError = `PO Item #${index + 1}: SKU is required.`; return null; }
             if (!String(item.description).trim()) { itemValidationError = `PO Item #${index + 1}: Description is required.`; return null; }
-            return { original_order_line_item_id: item.original_order_line_item_id, sku: String(item.sku).trim(), description: String(item.description).trim(), quantity: quantityInt, unit_cost: costFloat.toFixed(2), condition: item.condition || 'New' };
+            return {
+                sku: String(item.sku).trim(),
+                description: String(item.description).trim(),
+                quantity: quantityInt,
+                unitCost: costFloat.toFixed(2)
+            };
         }).filter(Boolean);
 
         if (itemValidationError) { if(setProcessError) setProcessError(itemValidationError); setIsProcessingOrder(false); return; }
         if (finalPoLineItems.length === 0 && originalLineItems.length > 0) { if(setProcessError) setProcessError("No valid line items to purchase for the PO."); setIsProcessingOrder(false); return; }
-
+        
         poDataPayload = {
-            supplier_id: parseInt(selectedMainSupplierTrigger, 10),
-            payment_instructions: singleOrderPoNotes,
-            po_line_items: finalPoLineItems,
-            is_blind_drop_ship: isBlindDropShip,
+            supplierId: parseInt(selectedMainSupplierTrigger, 10),
+            poNotes: singleOrderPoNotes,
+            lineItems: finalPoLineItems,
+            is_blind_drop_ship: isBlindDropShip 
         };
-    } else if (originalLineItems.length > 0 && !selectedSupplier) {
-        console.log("No supplier selected, proceeding with G1 direct international shipment.");
     }
+    
+    // ** START: THE FIX IS HERE **
+    // The shipperDetails object is now ALWAYS G1 Technology's info.
+    const shipperDetails = {
+        Name: "Global One Technology",
+        AttentionName: "Order Fulfillment",
+        // This should be your actual G1 UPS Account number.
+        ShipperNumber: "EW1847", 
+        // The EIN is fetched dynamically from the backend for G1.
+        TaxIdentificationNumber: internationalApiDetails.shipper_ein,
+        Phone: { Number: "8774183246" },
+        Address: {
+            AddressLine: ["4916 S 184th Plaza"],
+            City: "Omaha",
+            StateProvinceCode: "NE",
+            PostalCode: "68135",
+            // The CountryCode is now hardcoded to 'US', fixing the previous error.
+            CountryCode: "US"
+        }
+    };
+    // The account number for payment will also always be G1's account.
+    const finalShipperAccountNumberForPayment = shipperDetails.ShipperNumber;
+    // ** END: THE FIX IS HERE **
+
+    let shipToName = order.customer_company || `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim();
+    if (!shipToName) shipToName = "Receiver";
+
+    let shipToAttentionName = `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim();
+    if (!shipToAttentionName) shipToAttentionName = shipToName;
+    if (!shipToAttentionName) shipToAttentionName = "Receiving Dept";
+
+    shipToName = shipToName.substring(0,35);
+    shipToAttentionName = shipToAttentionName.substring(0,35);
+    if (!shipToAttentionName) shipToAttentionName = shipToName;
 
     const finalComplianceValues = {...dynamicComplianceValues};
     Object.keys(exemptions).forEach(key => { if (exemptions[key]) finalComplianceValues[key] = 'EXEMPT'; });
     const receiverTaxField = internationalApiDetails.required_compliance_fields?.find(f => f.id_owner === 'Receiver' && finalComplianceValues[f.field_label] && finalComplianceValues[f.field_label] !== 'EXEMPT');
     const shipToTaxId = receiverTaxField ? finalComplianceValues[receiverTaxField.field_label] : '';
-
-    const shipperDetails = selectedSupplier ? {
-        Name: selectedSupplier.name,
-        AttentionName: selectedSupplier.contact_person || "Shipping Dept",
-        ShipperNumber: selectedSupplier.ups_account_number || "EW1847", // Prefer supplier's UPS#, fallback to yours
-        TaxIdentificationNumber: selectedSupplier.ein || internationalApiDetails.shipper_ein,
-        Phone: { Number: (selectedSupplier.phone || "8888888888").replace(/\D/g, '') },
-        Address: {
-            AddressLine: [selectedSupplier.street_1, selectedSupplier.street_2].filter(Boolean),
-            City: selectedSupplier.city, StateProvinceCode: selectedSupplier.state,
-            PostalCode: selectedSupplier.zip, CountryCode: selectedSupplier.country || "US",
-        }
-    } : {
-        Name: "Global One Technology", AttentionName: "Order Fulfillment",
-        ShipperNumber: "EW1847", // YOUR G1 UPS Account
-        TaxIdentificationNumber: internationalApiDetails.shipper_ein,
-        Phone: { Number: "8774183246" }, Address: {
-            AddressLine: ["4916 S 184th Plaza"], City: "Omaha",
-            StateProvinceCode: "NE", PostalCode: "68135", CountryCode: "US"
-        }
-    };
-    const finalShipperAccountNumberForPayment = shipperDetails.ShipperNumber;
-
-    // Construct ShipTo Name and AttentionName
-    let shipToName = order.customer_company || `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim();
-    if (!shipToName) shipToName = "Receiver"; // Fallback if company and names are empty
-
-    let shipToAttentionName = `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim();
-    if (!shipToAttentionName) shipToAttentionName = shipToName; // Fallback to ShipTo Name if specific attention name is empty
-    if (!shipToAttentionName) shipToAttentionName = "Receiving Dept"; // Absolute fallback
-
-    shipToName = shipToName.substring(0,35);
-    shipToAttentionName = shipToAttentionName.substring(0,35);
-    if (!shipToAttentionName) shipToAttentionName = shipToName; // Ensure not empty after substring
 
     const shipmentRequestPayload = {
       ShipmentRequest: {
@@ -391,7 +394,7 @@ function InternationalOrderProcessor({
           },
           ShipmentServiceOptions: {
             InternationalForms: {
-              FormType: ["01"],
+              FormType: "01",
               CurrencyCode: "USD",
               Product: internationalApiDetails.line_items_customs_info.map(item => {
                 const originalItem = originalLineItems.find(oli => oli.id === item.original_order_line_item_id || oli.sku === item.sku);
@@ -416,7 +419,7 @@ function InternationalOrderProcessor({
         },
         LabelSpecification: {
           LabelImageFormat: {
-            Code: "GIF" // Changed from PDF to GIF
+            Code: "GIF"
           }
         }
       }
@@ -464,7 +467,6 @@ function InternationalOrderProcessor({
     const finalCombinedPayload = {
         po_data: poDataPayload,
         shipment_data: shipmentRequestPayload,
-        order_id: order.id
     };
 
     try {
@@ -481,7 +483,7 @@ function InternationalOrderProcessor({
 
     } catch (err) {
         console.error("Error processing combined order:", err);
-        const errorMsg = err.data?.message || err.message || "An unknown error occurred.";
+        const errorMsg = err.data?.message || err.data?.error || err.data?.details || "An unknown error occurred.";
         if (setProcessError) setProcessError(errorMsg);
     } finally {
         setIsProcessingOrder(false);
@@ -555,17 +557,10 @@ function InternationalOrderProcessor({
                 {suppliers && suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
         </div>
-        {selectedMainSupplierTrigger && !selectedMainSupplierTrigger.startsWith("_") && (
-            <p className="info-text card-inset" style={{marginTop:'var(--spacing-sm)'}}>
-                The "Shipper" for the international label will be <strong>{suppliers.find(s=>s.id === parseInt(selectedMainSupplierTrigger))?.name || 'Selected Supplier'}</strong>.
-                Please ensure their address details are correct in the supplier database.
-            </p>
-        )}
-         {!selectedMainSupplierTrigger && (
-             <p className="info-text card-inset" style={{marginTop:'var(--spacing-sm)'}}>
-                If no supplier is selected, the international shipment will originate from G1 Technology.
-            </p>
-         )}
+        {/* This informational text is now always true, so we can simplify it */}
+        <p className="info-text card-inset" style={{marginTop:'var(--spacing-sm)'}}>
+            The "Shipper" for the international label will always be Global One Technology.
+        </p>
       </section>
 
       {selectedMainSupplierTrigger && selectedMainSupplierTrigger !== MULTI_SUPPLIER_MODE_VALUE && selectedMainSupplierTrigger !== G1_ONSITE_FULFILLMENT_VALUE && (
@@ -627,7 +622,7 @@ function InternationalOrderProcessor({
                   {newShipmentInfo.poNumber && <p><strong>PO Number:</strong> {newShipmentInfo.poNumber}</p>}
                   {newShipmentInfo.trackingNumber && <p><strong>Tracking Number:</strong> {newShipmentInfo.trackingNumber}</p>}
                   {newShipmentInfo.labelUrl && (
-                      <a href={newShipmentInfo.labelUrl} target="_blank" rel="noopener noreferrer" className="button-like-link">
+                      <a href={newShipmentInfo.labelUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
                           Download Shipping Label & Commercial Invoice (PDF)
                       </a>
                   )}

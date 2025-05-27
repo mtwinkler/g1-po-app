@@ -308,7 +308,7 @@ def ingest_orders_route():
                     if match:
                         # If group 3 (compliance block) exists, it was preceded by the separator (group 2 might be None if no separator but block at end)
                         # or it was the only thing.
-                        potential_compliance_block = match.group(3)
+                        potential_compliance_block = match.group(2)
                         text_before_compliance_block = match.group(1).strip()
 
                         if potential_compliance_block and potential_compliance_block.startswith("[") and potential_compliance_block.endswith("];"):
