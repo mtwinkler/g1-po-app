@@ -7,19 +7,22 @@ import logging
 import base64
 from decimal import Decimal
 
-from app import (
+from app import ( 
     verify_firebase_token,
     engine,
     SHIPPER_EIN,
     COMPANY_LOGO_GCS_URI,
     GCS_BUCKET_NAME,
     get_country_name_from_iso,
-    get_hpe_mapping_with_fallback
+    get_hpe_mapping_with_fallback,
+    _get_bc_shipping_address_id, 
+    bc_api_base_url_v2,          
+    bc_shipped_status_id         
 )
-import shipping_service
-import gcs_service
-from document_generator import generate_purchase_order_pdf, generate_packing_slip_pdf
-import email_service
+import shipping_service 
+import gcs_service      
+from document_generator import generate_purchase_order_pdf, generate_packing_slip_pdf 
+import email_service    
 
 international_bp = Blueprint('international_bp', __name__)
 
@@ -187,6 +190,8 @@ def generate_international_shipment_route(order_id):
                 logging.info(f"INFO INTL_SHIP_ROUTE: Updating order {order_id} status to 'Processed'.")
                 order_update_query = text("UPDATE orders SET status = :status WHERE id = :order_id")
                 conn.execute(order_update_query, {"status": 'Processed', "order_id": order_id})
+                
+                transaction.commit() # Commit if all successful
 
                 return jsonify({
                     "message": "International shipment generated successfully.",
@@ -194,6 +199,7 @@ def generate_international_shipment_route(order_id):
                 }), 200
 
             except Exception as e:
+                # transaction will be rolled back by the 'with conn.begin()' context manager on exception
                 current_app.logger.error(f"Error in generate_international_shipment_route for order {order_id}: {e}", exc_info=True)
                 return jsonify({"message": f"An error occurred: {str(e)}"}), 500
 
@@ -221,8 +227,9 @@ def process_international_dropship_route(order_id):
     label_pdf_bytes_for_email = None
     po_pdf_bytes_for_email = None 
     packing_slip_pdf_bytes_for_email = None
-    supplier_info_for_pdf_row = None # Initialize for broader scope if needed for email logic
-    is_blind_drop_ship_flag = False # Initialize
+    supplier_info_for_pdf_row = None 
+    is_blind_drop_ship_flag = False 
+    tracking_number = None 
 
     try:
         with engine.connect() as db_connection:
@@ -239,11 +246,12 @@ def process_international_dropship_route(order_id):
                 """
                 order_info_for_docs_result = db_connection.execute(text(order_info_query_text), {"order_id": order_id}).fetchone()
                 
-                if not order_info_for_docs_result: # Changed from order_info_for_docs_row
+                if not order_info_for_docs_result:
                     raise ValueError(f"Order details not found for order ID {order_id} for document generation.")
-                order_data_for_docs = dict(order_info_for_docs_result._mapping) # Changed from order_info_for_docs_row
-                bc_order_id_for_paths = order_data_for_docs.get('bigcommerce_order_id') or order_id
+                order_data_for_docs = dict(order_info_for_docs_result._mapping)
+                bc_order_id_for_paths = order_data_for_docs.get('bigcommerce_order_id')
 
+                bc_line_items_for_shipment_api = []
 
                 if po_data:
                     try:
@@ -254,137 +262,131 @@ def process_international_dropship_route(order_id):
 
                         if not supplier_id or not line_items_from_frontend:
                             raise ValueError("Supplier ID and line items are required for PO.")
-
-                        starting_po_sequence = 200001 
-                        max_po_query = text("""
-                            SELECT MAX(CAST(numeric_po_number AS INTEGER)) 
-                            FROM (
-                                SELECT po_number AS numeric_po_number 
-                                FROM purchase_orders 
-                                WHERE CAST(po_number AS TEXT) ~ '^[0-9]+$'
-                            ) AS numeric_pos
-                        """)
-                        max_po_value_from_db = db_connection.execute(max_po_query).scalar_one_or_none()
                         
+                        starting_po_sequence = 200001 
+                        max_po_query = text("SELECT MAX(CAST(numeric_po_number AS INTEGER)) FROM (SELECT po_number AS numeric_po_number FROM purchase_orders WHERE CAST(po_number AS TEXT) ~ '^[0-9]+$') AS numeric_pos")
+                        max_po_value_from_db = db_connection.execute(max_po_query).scalar_one_or_none()
                         next_sequence_num = starting_po_sequence
                         if max_po_value_from_db is not None:
-                            try:
-                                next_sequence_num = max(starting_po_sequence, int(max_po_value_from_db) + 1)
-                            except ValueError:
-                                logging.warning(f"PROCESS_ORDER: Could not parse max PO number '{max_po_value_from_db}'. Defaulting PO sequence to {starting_po_sequence}.")
-                        
+                            try: next_sequence_num = max(starting_po_sequence, int(max_po_value_from_db) + 1)
+                            except ValueError: logging.warning(f"Could not parse max PO number '{max_po_value_from_db}'. Defaulting PO sequence to {starting_po_sequence}.")
                         generated_po_number = str(next_sequence_num)
                         logging.info(f"Generated PO Number: {generated_po_number}")
 
                         total_po_amount = sum(Decimal(str(item.get('quantity', 0))) * Decimal(str(item.get('unitCost', '0'))) for item in line_items_from_frontend)
                         current_time_for_po = datetime.now(timezone.utc)
-
-                        po_insert_query = text("""
-                            INSERT INTO purchase_orders (
-                                po_number, order_id, supplier_id, payment_instructions, status, created_by, 
-                                po_date, total_amount 
-                            ) VALUES (
-                                :po_number, :order_id, :supplier_id, :payment_instructions, :status, :created_by,
-                                :po_date, :total_amount
-                            ) RETURNING id; 
-                        """)
-                        # Initial status is "New"
-                        po_result = db_connection.execute(po_insert_query, {
-                            "po_number": generated_po_number,
-                            "order_id": order_id, "supplier_id": supplier_id,
-                            "payment_instructions": po_notes, "status": "New", 
-                            "created_by": g.decoded_token['email'], "po_date": current_time_for_po,
-                            "total_amount": total_po_amount
-                        }).fetchone()
-
-                        if not po_result or not po_result.id:
-                            raise ValueError("Failed to create PO or retrieve PO ID from database.")
+                        po_insert_query = text("INSERT INTO purchase_orders (po_number, order_id, supplier_id, payment_instructions, status, created_by, po_date, total_amount) VALUES (:po_number, :order_id, :supplier_id, :payment_instructions, :status, :created_by, :po_date, :total_amount) RETURNING id;")
+                        po_result = db_connection.execute(po_insert_query, {"po_number": generated_po_number, "order_id": order_id, "supplier_id": supplier_id, "payment_instructions": po_notes, "status": "New", "created_by": g.decoded_token['email'], "po_date": current_time_for_po, "total_amount": total_po_amount}).fetchone()
+                        if not po_result or not po_result.id: raise ValueError("Failed to create PO or retrieve PO ID from database.")
                         new_po_id = po_result.id
                         logging.info(f"DEBUG: Successfully inserted PO, got ID: {new_po_id}, Using App-Generated PO Number: {generated_po_number}")
 
                         po_line_items_for_db_and_pdf = []
                         for item_fe in line_items_from_frontend:
-                            po_line_items_for_db_and_pdf.append({
-                                "sku": item_fe.get('sku'), "description": item_fe.get('description'),
-                                "name": item_fe.get('description'), "quantity": item_fe.get('quantity'),
-                                "unit_cost": item_fe.get('unitCost'), "unitCost": item_fe.get('unitCost') 
-                            })
+                            po_line_items_for_db_and_pdf.append({"sku": item_fe.get('sku'), "description": item_fe.get('description'), "name": item_fe.get('description'), "quantity": item_fe.get('quantity'), "unit_cost": item_fe.get('unitCost'), "unitCost": item_fe.get('unitCost'), "original_order_line_item_id": item_fe.get("original_order_line_item_id") })
 
-                        for item_db in po_line_items_for_db_and_pdf:
-                            line_item_query = text("""
-                                INSERT INTO po_line_items (purchase_order_id, sku, description, quantity, unit_cost)
-                                VALUES (:po_id, :sku, :desc, :qty, :cost);
-                            """)
-                            db_connection.execute(line_item_query, {
-                                "po_id": new_po_id, "sku": item_db.get('sku'),
-                                "desc": item_db.get('description'), "qty": item_db.get('quantity'),
-                                "cost": item_db.get('unitCost') 
-                            })
+                        for item_db_info in po_line_items_for_db_and_pdf:
+                            line_item_query = text("INSERT INTO po_line_items (purchase_order_id, sku, description, quantity, unit_cost, original_order_line_item_id) VALUES (:po_id, :sku, :desc, :qty, :cost, :original_id);")
+                            db_connection.execute(line_item_query, {"po_id": new_po_id, "sku": item_db_info.get('sku'), "desc": item_db_info.get('description'), "qty": item_db_info.get('quantity'), "cost": item_db_info.get('unitCost'), "original_id": item_db_info.get("original_order_line_item_id") })
+                            
+                            if item_db_info.get("original_order_line_item_id"):
+                                oli_query = text("SELECT bigcommerce_line_item_id FROM order_line_items WHERE id = :id AND order_id = :order_id_param")
+                                oli_result = db_connection.execute(oli_query, {"id": item_db_info.get("original_order_line_item_id"), "order_id_param": order_id}).fetchone()
+                                if oli_result and oli_result.bigcommerce_line_item_id:
+                                    bc_line_items_for_shipment_api.append({"order_product_id": oli_result.bigcommerce_line_item_id, "quantity": item_db_info.get('quantity')})
+                                else:
+                                    logging.warning(f"Could not find bigcommerce_line_item_id for original_order_line_item_id: {item_db_info.get('original_order_line_item_id')} in PO {generated_po_number}")
                         logging.info(f"Successfully created PO Line Items for PO {generated_po_number} (ID: {new_po_id}).")
-
+                        
                         supplier_details_query = text("SELECT * FROM suppliers WHERE id = :supplier_id")
-                        # Assign to supplier_info_for_pdf_row here for wider scope
                         supplier_info_for_pdf_row = db_connection.execute(supplier_details_query, {"supplier_id": supplier_id}).fetchone()
-                        if not supplier_info_for_pdf_row:
-                            raise ValueError(f"Could not retrieve supplier details for ID {supplier_id} for PO PDF generation.")
+                        if not supplier_info_for_pdf_row: raise ValueError(f"Could not retrieve supplier details for ID {supplier_id} for PO PDF generation.")
                         supplier_data_for_pdf = dict(supplier_info_for_pdf_row._mapping)
                         
                         items_for_po_pdf_generator = [{'unit_cost': item['unitCost'], **item} for item in po_line_items_for_db_and_pdf]
                         
-                        po_pdf_data_args = {
-                            "order_data": order_data_for_docs, "supplier_data": supplier_data_for_pdf,
-                            "po_number": generated_po_number, "po_date": current_time_for_po, 
-                            "po_items": items_for_po_pdf_generator,
-                            "payment_terms": supplier_data_for_pdf.get('payment_terms'),
-                            "payment_instructions": po_notes, "logo_gcs_uri": COMPANY_LOGO_GCS_URI,
-                            "is_partial_fulfillment": False 
-                        }
+                        po_pdf_data_args = {"order_data": order_data_for_docs, "supplier_data": supplier_data_for_pdf, "po_number": generated_po_number, "po_date": current_time_for_po, "po_items": items_for_po_pdf_generator, "payment_terms": supplier_data_for_pdf.get('payment_terms'), "payment_instructions": po_notes, "logo_gcs_uri": COMPANY_LOGO_GCS_URI, "is_partial_fulfillment": False }
                         po_pdf_bytes_for_email = generate_purchase_order_pdf(**po_pdf_data_args)
                         
                         current_timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-                        blind_suffix_gcs = "_BLIND" if is_blind_drop_ship_flag else "" # Renamed to avoid conflict
-                        
+                        blind_suffix_gcs = "_BLIND" if is_blind_drop_ship_flag else ""
                         common_gcs_folder_prefix = f"processed_orders/order_{bc_order_id_for_paths}_PO_{generated_po_number}{blind_suffix_gcs}"
                         po_pdf_gcs_filename_part = f"{common_gcs_folder_prefix}/po_{generated_po_number}_{current_timestamp_str}.pdf"
                         po_pdf_gs_uri = f"gs://{GCS_BUCKET_NAME}/{po_pdf_gcs_filename_part}"
                         
                         po_pdf_http_url = gcs_service.upload_file_bytes(po_pdf_bytes_for_email, po_pdf_gcs_filename_part, "application/pdf")
-                        if not po_pdf_http_url:
-                            logging.error(f"Failed to upload PO PDF for PO {generated_po_number} to GCS.")
+                        if not po_pdf_http_url: logging.error(f"Failed to upload PO PDF for PO {generated_po_number} to GCS.")
                         else:
                             logging.info(f"Successfully uploaded PO PDF {generated_po_number} to {po_pdf_http_url} (gs:// path: {po_pdf_gs_uri})")
-                            update_po_pdf_path_query = text("UPDATE purchase_orders SET po_pdf_gcs_path = :path WHERE id = :po_id")
-                            db_connection.execute(update_po_pdf_path_query, {"path": po_pdf_gs_uri, "po_id": new_po_id})
+                            db_connection.execute(text("UPDATE purchase_orders SET po_pdf_gcs_path = :path WHERE id = :po_id"), {"path": po_pdf_gs_uri, "po_id": new_po_id})
 
-                        logging.info(f"Generating packing slip for PO {generated_po_number}")
-                        packing_slip_items = [{"name": item.get("description"), "quantity": item.get("quantity"), "sku": item.get("sku")} for item in po_line_items_for_db_and_pdf]
-                        packing_slip_pdf_bytes_for_email = generate_packing_slip_pdf(
-                            order_data=order_data_for_docs, items_in_this_shipment=packing_slip_items,
-                            items_shipping_separately=[], logo_gcs_uri=COMPANY_LOGO_GCS_URI,
-                            is_g1_onsite_fulfillment=False, is_blind_slip=is_blind_drop_ship_flag,
-                            custom_ship_from_address=None 
-                        )
+                        logging.info(f"Preparing items for packing slip for PO {generated_po_number}")
+                        packing_slip_items_for_pdf_gen = [] 
+                        
+                        # Query to get original BC product name as a fallback
+                        original_bc_item_name_query = text("SELECT name FROM order_line_items WHERE id = :original_line_item_id")
+                        # Query to get HPE specific PO description
+                        hpe_po_desc_query = text("SELECT po_description FROM hpe_description_mappings WHERE option_pn = :option_pn_param LIMIT 1")
+
+                        for po_item_from_form in po_line_items_for_db_and_pdf: 
+                            # po_item_from_form contains: sku, description (from form), quantity, original_order_line_item_id
+                            
+                            current_ps_sku = po_item_from_form.get("sku") # This is the SKU used on the PO (likely Option PN)
+                            current_ps_desc = None # Start with None, force a lookup
+                            original_oli_id = po_item_from_form.get("original_order_line_item_id")
+
+                            # 1. Try to get the raw HPE PO Description using the PO's SKU (assumed Option PN)
+                            hpe_mapped_desc_result = db_connection.execute(hpe_po_desc_query, {"option_pn_param": current_ps_sku}).scalar_one_or_none()
+                            
+                            if hpe_mapped_desc_result:
+                                current_ps_desc = hpe_mapped_desc_result
+                                logging.debug(f"INTL PS Item (PO {generated_po_number}): SKU {current_ps_sku} using raw mapped desc from hpe_description_mappings: '{current_ps_desc}'")
+                            elif original_oli_id:
+                                # 2. If no specific HPE PO desc, fallback to original BigCommerce product name
+                                original_bc_name_result = db_connection.execute(original_bc_item_name_query, {"original_line_item_id": original_oli_id}).scalar_one_or_none()
+                                if original_bc_name_result:
+                                    current_ps_desc = original_bc_name_result
+                                    logging.debug(f"INTL PS Item (PO {generated_po_number}): SKU {current_ps_sku} using original BC name as fallback: '{current_ps_desc}'")
+                                else:
+                                    # 3. As a last resort, use the description from the PO form (should be rare)
+                                    current_ps_desc = po_item_from_form.get("description")
+                                    logging.warning(f"INTL PS Item (PO {generated_po_number}): SKU {current_ps_sku} - No HPE map desc & no original BC name for OLI ID {original_oli_id}. Using PO form desc: '{current_ps_desc}'")
+                            else:
+                                # 4. If no original_oli_id, must use PO form description (also should be rare if data is consistent)
+                                current_ps_desc = po_item_from_form.get("description")
+                                logging.warning(f"INTL PS Item (PO {generated_po_number}): SKU {current_ps_sku} - No original_order_line_item_id. Using PO form desc: '{current_ps_desc}'")
+
+                            if not current_ps_desc: # Should not happen if fallbacks work
+                                current_ps_desc = "Item Description Unavailable"
+                                logging.error(f"INTL PS Item (PO {generated_po_number}): SKU {current_ps_sku} - Description completely unavailable after all fallbacks.")
+
+                            packing_slip_items_for_pdf_gen.append({
+                                "name": current_ps_desc, # This is now the prioritized description
+                                "quantity": po_item_from_form.get("quantity"),
+                                "sku": current_ps_sku  # SKU for packing slip is the PO SKU (Option PN)
+                            })
+                                                    
+                        packing_slip_pdf_bytes_for_email = generate_packing_slip_pdf(order_data=order_data_for_docs, items_in_this_shipment=packing_slip_items_for_pdf_gen, items_shipping_separately=[], logo_gcs_uri=COMPANY_LOGO_GCS_URI, is_g1_onsite_fulfillment=False, is_blind_slip=is_blind_drop_ship_flag, custom_ship_from_address=None)
                         if packing_slip_pdf_bytes_for_email:
                             ps_gcs_filename_part = f"{common_gcs_folder_prefix}/ps_{generated_po_number}_{current_timestamp_str}.pdf"
                             packing_slip_gs_uri = f"gs://{GCS_BUCKET_NAME}/{ps_gcs_filename_part}"
                             packing_slip_http_url = gcs_service.upload_file_bytes(packing_slip_pdf_bytes_for_email, ps_gcs_filename_part, "application/pdf")
-                            if not packing_slip_http_url:
-                                logging.error(f"Failed to upload Packing Slip PDF for PO {generated_po_number} to GCS.")
+                            if not packing_slip_http_url: logging.error(f"Failed to upload Packing Slip PDF for PO {generated_po_number} to GCS.")
                             else:
                                 logging.info(f"Successfully uploaded Packing Slip PDF for PO {generated_po_number} to {packing_slip_http_url} (gs:// path: {packing_slip_gs_uri})")
-                                update_ps_path_query = text("UPDATE purchase_orders SET packing_slip_gcs_path = :path WHERE id = :po_id")
-                                db_connection.execute(update_ps_path_query, {"path": packing_slip_gs_uri, "po_id": new_po_id})
+                                db_connection.execute(text("UPDATE purchase_orders SET packing_slip_gcs_path = :path WHERE id = :po_id"), {"path": packing_slip_gs_uri, "po_id": new_po_id})
                         else:
                             logging.error(f"Failed to generate Packing Slip PDF for PO {generated_po_number}.")
                         
                     except Exception as e_po:
                         logging.error(f"Failed to process Purchase Order section for order {order_id}: {e_po}", exc_info=True)
-                        transaction.rollback() # Ensure transaction is rolled back on PO error
-                        return jsonify({"error": "Failed to create Purchase Order and associated documents", "details": str(e_po)}), 500
+                        # transaction rollback will be handled by the outer context manager
+                        raise # Re-raise to be caught by the outer try-except, which handles rollback
 
-                label_pdf_bytes, tracking_number = shipping_service.generate_ups_international_shipment(shipment_data)
-                if not label_pdf_bytes or not tracking_number: 
+                label_pdf_bytes, tracking_number_local = shipping_service.generate_ups_international_shipment(shipment_data)
+                if not label_pdf_bytes or not tracking_number_local: 
                     raise Exception("Failed to get label PDF from UPS.")
+                tracking_number = tracking_number_local
                 logging.info(f"UPS_INTL_SHIPMENT: Success! Tracking: {tracking_number}. Label PDF bytes received.")
                 label_pdf_bytes_for_email = label_pdf_bytes 
 
@@ -395,77 +397,52 @@ def process_international_dropship_route(order_id):
                     raise Exception("Failed to upload shipping label PDF to GCS.")
                 logging.info(f"INTL_DROPSHIP_ROUTE: Successfully uploaded shipping label PDF for {tracking_number} to {gcs_label_http_url}")
 
-                shipment_insert_query = text("""
-                    INSERT INTO shipments (order_id, carrier, tracking_number, label_gcs_url, created_at, service_used, purchase_order_id, packing_slip_gcs_path)
-                    VALUES (:order_id, :carrier, :tracking, :label_url, :created_at, :service, :po_id, :ps_gcs_path)
-                """)
-                db_connection.execute(shipment_insert_query, {
-                    "order_id": order_id, "carrier": "UPS", "tracking": tracking_number,
-                    "label_url": gcs_label_http_url, "created_at": datetime.now(timezone.utc),
-                    "service": shipment_data.get('ShipmentRequest', {}).get('Shipment', {}).get('Service', {}).get('Code'),
-                    "po_id": new_po_id, 
-                    "ps_gcs_path": None 
-                })
+                shipment_insert_query = text("INSERT INTO shipments (order_id, carrier, tracking_number, label_gcs_url, created_at, service_used, purchase_order_id, packing_slip_gcs_path) VALUES (:order_id, :carrier, :tracking, :label_url, :created_at, :service, :po_id, :ps_gcs_path)")
+                db_connection.execute(shipment_insert_query, {"order_id": order_id, "carrier": "UPS", "tracking": tracking_number, "label_url": gcs_label_http_url, "created_at": datetime.now(timezone.utc), "service": shipment_data.get('ShipmentRequest', {}).get('Shipment', {}).get('Service', {}).get('Code'), "po_id": new_po_id, "ps_gcs_path": None })
 
                 order_update_query = text("UPDATE orders SET status = :status WHERE id = :order_id")
                 db_connection.execute(order_update_query, {"status": 'Processed', "order_id": order_id})
                 
-                # Email sending logic relies on new_po_id being set from the PO block
-                if po_data and supplier_info_for_pdf_row and new_po_id: # Check new_po_id
+                if po_data and supplier_info_for_pdf_row and new_po_id:
                     supplier_email_address = supplier_info_for_pdf_row.email
                     if supplier_email_address:
                         attachments_for_email = []
-                        if po_pdf_bytes_for_email:
-                            attachments_for_email.append({
-                                "Name": f"PO_{generated_po_number}.pdf", 
-                                "Content": base64.b64encode(po_pdf_bytes_for_email).decode('utf-8'), 
-                                "ContentType": "application/pdf"
-                            })
-                        if label_pdf_bytes_for_email:
-                            attachments_for_email.append({
-                                "Name": f"ShippingLabel_{tracking_number}.pdf", "Content": base64.b64encode(label_pdf_bytes_for_email).decode('utf-8'), 
-                                "ContentType": "application/pdf"
-                            })
-                        if packing_slip_pdf_bytes_for_email: 
-                            attachments_for_email.append({
-                                "Name": f"PackingSlip_PO_{generated_po_number}.pdf", 
-                                "Content": base64.b64encode(packing_slip_pdf_bytes_for_email).decode('utf-8'),
-                                "ContentType": "application/pdf"
-                            })
+                        if po_pdf_bytes_for_email: attachments_for_email.append({"Name": f"PO_{generated_po_number}.pdf", "Content": base64.b64encode(po_pdf_bytes_for_email).decode('utf-8'), "ContentType": "application/pdf"})
+                        if label_pdf_bytes_for_email: attachments_for_email.append({"Name": f"ShippingLabel_{tracking_number}.pdf", "Content": base64.b64encode(label_pdf_bytes_for_email).decode('utf-8'), "ContentType": "application/pdf"})
+                        if packing_slip_pdf_bytes_for_email: attachments_for_email.append({"Name": f"PackingSlip_PO_{generated_po_number}.pdf", "Content": base64.b64encode(packing_slip_pdf_bytes_for_email).decode('utf-8'), "ContentType": "application/pdf"})
                         
-                            if attachments_for_email:
-                                # Log info for the first attachment (e.g., the PO PDF)
-                                if attachments_for_email[0] and "Content" in attachments_for_email[0]:
-                                    first_attachment_content_str = attachments_for_email[0]["Content"]
-                                    logging.debug(f"EMAIL_ATTACH_DEBUG: First attachment name: {attachments_for_email[0].get('Name')}")
-                                    logging.debug(f"EMAIL_ATTACH_DEBUG: First attachment Content (first 100 chars): {first_attachment_content_str[:100]}")
-                                    logging.debug(f"EMAIL_ATTACH_DEBUG: First attachment Content length: {len(first_attachment_content_str)}")
-                                
-                                logging.info(f"Attempting to email {len(attachments_for_email)} documents for PO {generated_po_number} and label {tracking_number} to {supplier_email_address}")
-                                email_sent = email_service.send_po_email(
-                                    supplier_email=supplier_email_address, po_number=generated_po_number, 
-                                    attachments=attachments_for_email, is_blind_drop_ship=is_blind_drop_ship_flag
-                                )
-
+                        if attachments_for_email:
+                            logging.info(f"Attempting to email {len(attachments_for_email)} documents for PO {generated_po_number} and label {tracking_number} to {supplier_email_address}")
+                            email_sent = email_service.send_po_email(supplier_email=supplier_email_address, po_number=generated_po_number, attachments=attachments_for_email, is_blind_drop_ship=is_blind_drop_ship_flag)
                             if email_sent: 
                                 logging.info(f"Successfully sent documents email to {supplier_email_address}")
-                                # Update PO status to SENT_TO_SUPPLIER after successful email
-                                update_po_status_query = text("UPDATE purchase_orders SET status = 'SENT_TO_SUPPLIER' WHERE id = :po_id")
-                                db_connection.execute(update_po_status_query, {"po_id": new_po_id})
+                                db_connection.execute(text("UPDATE purchase_orders SET status = 'SENT_TO_SUPPLIER' WHERE id = :po_id"), {"po_id": new_po_id})
                             else: 
                                 logging.error(f"Failed to send documents email to {supplier_email_address}")
-                                # PO status remains "New" if email fails
                         else: 
                             logging.warning(f"No documents generated/available to attach for PO {generated_po_number}. Email not sent.")
-                            # PO status remains "New"
                     else: 
                         logging.warning(f"No email address found for supplier ID {supplier_id}. Cannot email PO.")
-                        # PO status remains "New"
                 elif po_data and not new_po_id:
                      logging.error(f"INTL_DROPSHIP_ROUTE: PO data was present, but new_po_id is not set. Cannot send email or update PO status to SENT_TO_SUPPLIER. PO was likely not created.")
 
+                if bc_order_id_for_paths and tracking_number:
+                    bc_address_id = _get_bc_shipping_address_id(bc_order_id_for_paths)
+                    if bc_address_id is not None and bc_line_items_for_shipment_api:
+                        logging.info(f"Attempting to create BigCommerce shipment for BC Order ID {bc_order_id_for_paths} with {len(bc_line_items_for_shipment_api)} item groups.")
+                        bc_shipping_method_name = shipment_data.get('ShipmentRequest', {}).get('Shipment', {}).get('Service', {}).get('Description', 'UPS International')
+                        bc_shipping_provider = "ups"
+                        shipping_service.create_bigcommerce_shipment(bigcommerce_order_id=bc_order_id_for_paths, tracking_number=tracking_number, shipping_method_name=bc_shipping_method_name, line_items_in_shipment=bc_line_items_for_shipment_api, order_address_id=bc_address_id, shipping_provider=bc_shipping_provider)
+                    else:
+                        logging.warning(f"Skipping BigCommerce shipment creation for BC Order {bc_order_id_for_paths}. Missing address ID ({bc_address_id}) or shipment items ({len(bc_line_items_for_shipment_api)}).")
 
-                transaction.commit() # Commit transaction after all operations
+                    if bc_shipped_status_id and bc_api_base_url_v2:
+                        logging.info(f"Attempting to update BigCommerce order status to Shipped for BC Order ID {bc_order_id_for_paths}.")
+                        shipping_service.set_bigcommerce_order_status(bigcommerce_order_id=bc_order_id_for_paths, status_id=int(bc_shipped_status_id))
+                    else:
+                        logging.warning(f"Skipping BigCommerce status update for BC Order {bc_order_id_for_paths}. BC_SHIPPED_STATUS_ID or BC_API_BASE_URL_V2 not configured.")
+                
+                transaction.commit() 
         
         return jsonify({
             "message": "International shipment processed successfully.", "trackingNumber": tracking_number,
@@ -474,15 +451,8 @@ def process_international_dropship_route(order_id):
         }), 200
 
     except Exception as e:
-        # transaction might not be defined if error occurs before engine.connect()
-        # or if engine.connect() itself fails.
-        # Check if transaction is active before attempting rollback
         if 'transaction' in locals() and transaction is not None and transaction.is_active :
-            try:
-                transaction.rollback()
-                logging.info("Transaction rolled back due to exception.")
-            except Exception as rb_e:
-                logging.error(f"Error during transaction rollback: {rb_e}")
-        
+            try: transaction.rollback(); logging.info("Transaction rolled back due to exception.")
+            except Exception as rb_e: logging.error(f"Error during transaction rollback: {rb_e}")
         logging.critical(f"A critical error occurred in process_international_dropship_route for order {order_id}: {e}", exc_info=True)
         return jsonify({"error": "An unexpected server error occurred.", "details": str(e)}), 500
