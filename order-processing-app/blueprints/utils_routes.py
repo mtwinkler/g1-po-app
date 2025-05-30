@@ -160,3 +160,90 @@ def generate_standalone_ups_label_route(): # Renamed function
         return jsonify({"error": "An unexpected error occurred during standalone label generation.", "details": str(e)}), 500
     finally:
         print("DEBUG STANDALONE_LABEL_BP: --- ROUTE EXITING ---", flush=True)
+
+# order-processing-app/blueprints/utils_routes.py
+import traceback
+from flask import Blueprint, jsonify, request, g, current_app
+from datetime import datetime, timezone
+import base64 # For email attachment
+import sys # For traceback
+from sqlalchemy import text # Make sure text is imported
+
+# Imports from the main app.py or other modules
+# Ensure these imports point to your main app instance correctly
+# If utils_routes.py is in 'blueprints' and app.py is in parent:
+from app import engine, verify_firebase_token 
+# If app.py is in the same directory (less common for blueprints):
+# from app import engine, verify_firebase_token 
+
+# Import service modules (if needed by other utils, not directly by this delete function)
+# import shipping_service
+# import email_service
+
+utils_bp = Blueprint('utils_bp', __name__) 
+
+# ... (your existing generate_standalone_ups_label_route can remain here) ...
+
+@utils_bp.route('/order_by_bc_id/<string:bc_order_id_str>', methods=['DELETE'])
+@verify_firebase_token
+def delete_order_by_bc_id_route(bc_order_id_str):
+    user_email = g.decoded_token.get('email', 'Unknown user') # Get email from token
+    current_app.logger.info(f"User {user_email} attempting to delete order with BigCommerce ID: {bc_order_id_str}")
+
+    if not bc_order_id_str.isdigit():
+        current_app.logger.warning(f"Invalid BigCommerce Order ID format received: {bc_order_id_str}")
+        return jsonify({"error": "Invalid BigCommerce Order ID format. Must be numeric."}), 400
+
+    bc_order_id_to_delete = int(bc_order_id_str)
+
+    if engine is None:
+        current_app.logger.error("DELETE_ORDER_UTIL: Database engine is not initialized.")
+        return jsonify({"error": "Database engine not available."}), 500
+
+    try:
+        with engine.connect() as conn:
+            with conn.begin() as transaction:
+                # Find the internal order ID from the BigCommerce order ID
+                order_select_query = text("SELECT id FROM orders WHERE bigcommerce_order_id = :bc_id")
+                result = conn.execute(order_select_query, {"bc_id": bc_order_id_to_delete}).fetchone()
+
+                if not result:
+                    current_app.logger.warning(f"Order with BigCommerce ID {bc_order_id_to_delete} not found for deletion attempt by {user_email}.")
+                    return jsonify({"error": f"Order with BigCommerce ID {bc_order_id_to_delete} not found."}), 404
+
+                internal_order_id = result.id
+                current_app.logger.info(f"Found internal order ID {internal_order_id} for BigCommerce ID {bc_order_id_to_delete}. Proceeding with deletion operations.")
+
+                # 1. Delete related purchase_orders (this should cascade to po_line_items)
+                po_delete_query = text("DELETE FROM purchase_orders WHERE order_id = :internal_id")
+                po_deleted_result = conn.execute(po_delete_query, {"internal_id": internal_order_id})
+                current_app.logger.info(f"Deleted {po_deleted_result.rowcount} rows from purchase_orders for order_id {internal_order_id}.")
+
+                # 2. Delete related shipments
+                shipment_delete_query = text("DELETE FROM shipments WHERE order_id = :internal_id")
+                ship_deleted_result = conn.execute(shipment_delete_query, {"internal_id": internal_order_id})
+                current_app.logger.info(f"Deleted {ship_deleted_result.rowcount} rows from shipments for order_id {internal_order_id}.")
+
+                # 3. Delete related order_line_items
+                oli_delete_query = text("DELETE FROM order_line_items WHERE order_id = :internal_id")
+                oli_deleted_result = conn.execute(oli_delete_query, {"internal_id": internal_order_id})
+                current_app.logger.info(f"Deleted {oli_deleted_result.rowcount} rows from order_line_items for order_id {internal_order_id}.")
+
+                # 4. Finally, delete the main order record
+                order_delete_query = text("DELETE FROM orders WHERE id = :internal_id")
+                order_deleted_result = conn.execute(order_delete_query, {"internal_id": internal_order_id})
+
+                if order_deleted_result.rowcount > 0:
+                    transaction.commit()
+                    current_app.logger.info(f"Successfully DELETED order with internal ID {internal_order_id} (BigCommerce ID: {bc_order_id_to_delete}) and its related data by user {user_email}.")
+                    return jsonify({"message": f"Order with BigCommerce ID {bc_order_id_to_delete} and its related data deleted successfully."}), 200
+                else:
+                    # This case implies the order was found but couldn't be deleted from 'orders' table itself, which is strange.
+                    transaction.rollback() # Explicit rollback, though context manager would do it on unhandled exception
+                    current_app.logger.error(f"Order with internal ID {internal_order_id} (BC ID: {bc_order_id_to_delete}) was found, but delete from 'orders' table affected 0 rows. Rolling back.")
+                    return jsonify({"error": "Order deletion failed unexpectedly after finding the order. Transaction rolled back."}), 500
+
+    except Exception as e:
+        # The transaction will be rolled back automatically by the `with conn.begin()` context manager if an exception occurs
+        current_app.logger.error(f"Error deleting order with BigCommerce ID {bc_order_id_to_delete}: {e}", exc_info=True)
+        return jsonify({"error": "An unexpected server error occurred during order deletion.", "details": str(e)}), 500

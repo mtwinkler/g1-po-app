@@ -19,6 +19,7 @@ import HpeDescriptionList from './components/HpeDescriptionList';
 import HpeDescriptionForm from './components/HpeDescriptionForm';
 import EditHpeDescriptionForm from './components/EditHpeDescriptionForm';
 import QuickbooksSync from './components/QuickbooksSync'; 
+import DeleteOrderUtil from './components/DeleteOrderUtil';
 
 // --- MODIFICATION: Uncomment and ensure correct paths for Supplier Forms ---
 import SupplierForm from './components/SupplierForm';
@@ -176,6 +177,8 @@ function AppContent() {
               path="/admin/hpe-descriptions/edit/:optionPnParam" 
               element={<ProtectedRoute><EditHpeDescriptionForm /></ProtectedRoute>} 
           />
+
+          <Route path="/utils/delete-order" element={<ProtectedRoute><DeleteOrderUtil /></ProtectedRoute>} />
 
           {/* Catch-all Route for 404 Not Found */}
           <Route

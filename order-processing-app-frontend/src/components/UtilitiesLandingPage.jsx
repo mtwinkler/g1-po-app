@@ -44,6 +44,11 @@ function UtilitiesLandingPage() {
           <p>Manage PO descriptions for HPE Option PNs.</p>
         </Link>
 
+        <Link to="/utils/delete-order" className="utility-card">
+          <h2>Delete Local Order Data</h2>
+          <p>Remove an order and its related data from this application's database.</p>
+        </Link>
+
         {/* Placeholder for future utilities, e.g., FedEx Standalone Label Generator */}
         {/*
         <div className="utility-card" style={{opacity: 0.5, cursor: "not-allowed"}}>
