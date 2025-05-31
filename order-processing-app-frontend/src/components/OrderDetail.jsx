@@ -3,8 +3,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import './OrderDetail.css'; // Assuming this still holds common styles
 import { useAuth } from '../contexts/AuthContext';
-import DomesticOrderProcessor from './DomesticOrderProcessor'; 
-import InternationalOrderProcessor from './InternationalOrderProcessor'; 
+import DomesticOrderProcessor from './DomesticOrderProcessor';
+import InternationalOrderProcessor from './InternationalOrderProcessor';
 
 // Helper functions that might be shared or specific to OrderDetail
 const createBrokerbinLink = (partNumber) => {
@@ -21,39 +21,49 @@ const formatShippingMethod = (methodString) => {
   }
   const lowerMethod = methodString.toLowerCase().trim();
 
+  // --- FedEx Checks First ---
   if (lowerMethod.includes('fedex')) {
-    if (lowerMethod.includes('ground')) return 'FEDEX_GROUND';
-    if (lowerMethod.includes('2day') || lowerMethod.includes('2 day')) return 'FEDEX_2_DAY';
-    if (lowerMethod.includes('priority overnight')) return 'FEDEX_PRIORITY_OVERNIGHT';
-    if (lowerMethod.includes('standard overnight')) return 'FEDEX_STANDARD_OVERNIGHT';
+    if (lowerMethod.includes('ground')) return 'FedEx Ground';
+    if (lowerMethod.includes('2day') || lowerMethod.includes('2 day')) return 'FedEx 2Day';
+    if (lowerMethod.includes('priority overnight')) return 'FedEx Priority Overnight';
+    if (lowerMethod.includes('standard overnight')) return 'FedEx Standard Overnight';
   }
 
+  // --- UPS Checks ---
+  // Specific UPS Air/Domestic services
   if (lowerMethod.includes('next day air early a.m.') || lowerMethod.includes('next day air early am') || lowerMethod.includes('next day air e')) return 'UPS Next Day Air Early A.M.';
-  if (lowerMethod.includes('next day air') || lowerMethod.includes('nda')) return 'UPS Next Day Air';
+  // MODIFIED LINE: Removed '|| lowerMethod.includes('nda')'
+  if (lowerMethod.includes('next day air')) return 'UPS Next Day Air';
   if (lowerMethod.includes('2nd day air') || lowerMethod.includes('second day air')) return 'UPS 2nd Day Air';
-  if (lowerMethod.includes('ground')) return 'UPS Ground';
-  if (lowerMethod.includes('worldwide expedited')) return 'UPS Worldwide Expedited';
+  
+  // UPS International Services
+  if (lowerMethod.includes('worldwide express plus')) return 'UPS Worldwide Express Plus';
   if (lowerMethod.includes('worldwide express')) return 'UPS Worldwide Express';
+  if (lowerMethod.includes('worldwide expedited')) return 'UPS Worldwide Expedited';
   if (lowerMethod.includes('worldwide saver')) return 'UPS Worldwide Saver';
+
+  // UPS Standard (often for Canada/transborder)
+  if (lowerMethod.includes('ups standard') || lowerMethod.includes('ups standard®') || lowerMethod.includes('ups standard℠')) {
+    return 'UPS Standard';
+  }
+  if (lowerMethod.includes('standard') && lowerMethod.includes('ups') && !lowerMethod.includes('overnight')) {
+      return 'UPS Standard';
+  }
+  
+  // Domestic UPS Ground and Free Shipping
+  if (lowerMethod.includes('ground') && lowerMethod.includes('ups')) return 'UPS Ground';
+  if (lowerMethod.includes('ground') && !lowerMethod.includes('fedex')) return 'UPS Ground';
   if (lowerMethod.includes('free shipping')) return 'UPS Ground';
-  // Direct matches
-  if (lowerMethod === 'ups ground') return 'UPS Ground';
-  if (lowerMethod === 'ups 2nd day air') return 'UPS 2nd Day Air';
-  if (lowerMethod === 'ups next day air') return 'UPS Next Day Air';
-  if (lowerMethod === 'ups next day air early a.m.') return 'UPS Next Day Air Early A.M.';
-  if (lowerMethod === 'ups worldwide expedited') return 'UPS Worldwide Expedited';
-  if (lowerMethod === 'ups worldwide express') return 'UPS Worldwide Express';
-  if (lowerMethod === 'ups worldwide saver') return 'UPS Worldwide Saver';
 
-
+  // Fallback for bracketed BigCommerce methods if not caught above
   const bcMatch = methodString.match(/\(([^)]+)\)/);
   if (bcMatch && bcMatch[1]) {
     const extracted = bcMatch[1].trim();
     const innerFormatted = formatShippingMethod(extracted);
-    return innerFormatted !== 'N/A' ? innerFormatted : extracted;
+    return innerFormatted !== 'N/A' && innerFormatted.toLowerCase() !== extracted.toLowerCase() ? innerFormatted : extracted;
   }
 
-  return String(methodString).trim();
+  return String(methodString).trim() || 'N/A';
 };
 
 const ProfitDisplay = ({ info }) => {
@@ -63,7 +73,7 @@ const ProfitDisplay = ({ info }) => {
     const formatCurrency = (value) => {
         const numValue = Number(value);
         if (isNaN(numValue)) {
-            return 'N/A'; // Or some other placeholder for non-numeric values
+            return 'N/A';
         }
         return new Intl.NumberFormat('en-US', {
             style: 'currency',
@@ -100,12 +110,10 @@ function OrderDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  // Process success/error messages are now managed by child processors, 
-  // but OrderDetail might need to display a general success message after re-fetch.
   const [processSuccess, setProcessSuccess] = useState(false); 
   const [processSuccessMessage, setProcessSuccessMessage] = useState('');
-  const [processedPOsInfo, setProcessedPOsInfo] = useState([]); // May not be needed here anymore
-  const [processError, setProcessError] = useState(null); // General error from child
+  const [processedPOsInfo, setProcessedPOsInfo] = useState([]);
+  const [processError, setProcessError] = useState(null);
 
   const [statusUpdateMessage, setStatusUpdateMessage] = useState('');
   const [manualStatusUpdateInProgress, setManualStatusUpdateInProgress] = useState(false);
@@ -114,7 +122,6 @@ function OrderDetail() {
   const [lineItemSpares, setLineItemSpares] = useState({});
   const [loadingSpares, setLoadingSpares] = useState(false);
 
-  // Profit info for *already processed* orders
   const [processedOrderProfitInfo, setProcessedOrderProfitInfo] = useState({
     totalRevenue: 0,
     totalCost: 0,
@@ -132,7 +139,7 @@ function OrderDetail() {
     }
     setError(null);
     if (!isPostProcessRefresh) {
-        setProcessSuccess(false); // Reset general process success on new full fetch
+        setProcessSuccess(false);
         setProcessError(null);
     }
     setStatusUpdateMessage('');
@@ -151,7 +158,6 @@ function OrderDetail() {
           setLineItemSpares({});
         }
 
-        // Calculate profit for already processed orders
         if (fetchedOrderData?.order?.status?.toLowerCase() === 'processed' && 
             fetchedOrderData.order.hasOwnProperty('actual_cost_of_goods_sold')) {
             
@@ -345,26 +351,17 @@ function OrderDetail() {
           </div>
       )}
       
-      {/* Global Process Error Display */}
       {processError && !processSuccess && <div className="error-message" style={{ marginBottom: '10px' }}>{processError}</div>}
       
-      {/* Global Process Success Message */}
       {processSuccess && (
         <div className="process-success-container card">
           <p className="success-message-large">ORDER PROCESSED SUCCESSFULLY!</p>
-          {/* removing redundant success message
-          {processSuccessMessage && (
-            <p className="success-message-detail" style={{textAlign: 'center', marginBottom: 'var(--spacing-lg)'}}>{processSuccessMessage}</p>
-          )} 
-            */}
-          {/* Profit display for just processed orders (if not G1 onsite) */}
            {orderStatus === 'processed' && !(orderData?.order?.g1_onsite_fulfillment_mode) && processedOrderProfitInfo.isCalculable && (
              <ProfitDisplay info={processedOrderProfitInfo} />
            )}
         </div>
       )}
       
-      {/* Profit Display for ALREADY processed orders (loaded from DB) */}
       {orderStatus === 'processed' && !processSuccess && !(orderData?.order?.g1_onsite_fulfillment_mode) && processedOrderProfitInfo.isCalculable && (
         <ProfitDisplay info={processedOrderProfitInfo} />
       )}
@@ -426,21 +423,14 @@ function OrderDetail() {
       </section>
       )}
 
-      {/* Conditional Rendering of Processors */}
-{orderData && order && canDisplayProcessingForms && (
+      {orderData && order && canDisplayProcessingForms && (
         isInternationalOrder ? (
           <InternationalOrderProcessor
             orderData={orderData}
-            suppliers={suppliers} // <<< --- ADD THIS LINE
+            suppliers={suppliers}
             apiService={apiService}
-            setProcessError={setProcessError} // Pass global error setter
-            // The InternationalOrderProcessor I provided expects 'onSuccessRefresh'
-            // and internally manages its own 'processSuccess' and 'newShipmentInfo' states.
-            // It doesn't directly use setProcessSuccess or setProcessSuccessMessage from props.
+            setProcessError={setProcessError}
             onSuccessRefresh={() => fetchOrderAndSuppliers(null, true)}
-            // If you intend for InternationalOrderProcessor to also set global success messages,
-            // you would need to add setProcessSuccess and setProcessSuccessMessage to its prop definitions
-            // and call them internally. For now, it manages its own success display.
           />
         ) : (
           <DomesticOrderProcessor

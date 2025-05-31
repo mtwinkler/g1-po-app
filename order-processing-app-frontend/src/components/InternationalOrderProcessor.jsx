@@ -9,6 +9,7 @@ const SHIPPING_METHODS_OPTIONS_INTL = [
     { value: "08", label: "UPS Worldwide Expedited", carrier: "ups" },
     { value: "54", label: "UPS Worldwide Express Plus", carrier: "ups" },
     { value: "65", label: "UPS Worldwide Saver", carrier: "ups" },
+    { value: "11", label: "UPS Standard", carrier: "ups" },
 ];
 
 const mapBcShippingToIntlServiceCode = (bcShippingMethod) => {
@@ -16,14 +17,19 @@ const mapBcShippingToIntlServiceCode = (bcShippingMethod) => {
         return null;
     }
     const methodNormalized = bcShippingMethod.toLowerCase().replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ');
+
     if (methodNormalized.includes("ups worldwide express plus")) return "54";
     if (methodNormalized.includes("ups worldwide express")) return "07";
     if (methodNormalized.includes("ups worldwide expedited")) return "08";
     if (methodNormalized.includes("ups worldwide saver")) return "65";
+    if (methodNormalized.includes("ups standard")) return "11";
+
     if (methodNormalized.includes("worldwide express plus")) return "54";
     if (methodNormalized.includes("worldwide express")) return "07";
     if (methodNormalized.includes("worldwide expedited")) return "08";
     if (methodNormalized.includes("worldwide saver")) return "65";
+    if (methodNormalized.includes("standard")) return "11";
+
     console.warn(`InternationalOrderProcessor: Could not map BigCommerce shipping method "${bcShippingMethod}" (normalized: "${methodNormalized}") to a known UPS international service code.`);
     return null;
 };
@@ -105,7 +111,7 @@ function InternationalOrderProcessor({
 
   const [billToCustomerUps, setBillToCustomerUps] = useState(false);
   const [customerUpsAccountNumber, setCustomerUpsAccountNumber] = useState('');
-  const [customerUpsAccountZipCode, setCustomerUpsAccountZipCode] = useState(''); // Re-added for BillReceiver account postal code
+  const [customerUpsAccountZipCode, setCustomerUpsAccountZipCode] = useState('');
 
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [processSuccess, setProcessSuccess] = useState(false);
@@ -121,8 +127,9 @@ function InternationalOrderProcessor({
         setApiDetailsError(null);
         try {
           const details = await apiService.get(`/order/${order.id}/international-details`);
-          setInternationalApiDetails(details);
+          setInternationalApiDetails(details); // Set details first
 
+          // Initialize compliance and exemptions based on 'details'
           const initialValues = {};
           const initialExemptions = {};
           if (details?.required_compliance_fields) {
@@ -143,11 +150,65 @@ function InternationalOrderProcessor({
           setDynamicComplianceValues(initialValues);
           setExemptions(initialExemptions);
 
-          if (details?.line_items_customs_info?.[0]?.customs_description) {
-            setDescriptionOfGoods(details.line_items_customs_info[0].customs_description);
-          } else if (originalLineItems?.[0]?.name) {
-            setDescriptionOfGoods(originalLineItems[0].line_item_name || originalLineItems[0].name || '');
+          // --- Logic for Overall Shipment Description (depends on 'details' and 'originalLineItems') ---
+          let determinedShipmentDesc = "Computer Components"; // Default generic term
+          const commonSuffix = " for computers";
+          const characterLimit = 50;
+
+          if (details?.line_items_customs_info && details.line_items_customs_info.length > 0) {
+              const customsDescriptions = details.line_items_customs_info
+                  .map(item => item.customs_description && item.customs_description.trim())
+                  .filter(Boolean);
+
+              const uniqueDescriptions = [...new Set(customsDescriptions)];
+
+              if (uniqueDescriptions.length === 1) {
+                  determinedShipmentDesc = uniqueDescriptions[0];
+              } else if (uniqueDescriptions.length > 1) {
+                  const strippedDescriptions = uniqueDescriptions.map(desc => {
+                      if (desc.toLowerCase().endsWith(commonSuffix.toLowerCase())) {
+                          return desc.substring(0, desc.length - commonSuffix.length).trim();
+                      }
+                      return desc;
+                  });
+
+                  let joinedStripped = strippedDescriptions.join(', ');
+                  
+                  if ((joinedStripped + commonSuffix).length <= characterLimit) {
+                      determinedShipmentDesc = joinedStripped + commonSuffix;
+                  } else if (joinedStripped.length <= characterLimit) {
+                      determinedShipmentDesc = joinedStripped;
+                  } else {
+                      let currentDesc = "";
+                      for (let i = 0; i < strippedDescriptions.length; i++) {
+                          const nextDescPart = strippedDescriptions[i];
+                          const separator = currentDesc ? ", " : "";
+                          if ((currentDesc + separator + nextDescPart).length <= characterLimit) {
+                              currentDesc += separator + nextDescPart;
+                          } else {
+                              if (i === 0 && nextDescPart.length > characterLimit) { // First item itself is too long
+                                  currentDesc = nextDescPart.substring(0, characterLimit - 3) + "...";
+                              }
+                              break; 
+                          }
+                      }
+                      if (currentDesc) {
+                          determinedShipmentDesc = currentDesc;
+                      } else if (strippedDescriptions[0]) { 
+                           determinedShipmentDesc = strippedDescriptions[0].substring(0, characterLimit -3) + "...";
+                      }
+                      // If determinedShipmentDesc is still "Computer Components", it means the smart joining didn't produce a better result or items were too long.
+                  }
+              } else if (originalLineItems && originalLineItems.length > 0 && (originalLineItems[0].line_item_name || originalLineItems[0].name)) {
+                  determinedShipmentDesc = originalLineItems[0].line_item_name || originalLineItems[0].name;
+              }
+          } else if (originalLineItems && originalLineItems.length > 0 && (originalLineItems[0].line_item_name || originalLineItems[0].name)) {
+              determinedShipmentDesc = originalLineItems[0].line_item_name || originalLineItems[0].name;
           }
+          
+          setDescriptionOfGoods(String(determinedShipmentDesc || 'Assorted Goods').substring(0, characterLimit));
+          // --- End of Logic for Overall Shipment Description ---
+
         } catch (err) {
           const errorMsg = err.data?.message || err.message || "Failed to load detailed international order data.";
           setApiDetailsError(errorMsg);
@@ -159,11 +220,10 @@ function InternationalOrderProcessor({
     };
 
     if (order) {
-        fetchInternationalDetailsFromApi();
+        fetchInternationalDetailsFromApi(); // This will set internationalApiDetails, then the effect below will run
         setBillToCustomerUps(order.is_bill_to_customer_account || false);
         setCustomerUpsAccountNumber(order.customer_ups_account_number || '');
-        // Initialize customerUpsAccountZipCode from billing_address.zip (or order.customer_billing_zip if more direct), stripping spaces
-        const billingZip = billing_address?.zip || order.customer_billing_zip; // Prefer billing_address if available
+        const billingZip = billing_address?.zip || order.customer_billing_zip;
         setCustomerUpsAccountZipCode(billingZip ? String(billingZip).replace(/\s+/g, '') : '');
 
         let methodStringToMap = order.customer_shipping_method;
@@ -184,7 +244,9 @@ function InternationalOrderProcessor({
             setSelectedShippingService('');
         }
     }
-  }, [order?.id, apiService, order?.compliance_info, setProcessError, originalLineItems, order, billing_address?.zip]); // Added order and billing_address.zip
+  }, [order?.id, apiService, order?.compliance_info, setProcessError, originalLineItems, order, billing_address?.zip]);
+  // Note: internationalApiDetails is removed from this specific useEffect's dependency array to avoid re-running complex logic on its every change.
+  // The description logic is now inside the async function that fetches 'details'.
 
   useEffect(() => {
     const isSupplierSelectedForPO = selectedFulfillmentStrategy &&
@@ -356,7 +418,7 @@ function InternationalOrderProcessor({
     if ((packageLength && (isNaN(l) || l <= 0)) || (packageWidth && (isNaN(w) || w <= 0)) || (packageHeight && (isNaN(h) || h <= 0))) {
         if(setProcessError) setProcessError("If dimensions are entered, they must be positive numbers."); setIsProcessingOrder(false); return;
     }
-    if (billToCustomerUps && (!customerUpsAccountNumber.trim() || !customerUpsAccountZipCode.trim())) { // Check both for BillReceiver with Address
+    if (billToCustomerUps && (!customerUpsAccountNumber.trim() || !customerUpsAccountZipCode.trim())) {
         if(setProcessError) setProcessError("Recipient UPS Account Number and Account Postal Code are required for Bill Recipient.");
         setIsProcessingOrder(false);
         return;
@@ -400,12 +462,9 @@ function InternationalOrderProcessor({
 
     const shipperDetails = {
         Name: "Global One Technology", AttentionName: "Order Fulfillment",
-        TaxIdentificationNumber: internationalApiDetails.shipper_ein,
+        TaxIdentificationNumber: internationalApiDetails.shipper_ein, // Ensure internationalApiDetails is loaded
         Phone: { Number: "8774183246" },
-        Address: {
-            AddressLine: ["4916 S 184th Plaza"], City: "Omaha",
-            StateProvinceCode: "NE", PostalCode: "68135", CountryCode: "US"
-        },
+        Address: { AddressLine: ["4916 S 184th Plaza"], City: "Omaha", StateProvinceCode: "NE", PostalCode: "68135", CountryCode: "US" },
         ShipperNumber: "EW1847"
     };
 
@@ -413,40 +472,24 @@ function InternationalOrderProcessor({
     if (billToCustomerUps && customerUpsAccountNumber.trim() && customerUpsAccountZipCode.trim() && order?.customer_shipping_country_iso2) {
        console.log(`DEBUG INTL_PROCESSOR: Constructing BillReceiver with Customer UPS Account: ${customerUpsAccountNumber}, Account Postal: ${customerUpsAccountZipCode}, Account Country: ${order.customer_shipping_country_iso2}`);
        paymentInformationPayload = {
-           ShipmentCharge: {
-               Type: paymentType,
-               BillReceiver: {
-                   AccountNumber: customerUpsAccountNumber.trim(),
-                   Address: { // Address for the payer's account (recipient's account)
-                       PostalCode: customerUpsAccountZipCode.trim().replace(/\s+/g, ''), // Ensure no spaces
-                       CountryCode: order.customer_shipping_country_iso2.toUpperCase() // Country of the payer's account
-                   }
-               }
-           }
+           ShipmentCharge: { Type: paymentType, BillReceiver: { AccountNumber: customerUpsAccountNumber.trim(), Address: { PostalCode: customerUpsAccountZipCode.trim().replace(/\s+/g, ''), CountryCode: order.customer_shipping_country_iso2.toUpperCase() }}}
        };
    } else {
        console.log("DEBUG INTL_PROCESSOR: Billing to Sender UPS (G1 Technology)");
        paymentInformationPayload = {
-           ShipmentCharge: {
-               Type: paymentType,
-               BillShipper: { AccountNumber: "EW1847" }
-           }
+           ShipmentCharge: { Type: paymentType, BillShipper: { AccountNumber: "EW1847" } }
        };
    }
 
-    let shipToName = order.customer_company || `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim();
-    if (!shipToName) shipToName = "Receiver";
-    let shipToAttentionName = `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim();
-    if (!shipToAttentionName && order.customer_name) shipToAttentionName = order.customer_name;
-    if (!shipToAttentionName) shipToAttentionName = shipToName;
-    if (!shipToAttentionName) shipToAttentionName = "Receiving Dept";
+    let shipToName = order.customer_company || `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim() || "Receiver";
     shipToName = shipToName.substring(0,35);
+    let shipToAttentionName = `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim() || order.customer_name || shipToName || "Receiving Dept";
     shipToAttentionName = shipToAttentionName.substring(0,35);
     if (!shipToAttentionName) shipToAttentionName = shipToName;
 
     const finalComplianceValues = {...dynamicComplianceValues};
     Object.keys(exemptions).forEach(key => { if (exemptions[key]) finalComplianceValues[key] = 'EXEMPT'; });
-    const receiverTaxField = internationalApiDetails.required_compliance_fields?.find(f => f.id_owner === 'Receiver' && finalComplianceValues[f.field_label] && finalComplianceValues[f.field_label] !== 'EXEMPT');
+    const receiverTaxField = internationalApiDetails?.required_compliance_fields?.find(f => f.id_owner === 'Receiver' && finalComplianceValues[f.field_label] && finalComplianceValues[f.field_label] !== 'EXEMPT');
     const shipToTaxId = receiverTaxField ? finalComplianceValues[receiverTaxField.field_label] : '';
 
     let totalInvoiceMonetaryValue = 0;
@@ -461,16 +504,11 @@ function InternationalOrderProcessor({
 
     let invoiceLineTotalObject = null;
     if (totalInvoiceMonetaryValue >= 1.00) {
-        invoiceLineTotalObject = {
-            CurrencyCode: "USD",
-            MonetaryValue: totalInvoiceMonetaryValue.toFixed(2)
-        };
-    } else {
-        console.warn(`Total invoice value (${totalInvoiceMonetaryValue.toFixed(2)}) is less than 1.00. InvoiceLineTotal will not be added. This may be an issue for CA/PR shipments which require it.`);
+        invoiceLineTotalObject = { CurrencyCode: "USD", MonetaryValue: totalInvoiceMonetaryValue.toFixed(2) };
     }
 
     const shipmentObject = {
-        Description: descriptionOfGoods.substring(0, 35),
+        Description: descriptionOfGoods, // Already truncated in state
         Shipper: shipperDetails,
         ShipTo: {
             Name: shipToName, AttentionName: shipToAttentionName, TaxIdentificationNumber: shipToTaxId,
@@ -486,19 +524,20 @@ function InternationalOrderProcessor({
         Package: {
             Description: "Assorted Goods", Packaging: { Code: "02" },
             PackageWeight: { UnitOfMeasurement: { Code: "LBS" }, Weight: String(shipmentWeight) },
-            ...( (l && w && h) && { Dimensions: { UnitOfMeasurement: { Code: "IN" }, Length: String(l), Width: String(w), Height: String(h) } })
+            ...( (parseFloat(packageLength) > 0 && parseFloat(packageWidth) > 0 && parseFloat(packageHeight) > 0) && 
+               { Dimensions: { UnitOfMeasurement: { Code: "IN" }, Length: String(packageLength), Width: String(packageWidth), Height: String(packageHeight) } })
         },
         ShipmentServiceOptions: {
             InternationalForms: {
               FormType: "01", CurrencyCode: "USD",
-              Product: internationalApiDetails.line_items_customs_info.map(item => {
+              Product: internationalApiDetails?.line_items_customs_info?.map(item => {
                 const originalItemDetail = originalLineItems.find(oli => oli.line_item_id === item.original_order_line_item_id);
                 return {
                   Description: item.customs_description ? item.customs_description.substring(0, 35) : 'N/A',
                   CommodityCode: item.harmonized_tariff_code, OriginCountryCode: item.default_country_of_origin,
                   Unit: { Number: String(item.quantity), Value: String(parseFloat(originalItemDetail?.sale_price || '0.00').toFixed(2)), CurrencyCode: "USD", UnitOfMeasurement: { Code: "PCS" } },
                 };
-              }),
+              }) || [],
               InvoiceDate: new Date().toISOString().split('T')[0].replace(/-/g, ''),
               InvoiceNumber: String(order.bigcommerce_order_id || order.id), ReasonForExport: "SALE",
               Contacts: { SoldTo: {} }
@@ -510,15 +549,13 @@ function InternationalOrderProcessor({
     if (invoiceLineTotalObject) {
         if (destinationCountryUpper === 'CA' || destinationCountryUpper === 'PR') {
             shipmentObject.InvoiceLineTotal = invoiceLineTotalObject;
-            console.log("DEBUG INTL_PROCESSOR: Added InvoiceLineTotal directly to Shipment object for CA/PR:", invoiceLineTotalObject);
         } else {
             if (shipmentObject.ShipmentServiceOptions && shipmentObject.ShipmentServiceOptions.InternationalForms) {
                 shipmentObject.ShipmentServiceOptions.InternationalForms.InvoiceLineTotal = invoiceLineTotalObject;
-                console.log("DEBUG INTL_PROCESSOR: Added InvoiceLineTotal to InternationalForms for other destination:", invoiceLineTotalObject);
             }
         }
     } else if (destinationCountryUpper === 'CA' || destinationCountryUpper === 'PR') {
-        console.error(`ERROR INTL_PROCESSOR: InvoiceLineTotal is required for ${destinationCountryUpper} but calculated monetary value (${totalInvoiceMonetaryValue.toFixed(2)}) was less than 1.00. UPS API request may fail.`);
+        console.error(`ERROR INTL_PROCESSOR: InvoiceLineTotal is required for ${destinationCountryUpper} but value was < 1.00.`);
     }
 
     const shipmentRequestPayload = {
@@ -528,41 +565,27 @@ function InternationalOrderProcessor({
         LabelSpecification: { LabelImageFormat: { Code: "GIF" } }
       }
     };
-
+    
     const currentBillingAddress = billing_address || {};
-    let finalSoldToName = currentBillingAddress.company;
-    if (!finalSoldToName) finalSoldToName = (`${currentBillingAddress.first_name || ''} ${currentBillingAddress.last_name || ''}`).trim();
-    if (!finalSoldToName) finalSoldToName = order.customer_name;
-    if (!finalSoldToName) finalSoldToName = order.customer_company;
-    if (!finalSoldToName) finalSoldToName = "Customer";
-    let finalSoldToAttentionName = order.customer_name;
-    if (!finalSoldToAttentionName && finalSoldToName) finalSoldToAttentionName = finalSoldToName;
-    if (!finalSoldToAttentionName) finalSoldToAttentionName = "Customer Contact";
+    let finalSoldToName = currentBillingAddress.company || (`${currentBillingAddress.first_name || ''} ${currentBillingAddress.last_name || ''}`).trim() || order.customer_name || order.customer_company || "Customer";
+    let finalSoldToAttentionName = order.customer_name || finalSoldToName || "Customer Contact";
     finalSoldToName = finalSoldToName.substring(0, 35);
-    if (!finalSoldToName) finalSoldToName = "Customer";
     finalSoldToAttentionName = finalSoldToAttentionName.substring(0, 35);
-    if (!finalSoldToAttentionName) finalSoldToAttentionName = finalSoldToName;
     const soldToPhone = (currentBillingAddress.phone ? String(currentBillingAddress.phone).replace(/\D/g, '') : '') || (order.customer_phone ? String(order.customer_phone).replace(/\D/g, '') : undefined);
+
     shipmentRequestPayload.ShipmentRequest.Shipment.ShipmentServiceOptions.InternationalForms.Contacts.SoldTo = {
         Name: finalSoldToName, AttentionName: finalSoldToAttentionName, Phone: { Number: soldToPhone },
         Address: {
-            AddressLine: [currentBillingAddress.street_1, currentBillingAddress.street_2].filter(Boolean).length > 0 ? [currentBillingAddress.street_1, currentBillingAddress.street_2].filter(Boolean) : shipmentRequestPayload.ShipmentRequest.Shipment.ShipTo.Address.AddressLine,
-            City: currentBillingAddress.city || shipmentRequestPayload.ShipmentRequest.Shipment.ShipTo.Address.City,
+            AddressLine: [currentBillingAddress.street_1, currentBillingAddress.street_2].filter(Boolean).length > 0 ? [currentBillingAddress.street_1, currentBillingAddress.street_2].filter(Boolean) : shipmentObject.ShipTo.Address.AddressLine,
+            City: currentBillingAddress.city || shipmentObject.ShipTo.Address.City,
             ...( ( (currentBillingAddress.country_iso2 || order.customer_shipping_country_iso2)?.toUpperCase() === 'US' || (currentBillingAddress.country_iso2 || order.customer_shipping_country_iso2)?.toUpperCase() === 'CA') && (currentBillingAddress.state || order.customer_shipping_state) && { StateProvinceCode: currentBillingAddress.state || order.customer_shipping_state }),
-            PostalCode: currentBillingAddress.zip || shipmentRequestPayload.ShipmentRequest.Shipment.ShipTo.Address.PostalCode,
-            CountryCode: currentBillingAddress.country_iso2 || shipmentRequestPayload.ShipmentRequest.Shipment.ShipTo.Address.CountryCode,
+            PostalCode: currentBillingAddress.zip || shipmentObject.ShipTo.Address.PostalCode,
+            CountryCode: currentBillingAddress.country_iso2 || shipmentObject.ShipTo.Address.CountryCode,
         }
     };
 
-    const finalShipmentDataPayload = {
-        ...shipmentRequestPayload,
-        is_blind_drop_ship: isBlindDropShip
-    };
-
-    const finalCombinedPayload = {
-        po_data: poDataPayload,
-        shipment_data: finalShipmentDataPayload,
-    };
+    const finalShipmentDataPayload = { ...shipmentRequestPayload, is_blind_drop_ship: isBlindDropShip };
+    const finalCombinedPayload = { po_data: poDataPayload, shipment_data: finalShipmentDataPayload };
 
     try {
         console.log("SENDING COMBINED PAYLOAD TO BACKEND:", JSON.stringify(finalCombinedPayload, null, 2));
@@ -577,8 +600,7 @@ function InternationalOrderProcessor({
     }
     finally { setIsProcessingOrder(false); }
   };
-
-
+  
   if (!order) return <p className="loading-message">Loading order data...</p>;
   if (loadingApiDetails && !internationalApiDetails) return <p className="loading-message">Loading international shipping details...</p>;
   if (apiDetailsError && !loadingApiDetails) {
@@ -701,7 +723,7 @@ function InternationalOrderProcessor({
           <h4>Final International Shipment Details (Common to all modes)</h4>
           <div className="form-grid">
               <label htmlFor="shipmentDescription">Overall Shipment Description*:</label>
-              <input type="text" id="shipmentDescription" value={descriptionOfGoods} onChange={(e) => setDescriptionOfGoods(e.target.value)} placeholder="e.g., Computer Parts" required disabled={disableFormFields}/>
+              <input type="text" id="shipmentDescription" value={descriptionOfGoods} onChange={(e) => setDescriptionOfGoods(e.target.value.substring(0,50))} placeholder="e.g., Computer Parts" required disabled={disableFormFields} maxLength={50}/>
               <label htmlFor="intlShipmentWeight">Total Shipment Weight (lbs)*:</label>
               <input type="number" id="intlShipmentWeight" placeholder="e.g., 10.5" step="0.1" min="0.1" value={shipmentWeight} onChange={(e) => setShipmentWeight(e.target.value)} required disabled={disableFormFields}/>
               <label htmlFor="intlPackageLength">Package Length (in):</label>
