@@ -453,6 +453,10 @@ def process_international_dropship_route(order_id):
                     logging.info(f"INTL_DROPSHIP_ROUTE: Local order {order_id} status already set to 'Processed' for PO flow.")
                 
                 # BigCommerce Updates (common for both PO and G1 Onsite International)
+                # Always update to "Processed" if this route completes successfully
+                logging.info(f"INTL_DROPSHIP_ROUTE: Updating local order {order_id} status to 'Processed'.")
+                db_connection.execute(text("UPDATE orders SET status = 'Processed', updated_at = :now WHERE id = :order_id"), {"now": current_utc_datetime, "order_id": order_id})
+
                 if bc_order_id_for_paths and tracking_number:
                     bc_address_id = _get_bc_shipping_address_id(bc_order_id_for_paths)
                     # bc_line_items_for_shipment_api was populated either in PO block or G1 Onsite block

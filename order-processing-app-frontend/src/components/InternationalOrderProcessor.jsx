@@ -639,9 +639,9 @@ function InternationalOrderProcessor({
                   {newShipmentInfo.poNumber && <p><strong>PO Number:</strong> {newShipmentInfo.poNumber}</p>}
                   {newShipmentInfo.trackingNumber && <p><strong>Tracking Number:</strong> {newShipmentInfo.trackingNumber}</p>}
                   
-                  {newShipmentInfo.poPdfUrl && ( <p><a href={newShipmentInfo.poPdfUrl} target="_blank" rel="noopener noreferrer" className="btn btn-link">View/Download PO PDF</a></p> )}
+                  {/* {newShipmentInfo.poPdfUrl && ( <p><a href={newShipmentInfo.poPdfUrl} target="_blank" rel="noopener noreferrer" className="btn btn-link">View/Download PO PDF</a></p> )}
                   {newShipmentInfo.packingSlipPdfUrl && ( <p><a href={newShipmentInfo.packingSlipPdfUrl} target="_blank" rel="noopener noreferrer" className="btn btn-link">View/Download Packing Slip PDF</a></p> )}
-                  {newShipmentInfo.labelUrl && ( <p><a href={newShipmentInfo.labelUrl} target="_blank" rel="noopener noreferrer" className="btn btn-link">View/Download Shipping Label PDF</a></p> )}
+                  {newShipmentInfo.labelUrl && ( <p><a href={newShipmentInfo.labelUrl} target="_blank" rel="noopener noreferrer" className="btn btn-link">View/Download Shipping Label PDF</a></p> )} */}
               </div>
           ) : (
               <button type="button" className="process-order-button" onClick={handleProcessCombinedOrder}
