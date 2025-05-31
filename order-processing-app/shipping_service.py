@@ -503,34 +503,82 @@ def generate_ups_international_shipment(shipment_payload_from_frontend):
                Returns (None, tracking_number) if tracking is found but the label processing fails.
     """
     print("DEBUG UPS_INTL_SHIPMENT: Initiating international shipment generation.")
-    
+
     access_token = get_ups_oauth_token()
     if not access_token:
         print("ERROR UPS_INTL_SHIPMENT: Failed to get UPS OAuth token.")
         return None, None
 
+    # Make a deep copy if you need to modify the original shipment_payload_from_frontend
+    # elsewhere, though for this function, modifying it directly is usually fine.
     payload = shipment_payload_from_frontend
-    if 'ShipmentRequest' not in payload:
-        print(f"ERROR UPS_INTL_SHIPMENT: The provided payload is missing the required 'ShipmentRequest' root object.")
+
+    if 'ShipmentRequest' not in payload or 'Shipment' not in payload.get('ShipmentRequest', {}):
+        print(f"ERROR UPS_INTL_SHIPMENT: The provided payload is missing 'ShipmentRequest' or 'ShipmentRequest.Shipment'.")
         return None, None
+
+    # --- START STATE/PROVINCE CODE TRANSFORMATION ---
+    # Modify StateProvinceCode for ShipTo address if US or CA
+    try:
+        ship_to_address_container = payload.get('ShipmentRequest', {}).get('Shipment', {}).get('ShipTo', {})
+        if ship_to_address_container and 'Address' in ship_to_address_container:
+            ship_to_address = ship_to_address_container['Address']
+            ship_to_country_code = ship_to_address.get('CountryCode', '').upper()
+            ship_to_state_input = ship_to_address.get('StateProvinceCode')
+
+            if ship_to_country_code == 'CA' and ship_to_state_input: # Specifically for Canada, or use `in ['US', 'CA']` if US also needs it
+                print(f"DEBUG UPS_INTL_SHIPMENT (ShipTo): Original StateProvinceCode: '{ship_to_state_input}' for Country: '{ship_to_country_code}'")
+                processed_ship_to_state = _get_processed_state_code(ship_to_state_input, ship_to_country_code, "ShipTo")
+                if processed_ship_to_state: # _get_processed_state_code returns "" for non-US/CA or mapped code
+                    payload['ShipmentRequest']['Shipment']['ShipTo']['Address']['StateProvinceCode'] = processed_ship_to_state
+                    print(f"DEBUG UPS_INTL_SHIPMENT (ShipTo): Processed StateProvinceCode: '{processed_ship_to_state}'")
+                elif processed_ship_to_state is None: # Mapping error specifically for US/CA
+                     print(f"ERROR UPS_INTL_SHIPMENT (ShipTo): State processing failed for '{ship_to_state_input}', '{ship_to_country_code}'. Value not updated.")
+    except Exception as e_shipto_state:
+        print(f"WARN UPS_INTL_SHIPMENT: Could not process ShipTo StateProvinceCode: {e_shipto_state}")
+
+    # Modify StateProvinceCode for SoldTo address (within InternationalForms) if US or CA
+    try:
+        international_forms = payload.get('ShipmentRequest', {}).get('Shipment', {}).get('ShipmentServiceOptions', {}).get('InternationalForms', {})
+        if international_forms and 'Contacts' in international_forms and 'SoldTo' in international_forms['Contacts']:
+            sold_to_address_container = international_forms['Contacts']['SoldTo']
+            if sold_to_address_container and 'Address' in sold_to_address_container:
+                sold_to_address = sold_to_address_container['Address']
+                sold_to_country_code = sold_to_address.get('CountryCode', '').upper()
+                sold_to_state_input = sold_to_address.get('StateProvinceCode')
+
+                if sold_to_country_code == 'CA' and sold_to_state_input: # Specifically for Canada
+                    print(f"DEBUG UPS_INTL_SHIPMENT (SoldTo): Original StateProvinceCode: '{sold_to_state_input}' for Country: '{sold_to_country_code}'")
+                    processed_sold_to_state = _get_processed_state_code(sold_to_state_input, sold_to_country_code, "SoldTo")
+                    if processed_sold_to_state:
+                        payload['ShipmentRequest']['Shipment']['ShipmentServiceOptions']['InternationalForms']['Contacts']['SoldTo']['Address']['StateProvinceCode'] = processed_sold_to_state
+                        print(f"DEBUG UPS_INTL_SHIPMENT (SoldTo): Processed StateProvinceCode: '{processed_sold_to_state}'")
+                    elif processed_sold_to_state is None:
+                         print(f"ERROR UPS_INTL_SHIPMENT (SoldTo): State processing failed for '{sold_to_state_input}', '{sold_to_country_code}'. Value not updated.")
+    except Exception as e_soldto_state:
+        print(f"WARN UPS_INTL_SHIPMENT: Could not process SoldTo StateProvinceCode: {e_soldto_state}")
+
+    # Note: The Shipper address is typically your fixed US address, so transformation is unlikely needed there.
+    # If it could be Canadian and come from a dynamic source, you'd add similar logic for:
+    # payload['ShipmentRequest']['Shipment']['Shipper']['Address']
+    # --- END STATE/PROVINCE CODE TRANSFORMATION ---
 
     customer_context = payload.get('ShipmentRequest', {}).get('Request', {}).get('TransactionReference', {}).get('CustomerContext', 'UnknownOrder')
     unique_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
-    
+
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "transId": f"{customer_context}_{unique_ts}",
-        "transactionSrc": "G1POApp_v15_UPSIntl" # Consider making this more dynamic if needed
+        "transId": f"{customer_context}_{unique_ts}", # Ensure this is unique per request
+        "transactionSrc": "G1POApp_v15_UPSIntl"
     }
 
-    # Determine the requested label format from the payload to decide if conversion is needed
-    requested_label_format_code = payload.get('LabelSpecification', {}).get('LabelImageFormat', {}).get('Code', 'GIF').upper()
+    requested_label_format_code = payload.get('ShipmentRequest', {}).get('LabelSpecification', {}).get('LabelImageFormat', {}).get('Code', 'GIF').upper()
     print(f"DEBUG UPS_INTL_SHIPMENT: Requested label format from payload: {requested_label_format_code}")
 
-    print(f"DEBUG UPS_INTL_SHIPMENT: Sending payload to {UPS_SHIPPING_API_ENDPOINT}")
-    print(f"DEBUG UPS_INTL_SHIPMENT: EXACT PAYLOAD BEING SENT TO UPS API:\n{json.dumps(payload, indent=2)}")
+    # Log the payload *after* potential modifications
+    print(f"DEBUG UPS_INTL_SHIPMENT: EXACT PAYLOAD BEING SENT TO UPS API (after state/province conversion):\n{json.dumps(payload, indent=2)}")
 
     try:
         response = requests.post(UPS_SHIPPING_API_ENDPOINT, headers=headers, json=payload)
