@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 
 const MULTI_SUPPLIER_MODE_VALUE = "_MULTI_SUPPLIER_MODE_";
-// Define a specific value for G1 Onsite if you want to differentiate it from just an empty supplier selection
 const G1_ONSITE_INTERNATIONAL_VALUE = "_G1_ONSITE_INTL_";
 
 const SHIPPING_METHODS_OPTIONS_INTL = [
@@ -12,7 +11,23 @@ const SHIPPING_METHODS_OPTIONS_INTL = [
     { value: "65", label: "UPS Worldwide Saver", carrier: "ups" },
 ];
 
-// ProfitDisplay Component (from DomesticOrderProcessor)
+const mapBcShippingToIntlServiceCode = (bcShippingMethod) => {
+    if (!bcShippingMethod || typeof bcShippingMethod !== 'string') {
+        return null;
+    }
+    const methodNormalized = bcShippingMethod.toLowerCase().replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ');
+    if (methodNormalized.includes("ups worldwide express plus")) return "54";
+    if (methodNormalized.includes("ups worldwide express")) return "07";
+    if (methodNormalized.includes("ups worldwide expedited")) return "08";
+    if (methodNormalized.includes("ups worldwide saver")) return "65";
+    if (methodNormalized.includes("worldwide express plus")) return "54";
+    if (methodNormalized.includes("worldwide express")) return "07";
+    if (methodNormalized.includes("worldwide expedited")) return "08";
+    if (methodNormalized.includes("worldwide saver")) return "65";
+    console.warn(`InternationalOrderProcessor: Could not map BigCommerce shipping method "${bcShippingMethod}" (normalized: "${methodNormalized}") to a known UPS international service code.`);
+    return null;
+};
+
 const ProfitDisplay = ({ info }) => {
     if (!info || !info.isCalculable) { return null; }
     const formatCurrency = (value) => {
@@ -38,7 +53,6 @@ const ProfitDisplay = ({ info }) => {
     );
 };
 
-// Debounce Hook (from DomesticOrderProcessor)
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -48,7 +62,6 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
-// RegExp Escape (from DomesticOrderProcessor)
 function escapeRegExp(string) {
   if (typeof string !== 'string') return '';
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -73,7 +86,6 @@ function InternationalOrderProcessor({
   const [dynamicComplianceValues, setDynamicComplianceValues] = useState({});
   const [exemptions, setExemptions] = useState({});
 
-  // Default to an empty string, meaning no strategy selected initially
   const [selectedFulfillmentStrategy, setSelectedFulfillmentStrategy] = useState('');
   const [purchaseItems, setPurchaseItems] = useState([]);
   const [singleOrderPoNotes, setSingleOrderPoNotes] = useState('');
@@ -87,14 +99,13 @@ function InternationalOrderProcessor({
   const [packageLength, setPackageLength] = useState('');
   const [packageWidth, setPackageWidth] = useState('');
   const [packageHeight, setPackageHeight] = useState('');
-  const [selectedShippingService, setSelectedShippingService] = useState(SHIPPING_METHODS_OPTIONS_INTL[0]?.value || '');
+  const [selectedShippingService, setSelectedShippingService] = useState('');
   const [descriptionOfGoods, setDescriptionOfGoods] = useState('');
   const [paymentType, setPaymentType] = useState('01');
 
-  // New state for UPS third-party billing
   const [billToCustomerUps, setBillToCustomerUps] = useState(false);
   const [customerUpsAccountNumber, setCustomerUpsAccountNumber] = useState('');
-  const [customerUpsAccountZipCode, setCustomerUpsAccountZipCode] = useState('');
+  const [customerUpsAccountZipCode, setCustomerUpsAccountZipCode] = useState(''); // Re-added for BillReceiver account postal code
 
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [processSuccess, setProcessSuccess] = useState(false);
@@ -103,7 +114,6 @@ function InternationalOrderProcessor({
       poPdfUrl: null, packingSlipPdfUrl: null
   });
 
-  // --- Effect to fetch International Details ---
   useEffect(() => {
     const fetchInternationalDetailsFromApi = async () => {
       if (order?.id && apiService) {
@@ -135,30 +145,48 @@ function InternationalOrderProcessor({
 
           if (details?.line_items_customs_info?.[0]?.customs_description) {
             setDescriptionOfGoods(details.line_items_customs_info[0].customs_description);
-          } else if (originalLineItems?.[0]?.name) { // originalLineItems[0].name might be line_item_name
+          } else if (originalLineItems?.[0]?.name) {
             setDescriptionOfGoods(originalLineItems[0].line_item_name || originalLineItems[0].name || '');
           }
         } catch (err) {
           const errorMsg = err.data?.message || err.message || "Failed to load detailed international order data.";
           setApiDetailsError(errorMsg);
-          if (setProcessError) setProcessError(errorMsg); // Update global error
+          if (setProcessError) setProcessError(errorMsg);
         } finally {
           setLoadingApiDetails(false);
         }
       }
     };
-    fetchInternationalDetailsFromApi();
-    if (order) {
-       // Initialize UPS billing states from order data
-       setBillToCustomerUps(order.is_bill_to_customer_account || false); // Assuming is_bill_to_customer_account is for UPS
-       setCustomerUpsAccountNumber(order.customer_ups_account_number || '');
-       setCustomerUpsAccountZipCode(order.customer_ups_account_zipcode || '');
-    }
-  }, [order?.id, apiService, order?.compliance_info, setProcessError, originalLineItems, order]);
 
-  // --- Effect to initialize PO form based on selectedFulfillmentStrategy ---
+    if (order) {
+        fetchInternationalDetailsFromApi();
+        setBillToCustomerUps(order.is_bill_to_customer_account || false);
+        setCustomerUpsAccountNumber(order.customer_ups_account_number || '');
+        // Initialize customerUpsAccountZipCode from billing_address.zip (or order.customer_billing_zip if more direct), stripping spaces
+        const billingZip = billing_address?.zip || order.customer_billing_zip; // Prefer billing_address if available
+        setCustomerUpsAccountZipCode(billingZip ? String(billingZip).replace(/\s+/g, '') : '');
+
+        let methodStringToMap = order.customer_shipping_method;
+        if (order.is_bill_to_customer_account && order.customer_selected_freight_service) {
+            methodStringToMap = order.customer_selected_freight_service;
+        }
+        console.log("InternationalOrderProcessor: Attempting to map shipping string:", methodStringToMap);
+        const mappedServiceCode = mapBcShippingToIntlServiceCode(methodStringToMap);
+        console.log("InternationalOrderProcessor: Mapped service code:", mappedServiceCode);
+        if (mappedServiceCode) {
+            setSelectedShippingService(mappedServiceCode);
+        } else if (SHIPPING_METHODS_OPTIONS_INTL.length > 0) {
+            setSelectedShippingService(SHIPPING_METHODS_OPTIONS_INTL[0].value);
+            if (methodStringToMap) {
+                 console.warn(`InternationalOrderProcessor: Could not map shipping method "${methodStringToMap}" to a service code. Defaulting to ${SHIPPING_METHODS_OPTIONS_INTL[0].label}.`);
+            }
+        } else {
+            setSelectedShippingService('');
+        }
+    }
+  }, [order?.id, apiService, order?.compliance_info, setProcessError, originalLineItems, order, billing_address?.zip]); // Added order and billing_address.zip
+
   useEffect(() => {
-    // Check if a supplier ID is selected (i.e., it's a number, not G1_ONSITE_INTERNATIONAL_VALUE or empty)
     const isSupplierSelectedForPO = selectedFulfillmentStrategy &&
                                     selectedFulfillmentStrategy !== "" &&
                                     selectedFulfillmentStrategy !== G1_ONSITE_INTERNATIONAL_VALUE &&
@@ -189,10 +217,8 @@ function InternationalOrderProcessor({
     }
   }, [originalLineItems, selectedFulfillmentStrategy, suppliers, cleanPullSuffix]);
 
-  // --- Effect for SKU description lookup ---
   useEffect(() => {
     if (!apiService || !debouncedSku || skuToLookup.index === -1) return;
-    // Only lookup if a supplier PO is being drafted
     const isSupplierSelectedForPO = selectedFulfillmentStrategy &&
                                     selectedFulfillmentStrategy !== "" &&
                                     selectedFulfillmentStrategy !== G1_ONSITE_INTERNATIONAL_VALUE &&
@@ -229,7 +255,6 @@ function InternationalOrderProcessor({
     return () => abortController.abort();
   }, [debouncedSku, skuToLookup.index, cleanPullSuffix, apiService, selectedFulfillmentStrategy]);
 
-  // --- Effect to calculate Profitability ---
   useEffect(() => {
     if (!orderData || !originalLineItems) {
         if (profitInfo.isCalculable) setProfitInfo({ isCalculable: false });
@@ -244,7 +269,7 @@ function InternationalOrderProcessor({
                                  selectedFulfillmentStrategy !== G1_ONSITE_INTERNATIONAL_VALUE &&
                                  !isNaN(parseInt(selectedFulfillmentStrategy, 10));
 
-    if (isSupplierPOSelected) { // PO to a supplier
+    if (isSupplierPOSelected) {
         if (purchaseItems.length > 0) {
             const allCostsEntered = purchaseItems.every(item => item.unit_cost !== undefined && item.unit_cost !== '' && !isNaN(parseFloat(item.unit_cost)));
             if (allCostsEntered) {
@@ -255,16 +280,11 @@ function InternationalOrderProcessor({
             isCalculable = true; cost = 0;
         }
     } else if (selectedFulfillmentStrategy === G1_ONSITE_INTERNATIONAL_VALUE) {
-        // G1 Onsite International: Cost is not determined by this form (no PO costs here)
-        // Profitability analysis might not be relevant here or based on different cost factors.
-        // For now, we set cost to 0 and make it calculable if there's revenue.
         cost = 0;
-        isCalculable = originalLineItems.length > 0 || revenue > 0; // Calculable if there are items or revenue
+        isCalculable = originalLineItems.length > 0 || revenue > 0;
     } else {
-        // No strategy selected, or an invalid one.
         isCalculable = false;
     }
-
 
     if (isCalculable) {
         const profit = revenue - cost;
@@ -276,7 +296,6 @@ function InternationalOrderProcessor({
   }, [orderData, originalLineItems, purchaseItems, selectedFulfillmentStrategy, profitInfo.isCalculable]);
 
 
-  // --- Handlers ---
   const handleFulfillmentStrategyChange = (e) => {
     const value = e.target.value;
     setSelectedFulfillmentStrategy(value);
@@ -327,7 +346,6 @@ function InternationalOrderProcessor({
 
     let poDataPayload = null;
 
-    // Common validations
     if (!internationalApiDetails || !order || !originalLineItems) { if(setProcessError) setProcessError("International details or order data not loaded."); setIsProcessingOrder(false); return; }
     if (!shipmentWeight || parseFloat(shipmentWeight) <= 0) { if(setProcessError) setProcessError("Shipment weight must be a positive number."); setIsProcessingOrder(false); return; }
     if (!selectedShippingService) { if(setProcessError) setProcessError("Please select an international shipping service."); setIsProcessingOrder(false); return; }
@@ -338,12 +356,11 @@ function InternationalOrderProcessor({
     if ((packageLength && (isNaN(l) || l <= 0)) || (packageWidth && (isNaN(w) || w <= 0)) || (packageHeight && (isNaN(h) || h <= 0))) {
         if(setProcessError) setProcessError("If dimensions are entered, they must be positive numbers."); setIsProcessingOrder(false); return;
     }
-    if (billToCustomerUps && (!customerUpsAccountNumber.trim() || !customerUpsAccountZipCode.trim())) {
-        if(setProcessError) setProcessError("Customer UPS Account Number and Account ZIP Code are required for third-party billing.");
+    if (billToCustomerUps && (!customerUpsAccountNumber.trim() || !customerUpsAccountZipCode.trim())) { // Check both for BillReceiver with Address
+        if(setProcessError) setProcessError("Recipient UPS Account Number and Account Postal Code are required for Bill Recipient.");
         setIsProcessingOrder(false);
         return;
     }
-
 
     const isSupplierPOSelected = selectedFulfillmentStrategy &&
                                  selectedFulfillmentStrategy !== "" &&
@@ -380,48 +397,42 @@ function InternationalOrderProcessor({
             };
         } else if (originalLineItems.length > 0 && finalPoLineItems.length === 0) { if(setProcessError) setProcessError("Cannot create an empty PO when original order has items."); setIsProcessingOrder(false); return; }
     }
-    // If selectedFulfillmentStrategy is G1_ONSITE_INTERNATIONAL_VALUE or empty, poDataPayload remains null.
 
     const shipperDetails = {
         Name: "Global One Technology", AttentionName: "Order Fulfillment",
-        // ShipperNumber will be set based on billing type below
         TaxIdentificationNumber: internationalApiDetails.shipper_ein,
         Phone: { Number: "8774183246" },
         Address: {
             AddressLine: ["4916 S 184th Plaza"], City: "Omaha",
             StateProvinceCode: "NE", PostalCode: "68135", CountryCode: "US"
-        }
+        },
+        ShipperNumber: "EW1847"
     };
 
     let paymentInformationPayload;
-    if (billToCustomerUps && customerUpsAccountNumber && customerUpsAccountZipCode && order?.customer_shipping_country_iso2) {
-       console.log(`DEBUG INTL_PROCESSOR: Billing to Customer UPS: ${customerUpsAccountNumber}, Zip: ${customerUpsAccountZipCode}, Country: ${order.customer_shipping_country_iso2}`);
+    if (billToCustomerUps && customerUpsAccountNumber.trim() && customerUpsAccountZipCode.trim() && order?.customer_shipping_country_iso2) {
+       console.log(`DEBUG INTL_PROCESSOR: Constructing BillReceiver with Customer UPS Account: ${customerUpsAccountNumber}, Account Postal: ${customerUpsAccountZipCode}, Account Country: ${order.customer_shipping_country_iso2}`);
        paymentInformationPayload = {
            ShipmentCharge: {
-               Type: paymentType, // "01" for transportation
-               BillThirdParty: {
+               Type: paymentType,
+               BillReceiver: {
                    AccountNumber: customerUpsAccountNumber.trim(),
-                   Address: {
-                       PostalCode: customerUpsAccountZipCode.trim(),
-                       CountryCode: order.customer_shipping_country_iso2.toUpperCase()
+                   Address: { // Address for the payer's account (recipient's account)
+                       PostalCode: customerUpsAccountZipCode.trim().replace(/\s+/g, ''), // Ensure no spaces
+                       CountryCode: order.customer_shipping_country_iso2.toUpperCase() // Country of the payer's account
                    }
                }
            }
        };
-       shipperDetails.ShipperNumber = "EW1847"; // G1's UPS Account Number for Shipper block
    } else {
        console.log("DEBUG INTL_PROCESSOR: Billing to Sender UPS (G1 Technology)");
        paymentInformationPayload = {
            ShipmentCharge: {
                Type: paymentType,
-               BillShipper: {
-                   AccountNumber: "EW1847" // G1's UPS Account Number
-               }
+               BillShipper: { AccountNumber: "EW1847" }
            }
        };
-       shipperDetails.ShipperNumber = "EW1847"; // G1's UPS Account Number for Shipper block
    }
-
 
     let shipToName = order.customer_company || `${order.customer_shipping_first_name || ''} ${order.customer_shipping_last_name || ''}`.trim();
     if (!shipToName) shipToName = "Receiver";
@@ -438,29 +449,46 @@ function InternationalOrderProcessor({
     const receiverTaxField = internationalApiDetails.required_compliance_fields?.find(f => f.id_owner === 'Receiver' && finalComplianceValues[f.field_label] && finalComplianceValues[f.field_label] !== 'EXEMPT');
     const shipToTaxId = receiverTaxField ? finalComplianceValues[receiverTaxField.field_label] : '';
 
-    const shipmentRequestPayload = {
-      ShipmentRequest: {
-        Request: { RequestOption: "nonvalidate", TransactionReference: { CustomerContext: `Order-${order.bigcommerce_order_id || order.id}` } },
-        Shipment: {
-          Description: descriptionOfGoods.substring(0, 35),
-          Shipper: shipperDetails,
-          ShipTo: {
+    let totalInvoiceMonetaryValue = 0;
+    if (originalLineItems && originalLineItems.length > 0) {
+        totalInvoiceMonetaryValue = originalLineItems.reduce((sum, item) => {
+            const price = parseFloat(item.sale_price || 0);
+            const quantity = parseInt(item.quantity || 0, 10);
+            return sum + (price * quantity);
+        }, 0);
+    }
+    totalInvoiceMonetaryValue = parseFloat(totalInvoiceMonetaryValue.toFixed(2));
+
+    let invoiceLineTotalObject = null;
+    if (totalInvoiceMonetaryValue >= 1.00) {
+        invoiceLineTotalObject = {
+            CurrencyCode: "USD",
+            MonetaryValue: totalInvoiceMonetaryValue.toFixed(2)
+        };
+    } else {
+        console.warn(`Total invoice value (${totalInvoiceMonetaryValue.toFixed(2)}) is less than 1.00. InvoiceLineTotal will not be added. This may be an issue for CA/PR shipments which require it.`);
+    }
+
+    const shipmentObject = {
+        Description: descriptionOfGoods.substring(0, 35),
+        Shipper: shipperDetails,
+        ShipTo: {
             Name: shipToName, AttentionName: shipToAttentionName, TaxIdentificationNumber: shipToTaxId,
             Phone: { Number: order.customer_phone ? String(order.customer_phone).replace(/\D/g, '') : undefined },
             Address: {
               AddressLine: [order.customer_shipping_address_line1, order.customer_shipping_address_line2].filter(Boolean),
               City: order.customer_shipping_city, PostalCode: order.customer_shipping_zip, CountryCode: order.customer_shipping_country_iso2,
-              ...(order.customer_shipping_country_iso2 !== 'DE' && order.customer_shipping_state && { StateProvinceCode: order.customer_shipping_state })
+              ...( (order.customer_shipping_country_iso2?.toUpperCase() === 'US' || order.customer_shipping_country_iso2?.toUpperCase() === 'CA') && order.customer_shipping_state && { StateProvinceCode: order.customer_shipping_state })
             }
-          },
-          PaymentInformation: paymentInformationPayload,
-          Service: { Code: selectedShippingService },
-          Package: {
+        },
+        PaymentInformation: paymentInformationPayload,
+        Service: { Code: selectedShippingService },
+        Package: {
             Description: "Assorted Goods", Packaging: { Code: "02" },
             PackageWeight: { UnitOfMeasurement: { Code: "LBS" }, Weight: String(shipmentWeight) },
             ...( (l && w && h) && { Dimensions: { UnitOfMeasurement: { Code: "IN" }, Length: String(l), Width: String(w), Height: String(h) } })
-          },
-          ShipmentServiceOptions: {
+        },
+        ShipmentServiceOptions: {
             InternationalForms: {
               FormType: "01", CurrencyCode: "USD",
               Product: internationalApiDetails.line_items_customs_info.map(item => {
@@ -475,8 +503,28 @@ function InternationalOrderProcessor({
               InvoiceNumber: String(order.bigcommerce_order_id || order.id), ReasonForExport: "SALE",
               Contacts: { SoldTo: {} }
             }
-          }
-        },
+        }
+    };
+
+    const destinationCountryUpper = order?.customer_shipping_country_iso2?.toUpperCase();
+    if (invoiceLineTotalObject) {
+        if (destinationCountryUpper === 'CA' || destinationCountryUpper === 'PR') {
+            shipmentObject.InvoiceLineTotal = invoiceLineTotalObject;
+            console.log("DEBUG INTL_PROCESSOR: Added InvoiceLineTotal directly to Shipment object for CA/PR:", invoiceLineTotalObject);
+        } else {
+            if (shipmentObject.ShipmentServiceOptions && shipmentObject.ShipmentServiceOptions.InternationalForms) {
+                shipmentObject.ShipmentServiceOptions.InternationalForms.InvoiceLineTotal = invoiceLineTotalObject;
+                console.log("DEBUG INTL_PROCESSOR: Added InvoiceLineTotal to InternationalForms for other destination:", invoiceLineTotalObject);
+            }
+        }
+    } else if (destinationCountryUpper === 'CA' || destinationCountryUpper === 'PR') {
+        console.error(`ERROR INTL_PROCESSOR: InvoiceLineTotal is required for ${destinationCountryUpper} but calculated monetary value (${totalInvoiceMonetaryValue.toFixed(2)}) was less than 1.00. UPS API request may fail.`);
+    }
+
+    const shipmentRequestPayload = {
+      ShipmentRequest: {
+        Request: { RequestOption: "nonvalidate", TransactionReference: { CustomerContext: `Order-${order.bigcommerce_order_id || order.id}` } },
+        Shipment: shipmentObject,
         LabelSpecification: { LabelImageFormat: { Code: "GIF" } }
       }
     };
@@ -500,7 +548,7 @@ function InternationalOrderProcessor({
         Address: {
             AddressLine: [currentBillingAddress.street_1, currentBillingAddress.street_2].filter(Boolean).length > 0 ? [currentBillingAddress.street_1, currentBillingAddress.street_2].filter(Boolean) : shipmentRequestPayload.ShipmentRequest.Shipment.ShipTo.Address.AddressLine,
             City: currentBillingAddress.city || shipmentRequestPayload.ShipmentRequest.Shipment.ShipTo.Address.City,
-            ...( (currentBillingAddress.country_iso2 || order.customer_shipping_country_iso2) !== 'DE' && (currentBillingAddress.state || order.customer_shipping_state) && { StateProvinceCode: currentBillingAddress.state || order.customer_shipping_state }),
+            ...( ( (currentBillingAddress.country_iso2 || order.customer_shipping_country_iso2)?.toUpperCase() === 'US' || (currentBillingAddress.country_iso2 || order.customer_shipping_country_iso2)?.toUpperCase() === 'CA') && (currentBillingAddress.state || order.customer_shipping_state) && { StateProvinceCode: currentBillingAddress.state || order.customer_shipping_state }),
             PostalCode: currentBillingAddress.zip || shipmentRequestPayload.ShipmentRequest.Shipment.ShipTo.Address.PostalCode,
             CountryCode: currentBillingAddress.country_iso2 || shipmentRequestPayload.ShipmentRequest.Shipment.ShipTo.Address.CountryCode,
         }
@@ -540,7 +588,9 @@ function InternationalOrderProcessor({
   const disableFormFields = isProcessingOrder || processSuccess;
   const isSupplierPOFlow = selectedFulfillmentStrategy &&
                            selectedFulfillmentStrategy !== "" &&
-                           selectedFulfillmentStrategy !== G1_ONSITE_INTERNATIONAL_VALUE;
+                           selectedFulfillmentStrategy !== G1_ONSITE_INTERNATIONAL_VALUE &&
+                           !isNaN(parseInt(selectedFulfillmentStrategy, 10));
+
 
   return (
     <div className="international-order-processor">
@@ -600,10 +650,10 @@ function InternationalOrderProcessor({
             <label htmlFor="mainSupplierTrigger">Fulfillment Type:</label>
             <select
                 id="fulfillmentStrategy"
-                value={selectedFulfillmentStrategy} // Initialized to ''
+                value={selectedFulfillmentStrategy}
                 onChange={handleFulfillmentStrategyChange}
                 disabled={disableFormFields}
-                required // Makes the field mandatory in HTML5 forms
+                required
             >
                 <option value="" disabled>
                     -- Select Fulfillment Strategy --
@@ -666,8 +716,7 @@ function InternationalOrderProcessor({
                   {SHIPPING_METHODS_OPTIONS_INTL.map(opt => ( <option key={opt.value} value={opt.value}>{opt.label}</option> ))}
               </select>
 
-             {/* UPS Third Party Billing Fields */}
-             <label htmlFor="billToCustomerUpsIntl">Bill Customer UPS Account:</label>
+             <label htmlFor="billToCustomerUpsIntl">Bill Recipient UPS Account:</label>
              <input
                  type="checkbox"
                  id="billToCustomerUpsIntl"
@@ -676,7 +725,8 @@ function InternationalOrderProcessor({
                      setBillToCustomerUps(e.target.checked);
                      if (e.target.checked) {
                          setCustomerUpsAccountNumber(order?.customer_ups_account_number || '');
-                         setCustomerUpsAccountZipCode(order?.customer_ups_account_zipcode || '');
+                         const billingZip = billing_address?.zip || order?.customer_billing_zip;
+                         setCustomerUpsAccountZipCode(billingZip ? String(billingZip).replace(/\s+/g, '') : '');
                      } else {
                          setCustomerUpsAccountNumber('');
                          setCustomerUpsAccountZipCode('');
@@ -686,23 +736,23 @@ function InternationalOrderProcessor({
              />
              {billToCustomerUps && (
                  <>
-                     <label htmlFor="customerUpsAccountIntl">Customer UPS Acct #*:</label>
+                     <label htmlFor="customerUpsAccountIntl">Recipient UPS Acct #*:</label>
                      <input
                          type="text"
                          id="customerUpsAccountIntl"
                          value={customerUpsAccountNumber}
                          onChange={(e) => setCustomerUpsAccountNumber(e.target.value)}
-                         placeholder="UPS Account Number"
+                         placeholder="Recipient's UPS Account Number"
                          required
                          disabled={disableFormFields}
                      />
-                     <label htmlFor="customerUpsZipIntl">Customer UPS Acct ZIP*:</label>
+                     <label htmlFor="customerUpsAccZipIntl">Recipient Acct Postal Code*:</label>
                      <input
                          type="text"
-                         id="customerUpsZipIntl"
+                         id="customerUpsAccZipIntl"
                          value={customerUpsAccountZipCode}
-                         onChange={(e) => setCustomerUpsAccountZipCode(e.target.value)}
-                         placeholder="Account ZIP/Postal Code"
+                         onChange={(e) => setCustomerUpsAccountZipCode(e.target.value.replace(/\s+/g, ''))}
+                         placeholder="Account Postal Code (no spaces)"
                          required
                          disabled={disableFormFields}
                      />
@@ -723,12 +773,11 @@ function InternationalOrderProcessor({
                   <h4>Order Processed Successfully!</h4>
                   {newShipmentInfo.poNumber && <p><strong>PO Number:</strong> {newShipmentInfo.poNumber}</p>}
                   {newShipmentInfo.trackingNumber && <p><strong>Tracking Number:</strong> {newShipmentInfo.trackingNumber}</p>}
-                  {/* Links for GCS URLs can be added here if needed later */}
               </div>
           ) : (
               <button type="button" className="process-order-button" onClick={handleProcessCombinedOrder}
-                  disabled={loadingApiDetails || isProcessingOrder || !internationalApiDetails || !shipmentWeight || !selectedShippingService || (billToCustomerUps && (!customerUpsAccountNumber || !customerUpsAccountZipCode)) }>
-                  {isProcessingOrder ? 'Processing...' : (selectedFulfillmentStrategy && selectedFulfillmentStrategy !== "" && selectedFulfillmentStrategy !== G1_ONSITE_INTERNATIONAL_VALUE ? 'Create PO & Generate Intl. Label' : 'Generate G1 Intl. Label')}
+                  disabled={loadingApiDetails || isProcessingOrder || !internationalApiDetails || !shipmentWeight || !selectedShippingService || (billToCustomerUps && (!customerUpsAccountNumber || !customerUpsAccountZipCode)) || !selectedFulfillmentStrategy }>
+                  {isProcessingOrder ? 'Processing...' : (isSupplierPOFlow ? 'Create PO & Generate Intl. Label' : 'Generate G1 Intl. Label')}
               </button>
           )}
       </div>

@@ -82,7 +82,7 @@ COMPANY_FAX = "(866) 921-1032"
 COMPANY_EMAIL = "sales@globalonetechnology.com"
 COMPANY_WEBSITE = "www.globalonetechnology.com"
 
-def format_currency(value):
+def format_currency(value): # Existing function
     try:
         return f"${float(value):,.2f}"
     except (ValueError, TypeError):
@@ -91,7 +91,7 @@ def format_currency(value):
         except:
              return "$0.00"
 
-def _format_shipping_method_for_display(method_string):
+def _format_shipping_method_for_display(method_string): # Existing function
     if not method_string or not isinstance(method_string, str):
         return "N/A"
     match = re.search(r'\(([^)]+)\)[^(]*$', method_string)
@@ -99,6 +99,21 @@ def _format_shipping_method_for_display(method_string):
         return match.group(1).strip()
     return method_string.strip()
 
+# NEW HELPER FUNCTION for payment method formatting
+def _format_payment_method_for_packing_slip(payment_method_string):
+    if not payment_method_string or not isinstance(payment_method_string, str):
+        return "N/A"
+    
+    # Find the first occurrence of '['
+    bracket_index = payment_method_string.find('[')
+    
+    if bracket_index != -1:
+        # If '[' is found, take the substring before it and strip whitespace
+        return payment_method_string[:bracket_index].strip()
+    else:
+        # If no '[' is found, return the original string, stripped of whitespace
+        return payment_method_string.strip()
+    
 def get_custom_styles():
     styles = getSampleStyleSheet()
 
@@ -365,16 +380,15 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     styles = get_custom_styles()
     story = []
 
+    # ... (existing logo, company address, title, order_ref_text logic) ...
     logo_element_to_use = None
     company_address_display_ps_para = None
     packing_slip_title_text = "PACKING SLIP"
-    order_ref_text = "" # Initialize to empty
+    order_ref_text = ""
 
     if is_blind_slip:
-        print("DEBUG DOC_GEN (Packing Slip): Generating BLIND slip.")
-        logo_element_to_use = Paragraph("", styles['H2_Eloquia']) # Empty string for logo area
-        packing_slip_title_text = "PACKING SLIP" # Keep title for blind, or make it generic like "SHIPMENT CONTENTS"
-
+        # ... (existing blind slip header logic) ...
+        logo_element_to_use = Paragraph("", styles['H2_Eloquia'])
         if custom_ship_from_address:
             company_address_text_blind = f"{escape(custom_ship_from_address.get('name', ''))}<br/>" \
                                          f"{escape(custom_ship_from_address.get('street_1', ''))}<br/>"
@@ -385,7 +399,6 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
             company_address_display_ps_para = Paragraph(company_address_text_blind, styles['Normal_Eloquia_Small'])
         else:
             company_address_display_ps_para = Paragraph("", styles['Normal_Eloquia_Small'])
-        # order_ref_text remains empty for blind slips
     else: # Not a blind slip
         logo_element_to_use = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=2.6*inch, is_blind_slip=False)
         company_header_address_text_non_blind = f"{COMPANY_ADDRESS_PACKING_SLIP_HEADER_LINE2}"
@@ -400,7 +413,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
 
     header_data = [
         [logo_element_to_use, Paragraph(f"<b>{packing_slip_title_text}</b>", styles['H1_Eloquia_Right'])],
-        [company_address_display_ps_para, Paragraph(order_ref_text, styles['Normal_Eloquia_Right'])] # order_ref_text will be empty for blind
+        [company_address_display_ps_para, Paragraph(order_ref_text, styles['Normal_Eloquia_Right'])]
     ]
     header_table = Table(header_data, colWidths=[4*inch, 3*inch])
     header_table.setStyle(TableStyle([
@@ -411,6 +424,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     story.append(header_table)
     story.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=0.05*inch, spaceAfter=0.1*inch))
 
+    # ... (existing ship_to_address logic) ...
     ship_to_address_parts = []
     customer_company = order_data.get('customer_company', '')
     if customer_company: ship_to_address_parts.append(escape(customer_company))
@@ -420,23 +434,25 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
         ship_to_address_parts.append(escape(order_data.get('customer_shipping_address_line2', '')))
     ship_to_address_parts.append(f"{escape(order_data.get('customer_shipping_city', ''))}, {escape(order_data.get('customer_shipping_state', ''))} {escape(order_data.get('customer_shipping_zip', ''))}")
     ship_to_address_parts.append(escape(order_data.get('customer_shipping_country', '')))
-
     ship_to_address_text = "<br/>".join(filter(None, ship_to_address_parts))
     ship_to_para = Paragraph(ship_to_address_text, styles['Normal_Eloquia'])
+
 
     formatted_shipping_method_display = _format_shipping_method_for_display(order_data.get('customer_shipping_method', 'N/A'))
     
     right_column_content = [
         Paragraph(f"<b>Shipping Method:</b> {escape(formatted_shipping_method_display)}", styles['Normal_Eloquia_Right']),
     ]
-    if not is_blind_slip: # Only add payment method if not a blind slip
+    if not is_blind_slip:
         raw_payment_method = order_data.get('payment_method', 'N/A')
-        formatted_payment_method_display = _format_shipping_method_for_display(raw_payment_method)
+        # Use the new helper function here
+        formatted_payment_method_display = _format_payment_method_for_packing_slip(raw_payment_method) # MODIFIED LINE
         right_column_content.extend([
             Spacer(1, 0.05 * inch),
             Paragraph(f"<b>Payment Method:</b> {escape(formatted_payment_method_display)}", styles['Normal_Eloquia_Right'])
         ])
 
+    # ... (existing shipping_details_table logic) ...
     shipping_details_data = [
         [Paragraph("<b>Ship To:</b>", styles['H3_Eloquia']), ""],
         [ship_to_para, KeepInFrame(3.5*inch, 1.2*inch, right_column_content)]
@@ -445,12 +461,13 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     shipping_details_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('SPAN', (1,0), (1,0)),
+        ('SPAN', (1,0), (1,0)), # Span for the right column placeholder
     ]))
     story.append(shipping_details_table)
     story.append(Spacer(1, 0.15 * inch))
 
-    if not is_blind_slip: # Only add customer notes if not a blind slip
+
+    if not is_blind_slip:
         customer_notes = order_data.get('customer_notes', '').strip()
         if customer_notes:
             story.append(Paragraph("<b>Customer Notes:</b>", styles['Normal_Eloquia_Bold']))
@@ -458,6 +475,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
             story.append(Paragraph(notes_paragraph_content, styles['CustomerNotesStyle_Eloquia']))
             story.append(Spacer(1, 0.15 * inch))
 
+    # ... (rest of your existing packing slip generation logic: items_in_this_shipment, items_shipping_separately tables) ...
     story.append(Paragraph("<b>IN THIS SHIPMENT:</b>", styles['H3_Eloquia']))
     story.append(Spacer(1, 0.05 * inch))
 
@@ -532,6 +550,7 @@ if __name__ == '__main__':
     print("Running document_generator.py in local test mode.")
     print("NOTE: Logo will be text unless GCS is configured and test_logo_gcs_uri is set.")
 
+    # Define sample data earlier
     sample_order_data_po = {
         'bigcommerce_order_id': 12345,
         'customer_company': 'Customer Company LLC',
@@ -548,7 +567,7 @@ if __name__ == '__main__':
     sample_po_items = [{'sku': 'TEST-SKU-1', 'description': 'Test Item One (Condition Suffix)', 'quantity': 2, 'unit_cost': 10.50, 'condition': 'New'}, {'sku': 'TEST-SKU-2', 'description': 'Test Item Two', 'quantity': 1, 'unit_cost': 25.00, 'condition': 'Used'}]
     po_specific_notes = "Test payment instructions.\nSecond line."
 
-    sample_order_data_ps = {
+    sample_order_data_ps = { # DEFINED EARLIER
         'bigcommerce_order_id': 'PS-5678',
         'order_date': datetime.now(timezone.utc).isoformat(),
         'customer_company': 'Multi-Ship Company',
@@ -559,19 +578,31 @@ if __name__ == '__main__':
         'customer_shipping_zip': '54321',
         'customer_shipping_country': 'USA',
         'customer_shipping_method': 'Standard Ground (UPS Ground)',
-        'payment_method': 'Net 30 Terms',
+        'payment_method': 'Net 30 Terms', # Will be overridden for the new format test
         'customer_notes': "This is a test customer note.\nPlease handle with care.\nThird line of notes."
     }
-    sample_items_in_shipment = [
+    sample_items_in_shipment = [ # DEFINED EARLIER
         {'quantity': 1, 'name': 'Widget A - Main Part (Black Font Test)', 'sku': 'WIDGET-A'},
         {'quantity': 2, 'name': 'Bolt Set for Widget A (More Details Here)', 'sku': 'BOLT-SET'}
     ]
-    sample_items_shipping_separately = [
+    sample_items_shipping_separately = [ # DEFINED EARLIER
         {'quantity': 1, 'name': 'Widget B - Accessory (Ships Later in Grey)', 'sku': 'WIDGET-B'},
         {'quantity': 5, 'name': 'Extra Screws - Backordered (Grey Font Test)', 'sku': 'SCREW-XTRA'}
     ]
-    test_logo_gcs_uri = os.getenv("COMPANY_LOGO_GCS_URI")
+    test_logo_gcs_uri = os.getenv("COMPANY_LOGO_GCS_URI") # DEFINED EARLIER
     if not test_logo_gcs_uri: print("WARN: COMPANY_LOGO_GCS_URI not set in .env for local logo test.")
+
+
+    print("\nTesting Payment Method Formatting:")
+    test_payments = [
+        "Net 30 Terms [with credit approval]",
+        "Credit Card",
+        "PayPal [Transaction ID: XYZ123]",
+        "Net 15 [Early Pay Discount]",
+        "Wire Transfer"
+    ]
+    for tp in test_payments:
+        print(f"Original: '{tp}' -> Formatted: '{_format_payment_method_for_packing_slip(tp)}'")
 
     print("\nGenerating Sample Purchase Order (Local Test - Mapped Eloquia via Helvetica)...")
     po_pdf_bytes = generate_purchase_order_pdf(
@@ -584,8 +615,25 @@ if __name__ == '__main__':
     with open(po_filename, "wb") as f: f.write(po_pdf_bytes)
     print(f"Sample Purchase Order PDF generated: {po_filename}")
 
-    print("\nGenerating Sample Packing Slip (Local Test - Mapped Eloquia)...")
-    packing_slip_pdf_bytes = generate_packing_slip_pdf(
+    # Original Packing Slip Test (uses the initially defined payment_method in sample_order_data_ps)
+    print("\nGenerating Sample Packing Slip (Local Test - Mapped Eloquia - Original PM)...")
+    packing_slip_pdf_bytes_orig_pm = generate_packing_slip_pdf(
+        order_data=sample_order_data_ps, # uses 'Net 30 Terms'
+        items_in_this_shipment=sample_items_in_shipment,
+        items_shipping_separately=sample_items_shipping_separately,
+        logo_gcs_uri=test_logo_gcs_uri,
+        is_g1_onsite_fulfillment=False,
+        is_blind_slip=False
+    )
+    ps_filename_orig_pm = "LOCAL_TEST_packing_slip_mapped_eloquia_orig_pm.pdf"
+    with open(ps_filename_orig_pm, "wb") as f: f.write(packing_slip_pdf_bytes_orig_pm)
+    print(f"Sample Packing Slip PDF generated: {ps_filename_orig_pm}")
+
+
+    # Test with the specific payment method format
+    sample_order_data_ps['payment_method'] = "Net 30 Terms [with credit approval]" # Override for this test
+    print("\nGenerating Sample Packing Slip (Local Test - With new Payment Method Formatting)...")
+    packing_slip_pdf_bytes_new_pm = generate_packing_slip_pdf(
         order_data=sample_order_data_ps,
         items_in_this_shipment=sample_items_in_shipment,
         items_shipping_separately=sample_items_shipping_separately,
@@ -593,13 +641,14 @@ if __name__ == '__main__':
         is_g1_onsite_fulfillment=False,
         is_blind_slip=False
     )
-    ps_filename = "LOCAL_TEST_packing_slip_mapped_eloquia.pdf"
-    with open(ps_filename, "wb") as f: f.write(packing_slip_pdf_bytes)
-    print(f"Sample Packing Slip PDF generated: {ps_filename}")
+    ps_filename_new_pm = "LOCAL_TEST_packing_slip_new_payment_format.pdf"
+    with open(ps_filename_new_pm, "wb") as f: f.write(packing_slip_pdf_bytes_new_pm)
+    print(f"Sample Packing Slip PDF generated with new payment format: {ps_filename_new_pm}")
+
 
     print("\nGenerating BLIND Sample Packing Slip (Local Test - Mapped Eloquia)...")
     blind_ship_from_details = {
-        'name': sample_order_data_ps.get('customer_company', 'Your Shipper Name'),
+        'name': sample_order_data_ps.get('customer_company', 'Your Shipper Name'), # Uses previously defined sample_order_data_ps
         'street_1': 'PO Box 1000',
         'city': 'Some City',
         'state': 'XX',
@@ -607,10 +656,10 @@ if __name__ == '__main__':
         'country': 'USA'
     }
     blind_packing_slip_pdf_bytes = generate_packing_slip_pdf(
-        order_data=sample_order_data_ps,
-        items_in_this_shipment=sample_items_in_shipment,
-        items_shipping_separately=sample_items_shipping_separately,
-        logo_gcs_uri=None,
+        order_data=sample_order_data_ps, # Uses previously defined sample_order_data_ps
+        items_in_this_shipment=sample_items_in_shipment, # Uses previously defined sample_items_in_shipment
+        items_shipping_separately=sample_items_shipping_separately, # Uses previously defined sample_items_shipping_separately
+        logo_gcs_uri=None, # test_logo_gcs_uri is available but passing None for blind
         is_g1_onsite_fulfillment=False,
         is_blind_slip=True,
         custom_ship_from_address=blind_ship_from_details
@@ -618,4 +667,3 @@ if __name__ == '__main__':
     blind_ps_filename = "LOCAL_TEST_BLIND_packing_slip_mapped_eloquia.pdf"
     with open(blind_ps_filename, "wb") as f: f.write(blind_packing_slip_pdf_bytes)
     print(f"Sample BLIND Packing Slip PDF generated: {blind_ps_filename}")
-
