@@ -224,7 +224,7 @@ def ingest_orders_route():
         if engine is None:
             print("ERROR INGEST: Database engine not initialized.", flush=True)
             return jsonify({"message": "Database engine not initialized."}), 500
-
+        
         orders_list_endpoint = f"{bc_api_base_url_v2}orders"
         api_params = {'status_id': target_status_id, 'sort': 'date_created:asc', 'limit': 250}
         print(f"DEBUG INGEST: Fetching orders with status ID {target_status_id} from {orders_list_endpoint}", flush=True)
@@ -326,34 +326,26 @@ def ingest_orders_route():
                             message_for_freight_and_user_notes = ""
 
 
-                    if compliance_block_raw: # This check is now implicitly done by the regex logic correctly setting it or not
-                        # The check compliance_block_raw.startswith("[") and compliance_block_raw.endswith("];") is important
-                        compliance_content = compliance_block_raw[1:-2] # Remove [ and ];
+                    if compliance_block_raw:
+                        compliance_content = compliance_block_raw[1:-2]
                         id_pairs = compliance_content.split(';')
                         for pair in id_pairs:
                             pair = pair.strip() 
                             if pair and ':' in pair: 
                                 label, value = pair.split(':', 1)
                                 compliance_ids_data[label.strip()] = value.strip()
-                    # message_for_freight_and_user_notes now contains text excluding the compliance block
-
                     parsed_customer_carrier, parsed_customer_selected_ups_service, parsed_customer_ups_account_num = None, None, None
                     is_bill_to_customer_ups_acct = False
                     parsed_customer_selected_fedex_service, parsed_customer_fedex_account_num = None, None
                     is_bill_to_customer_fedex_acct = False
                     customer_ups_account_zipcode = None
-                    # Initialize customer_notes_for_db with the potentially cleaned message
                     customer_notes_for_db = message_for_freight_and_user_notes.strip() 
-
                     freight_delimiter_pattern = " || " 
                     if freight_delimiter_pattern + "Carrier:" in message_for_freight_and_user_notes and \
-                       (freight_delimiter_pattern + "Account#:" in message_for_freight_and_user_notes or "account#:" in message_for_freight_and_user_notes.lower()): # More flexible account check
-                        
+                       (freight_delimiter_pattern + "Account#:" in message_for_freight_and_user_notes or "account#:" in message_for_freight_and_user_notes.lower()):
                         freight_parts = message_for_freight_and_user_notes.split(freight_delimiter_pattern)
                         temp_carrier, temp_service, temp_account, temp_zip = None, None, None, None
-                        
-                        customer_notes_for_db = freight_parts[0].strip() # This is the user's actual notes
-                        
+                        customer_notes_for_db = freight_parts[0].strip()
                         for i in range(1, len(freight_parts)): 
                             part_content = freight_parts[i]
                             content_lower = part_content.lower()
@@ -361,7 +353,6 @@ def ingest_orders_route():
                             elif content_lower.startswith("service:"): temp_service = part_content.split(":", 1)[1].strip()
                             elif content_lower.startswith("account#:"): temp_account = part_content.split(":", 1)[1].strip()
                             elif content_lower.startswith("zip:"): temp_zip = part_content.split(":",1)[1].strip()
-
                         if temp_carrier and temp_account:
                             parsed_customer_carrier = temp_carrier
                             if "UPS" in temp_carrier.upper():
@@ -373,18 +364,13 @@ def ingest_orders_route():
                                 parsed_customer_selected_fedex_service = temp_service
                                 parsed_customer_fedex_account_num = temp_account
                                 is_bill_to_customer_fedex_acct = True
-                    # else: customer_notes_for_db was already set from message_for_freight_and_user_notes
-                    
                     if customer_notes_for_db: 
                         sensitive_pattern = re.compile(r'\*{10}.*?\*{10}', re.DOTALL)
                         customer_notes_for_db = sensitive_pattern.sub('', customer_notes_for_db).strip()
-                    # --- END: REFINED COMMENT PARSING LOGIC ---
-
                     if compliance_ids_data:
                         print(f"DEBUG INGEST: Parsed Compliance IDs for BC Order {order_id_from_bc}: {compliance_ids_data}", flush=True)
                     else:
                         print(f"DEBUG INGEST: No Compliance IDs parsed for BC Order {order_id_from_bc}. Raw message: '{raw_customer_message}' -> Freight/User Notes part: '{message_for_freight_and_user_notes}'", flush=True)
-
                     db_compliance_info = json.dumps(compliance_ids_data) if compliance_ids_data else None
 
                     existing_order_row = conn.execute(
@@ -407,10 +393,14 @@ def ingest_orders_route():
                     bc_total_inc_tax = Decimal(bc_order_summary.get('total_inc_tax', '0.00'))
                     bc_shipping_cost_from_api = Decimal(bc_order_summary.get('shipping_cost_ex_tax', '0.00'))
                     current_time_utc = datetime.now(timezone.utc)
+                    
+                    # ALWAYS set status to 'new' for new or updatable existing orders
+                    target_app_status = 'new'
 
                     if existing_order_row:
                         db_status = existing_order_row.status
-                        finalized_or_manual_statuses = ['Processed', 'Completed Offline', 'pending', 'RFQ Sent', 'international_manual']
+                        # Removed 'international_manual'
+                        finalized_or_manual_statuses = ['Processed', 'Completed Offline', 'pending', 'RFQ Sent']
                         if db_status in finalized_or_manual_statuses:
                             ingested_count += 1; continue
 
@@ -418,25 +408,17 @@ def ingest_orders_route():
                         if existing_order_row.is_international != is_international: update_fields['is_international'] = is_international
                         if existing_order_row.payment_method != bc_order_summary.get('payment_method'): update_fields['payment_method'] = bc_order_summary.get('payment_method')
                         if existing_order_row.bigcommerce_order_tax != bc_total_tax: update_fields['bigcommerce_order_tax'] = bc_total_tax
-                        
-                        if existing_order_row.customer_notes != customer_notes_for_db: 
-                            update_fields['customer_notes'] = customer_notes_for_db
-                        
+                        if existing_order_row.customer_notes != customer_notes_for_db: update_fields['customer_notes'] = customer_notes_for_db
                         existing_compliance_info_from_db = existing_order_row.compliance_info
-                        
                         parsed_existing_compliance_dict = {}
                         if isinstance(existing_compliance_info_from_db, str):
                             try: parsed_existing_compliance_dict = json.loads(existing_compliance_info_from_db) if existing_compliance_info_from_db else {}
                             except json.JSONDecodeError:  parsed_existing_compliance_dict = {}
                         elif isinstance(existing_compliance_info_from_db, dict): 
                             parsed_existing_compliance_dict = existing_compliance_info_from_db if existing_compliance_info_from_db else {}
-
-                        if parsed_existing_compliance_dict != compliance_ids_data:
-                             update_fields['compliance_info'] = db_compliance_info 
-                        
+                        if parsed_existing_compliance_dict != compliance_ids_data: update_fields['compliance_info'] = db_compliance_info 
                         if not hasattr(existing_order_row, 'bc_shipping_cost_ex_tax') or existing_order_row.bc_shipping_cost_ex_tax != bc_shipping_cost_from_api:
                             update_fields['bc_shipping_cost_ex_tax'] = bc_shipping_cost_from_api
-                        
                         billing_fields_to_check = {
                             'customer_billing_first_name': bc_billing_address.get('first_name'), 'customer_billing_last_name': bc_billing_address.get('last_name'),
                             'customer_billing_company': bc_billing_address.get('company'), 'customer_billing_street_1': bc_billing_address.get('street_1'),
@@ -448,19 +430,20 @@ def ingest_orders_route():
                         for field_name, new_value in billing_fields_to_check.items():
                             if not hasattr(existing_order_row, field_name) or getattr(existing_order_row, field_name) != new_value:
                                 update_fields[field_name] = new_value
-
                         if existing_order_row.customer_selected_freight_service != parsed_customer_selected_ups_service: update_fields['customer_selected_freight_service'] = parsed_customer_selected_ups_service
                         if existing_order_row.customer_ups_account_number != parsed_customer_ups_account_num: update_fields['customer_ups_account_number'] = parsed_customer_ups_account_num
                         if existing_order_row.customer_ups_account_zipcode != customer_ups_account_zipcode: update_fields['customer_ups_account_zipcode'] = customer_ups_account_zipcode
                         if existing_order_row.is_bill_to_customer_account != is_bill_to_customer_ups_acct: update_fields['is_bill_to_customer_account'] = is_bill_to_customer_ups_acct
-
                         if existing_order_row.customer_selected_fedex_service != parsed_customer_selected_fedex_service: update_fields['customer_selected_fedex_service'] = parsed_customer_selected_fedex_service
                         if existing_order_row.customer_fedex_account_number != parsed_customer_fedex_account_num: update_fields['customer_fedex_account_number'] = parsed_customer_fedex_account_num
                         if existing_order_row.is_bill_to_customer_fedex_account != is_bill_to_customer_fedex_acct: update_fields['is_bill_to_customer_fedex_account'] = is_bill_to_customer_fedex_acct
 
+                        # If the order is not in a finalized state, update its status to 'new'
                         if db_status not in finalized_or_manual_statuses:
-                            new_app_status_by_ingest = 'international_manual' if is_international else 'new'
-                            if db_status != new_app_status_by_ingest: update_fields['status'] = new_app_status_by_ingest
+                            # new_app_status_by_ingest = 'international_manual' if is_international else 'new' <-- OLD
+                            new_app_status_by_ingest = 'new' # <-- CORRECTED
+                            if db_status != new_app_status_by_ingest: 
+                                update_fields['status'] = new_app_status_by_ingest
 
                         if update_fields:
                             update_fields['updated_at'] = current_time_utc
@@ -468,7 +451,7 @@ def ingest_orders_route():
                             conn.execute(text(f"UPDATE orders SET {', '.join(set_clauses)} WHERE id = :id"), {"id": existing_order_row.id, **update_fields})
                             updated_count_this_run += 1
                     else: 
-                        target_app_status = 'international_manual' if is_international else 'new'
+                        # target_app_status is already 'new'
                         order_values = {
                             "bigcommerce_order_id": order_id_from_bc,
                             "customer_company": customer_shipping_address.get('company'),
@@ -489,7 +472,7 @@ def ingest_orders_route():
                             "total_sale_price": bc_total_inc_tax, 
                             "bigcommerce_order_tax": bc_total_tax, 
                             "bc_shipping_cost_ex_tax": bc_shipping_cost_from_api,
-                            "status": target_app_status, 
+                            "status": target_app_status, # This will be 'new'
                             "is_international": is_international, 
                             "payment_method": bc_order_summary.get('payment_method'),
                             "created_at": current_time_utc, "updated_at": current_time_utc,
@@ -538,11 +521,13 @@ def ingest_orders_route():
     except Exception as e:
         print(f"ERROR INGEST: Unexpected error: {e}", flush=True); traceback.print_exc(file=sys.stderr); sys.stderr.flush()
         return jsonify({"message": f"Unexpected error: {str(e)}", "error_type": type(e).__name__}), 500
+    
 
 @orders_bp.route('/orders/<int:order_id>/process', methods=['POST'])
 @verify_firebase_token
 def process_order_route(order_id):
-    # ... (This function remains unchanged from the version you provided earlier) ...
+    # ... (This function's internal logic for processing/generating POs/labels remains the same) ...
+    # The key change was that an international order will now arrive here with status 'new'.
     print(f"DEBUG PROCESS_ORDER: Received request to process order ID: {order_id}", flush=True)
     db_conn, transaction, processed_pos_info_for_response = None, None, []
     try:

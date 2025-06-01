@@ -21,7 +21,6 @@ const formatShippingMethod = (methodString) => {
   }
   const lowerMethod = methodString.toLowerCase().trim();
 
-  // --- FedEx Checks First ---
   if (lowerMethod.includes('fedex')) {
     if (lowerMethod.includes('ground')) return 'FedEx Ground';
     if (lowerMethod.includes('2day') || lowerMethod.includes('2 day')) return 'FedEx 2Day';
@@ -29,20 +28,15 @@ const formatShippingMethod = (methodString) => {
     if (lowerMethod.includes('standard overnight')) return 'FedEx Standard Overnight';
   }
 
-  // --- UPS Checks ---
-  // Specific UPS Air/Domestic services
   if (lowerMethod.includes('next day air early a.m.') || lowerMethod.includes('next day air early am') || lowerMethod.includes('next day air e')) return 'UPS Next Day Air Early A.M.';
-  // MODIFIED LINE: Removed '|| lowerMethod.includes('nda')'
-  if (lowerMethod.includes('next day air')) return 'UPS Next Day Air';
+  if (lowerMethod.includes('next day air')) return 'UPS Next Day Air'; // Removed 'nda'
   if (lowerMethod.includes('2nd day air') || lowerMethod.includes('second day air')) return 'UPS 2nd Day Air';
   
-  // UPS International Services
   if (lowerMethod.includes('worldwide express plus')) return 'UPS Worldwide Express Plus';
   if (lowerMethod.includes('worldwide express')) return 'UPS Worldwide Express';
   if (lowerMethod.includes('worldwide expedited')) return 'UPS Worldwide Expedited';
   if (lowerMethod.includes('worldwide saver')) return 'UPS Worldwide Saver';
 
-  // UPS Standard (often for Canada/transborder)
   if (lowerMethod.includes('ups standard') || lowerMethod.includes('ups standard®') || lowerMethod.includes('ups standard℠')) {
     return 'UPS Standard';
   }
@@ -50,12 +44,10 @@ const formatShippingMethod = (methodString) => {
       return 'UPS Standard';
   }
   
-  // Domestic UPS Ground and Free Shipping
   if (lowerMethod.includes('ground') && lowerMethod.includes('ups')) return 'UPS Ground';
   if (lowerMethod.includes('ground') && !lowerMethod.includes('fedex')) return 'UPS Ground';
   if (lowerMethod.includes('free shipping')) return 'UPS Ground';
 
-  // Fallback for bracketed BigCommerce methods if not caught above
   const bcMatch = methodString.match(/\(([^)]+)\)/);
   if (bcMatch && bcMatch[1]) {
     const extracted = bcMatch[1].trim();
@@ -65,6 +57,21 @@ const formatShippingMethod = (methodString) => {
 
   return String(methodString).trim() || 'N/A';
 };
+
+// Helper function to format payment method strings
+const formatPaymentMethod = (paymentMethodString) => {
+  if (typeof paymentMethodString !== 'string') {
+    return 'N/A'; // Return N/A or empty string for non-string inputs
+  }
+  const bracketIndex = paymentMethodString.indexOf(" [");
+  if (bracketIndex !== -1) {
+    // If " [" is found, return the substring before it
+    return paymentMethodString.substring(0, bracketIndex);
+  }
+  // If " [" is not found, return the original string
+  return paymentMethodString;
+};
+
 
 const ProfitDisplay = ({ info }) => {
     if (!info || !info.isCalculable) {
@@ -82,6 +89,7 @@ const ProfitDisplay = ({ info }) => {
     };
     const profitAmount = Number(info.profitAmount);
     const isProfitable = !isNaN(profitAmount) && profitAmount >= 0;
+    // Note: h3 styles from OrderDetail will apply here if not overridden by more specific ProfitDisplay CSS
     const cardStyle = { backgroundColor: isProfitable ? 'rgba(40, 167, 69, 0.6)' : 'rgba(220, 53, 69, 0.6)' };
     const profitAmountColor = isProfitable ? 'var(--success-text)' : 'var(--error-text)';
 
@@ -129,6 +137,32 @@ function OrderDetail() {
     profitMargin: 0,
     isCalculable: false
   });
+
+  // Styles for h3 elements within this component
+  const componentSpecificStyles = `
+    :root {
+      --h3-glow-color-light-orderdetail: rgba(0, 86, 179, 0.25); 
+      --h3-glow-color-dark-orderdetail: rgba(230, 230, 230, 0.35);
+    }
+
+    .order-detail-container h3 {
+      font-size: 1.25em;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      /* Default to light mode glow */
+      text-shadow: 0 0 6px var(--h3-glow-color-light-orderdetail); 
+      margin-bottom: 0.75em; /* Added some margin for better spacing */
+      padding-bottom: 0.25em; /* Optional: if you want a slight underline effect with border */
+      /* border-bottom: 1px solid var(--border-light); */ /* Example for underline */
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .order-detail-container h3 {
+        text-shadow: 0 0 6px var(--h3-glow-color-dark-orderdetail);
+      }
+    }
+  `;
+
 
   const fetchOrderAndSuppliers = useCallback(async (signal, isPostProcessRefresh = false) => {
     if (!currentUser) {
@@ -332,6 +366,7 @@ function OrderDetail() {
 
   return (
     <div className="order-detail-container">
+      <style>{componentSpecificStyles}</style> {/* Injecting the styles here */}
       <div className="order-title-section">
         <h2>
           <span>Order #{order?.bigcommerce_order_id || orderId} </span>
@@ -391,7 +426,7 @@ function OrderDetail() {
         <h3>Order Information</h3>
         <div><strong>Rec'd:</strong> {displayOrderDate}</div>
         <div><strong>Customer:</strong> {order.customer_company || order.customer_name || 'N/A'}</div>
-        <div><strong>Paid by:</strong> {order.payment_method || 'N/A'}</div>
+        <div><strong>Paid by:</strong> {formatPaymentMethod(order.payment_method || 'N/A')}</div>
         <div><strong>Ship via:</strong> {displayShipMethodInOrderInfo}</div>
         <div><strong>Ship to:</strong> {order.customer_shipping_city || 'N/A'}, {order.customer_shipping_state || 'N/A'} ({order.customer_shipping_country_iso2 || 'N/A'})</div>
 
@@ -415,9 +450,9 @@ function OrderDetail() {
                 <span>({item.quantity || 0}) </span>
                 <a href={createBrokerbinLink(item.original_sku)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.original_sku}`} onClick={(e) => handlePartNumberLinkClick(e, item.original_sku)}>{String(item.original_sku || 'N/A').trim()}</a>
                 {loadingSpares && item.hpe_pn_type === 'option' && !lineItemSpares[item.line_item_id] && <span className="loading-text"> (loading spare...)</span>}
-                {lineItemSpares[item.line_item_id] && ( <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>( <a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a> )</span> )}
-                {item.hpe_option_pn && String(item.hpe_option_pn).trim() !== String(item.original_sku).trim() && String(item.hpe_option_pn).trim() !== lineItemSpares[item.line_item_id] && ( <span>{' ('} <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a> {')'}</span> )}
-                <span> @ ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
+                {lineItemSpares[item.line_item_id] && ( <span style={{ fontStyle: 'italic', marginLeft: '5px' }}>(<a href={createBrokerbinLink(lineItemSpares[item.line_item_id])} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${lineItemSpares[item.line_item_id]}`} onClick={(e) => handlePartNumberLinkClick(e, lineItemSpares[item.line_item_id])}>{lineItemSpares[item.line_item_id]}</a>)</span> )}
+                {item.hpe_option_pn && String(item.hpe_option_pn).trim() !== String(item.original_sku).trim() && String(item.hpe_option_pn).trim() !== lineItemSpares[item.line_item_id] && (<span>{'('} <a href={createBrokerbinLink(item.hpe_option_pn)} target="_blank" rel="noopener noreferrer" className="link-button" title={`Copy Order ID & Brokerbin: ${item.hpe_option_pn}`} onClick={(e) => handlePartNumberLinkClick(e, item.hpe_option_pn)}>{String(item.hpe_option_pn).trim()}</a>{')'}</span>)}
+                <span> ${parseFloat(item.sale_price || 0).toFixed(2)}</span>
             </p>
         ))}
       </section>
@@ -447,7 +482,8 @@ function OrderDetail() {
       )}
       
       <div className="manual-actions-section" style={{marginTop: "20px"}}>
-           {order && (order.status?.toLowerCase() === 'international_manual' || order.status?.toLowerCase() === 'pending') && !isActuallyProcessed && !processSuccess &&(
+           {/* MODIFIED: Removed 'international_manual' from this condition */}
+           {order && (order.status?.toLowerCase() === 'pending') && !isActuallyProcessed && !processSuccess &&(
               <button onClick={() => handleManualStatusUpdate('Completed Offline')} className="manual-action-button button-mark-completed" disabled={manualStatusUpdateInProgress}>
                   {manualStatusUpdateInProgress ? 'Updating...' : 'Mark as Completed Offline'}
               </button>

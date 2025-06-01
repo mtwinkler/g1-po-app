@@ -22,7 +22,7 @@ function Dashboard({ initialView = 'orders' }) {
     const [ingestionMessage, setIngestionMessage] = useState('');
     const [statusCounts, setStatusCounts] = useState({});
     const [loadingCounts, setLoadingCounts] = useState(initialView === 'orders');
-    const [hasPendingOrInternational, setHasPendingOrInternational] = useState(false);
+    const [hasPendingOrders, setHasPendingOrders] = useState(false); // Changed from hasPendingOrInternational
 
     // Daily Sales Tab State
     const [dailyRevenueData, setDailyRevenueData] = useState([]);
@@ -33,16 +33,59 @@ function Dashboard({ initialView = 'orders' }) {
     const formatShippingMethod = (method) => {
         if (!method) { return 'N/A'; }
         if (typeof method !== 'string') { return String(method); }
-        if (method.trim().toLowerCase() === 'free shipping') { return 'UPS® Ground'; }
-        const regex = /.*\((.*)\)/;
-        const match = method.match(regex);
-        if (match && match[1]) { return match[1].trim(); }
-        return method.trim();
+
+        const trimmedMethod = method.trim();
+
+        // Rule 2: If the structure is Value1 [Value2], then display only Value1
+        const bracketIndex = trimmedMethod.indexOf(" [");
+        if (bracketIndex !== -1) {
+            // Check if there's a parenthesis before the bracket, indicating "Value1 (ValueInParen) [Value2]"
+            const partBeforeBracket = trimmedMethod.substring(0, bracketIndex);
+            const parenthesisMatchInPart = partBeforeBracket.match(/^(.*?)\s*\(([^)]+)\)$/);
+            if (parenthesisMatchInPart && parenthesisMatchInPart[1]) { // e.g. "UPS Ground (UPS Standard) [Freight]" -> "UPS Standard"
+                 return parenthesisMatchInPart[2].trim();
+            }
+            return partBeforeBracket.trim(); // e.g., "UPS Ground [Freight]" -> "UPS Ground"
+        }
+
+        // Rule 1: If the structure is Value1 (Value2), then display only Value2
+        const parenthesisMatch = trimmedMethod.match(/^(.*?)\s*\(([^)]+)\)$/);
+        if (parenthesisMatch && parenthesisMatch[2]) {
+            return parenthesisMatch[2].trim(); // e.g., "UPS (UPS Ground)" -> "UPS Ground"
+        }
+        
+        if (trimmedMethod.toLowerCase() === 'free shipping') { return 'UPS® Ground'; }
+        
+        return trimmedMethod; // Fallback to the original trimmed string
     };
 
     const formatCurrencyDisplay = (amount) => {
         return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
     };
+
+    const formatDashboardPaymentMethod = (paymentMethodString) => {
+      if (typeof paymentMethodString !== 'string') {
+        return 'N/A';
+      }
+
+      // Check for "Value1 (Value2)" structure
+      // Example: "Credit Card (Processed Online)" -> "Processed Online"
+      const parenthesisMatch = paymentMethodString.match(/^(.*?)\s*\(([^)]+)\)$/);
+      if (parenthesisMatch && parenthesisMatch[2]) {
+        return parenthesisMatch[2].trim(); // Display Value2
+      }
+
+      // Check for "Value1 [Value2]" structure
+      // Example: "Bank Wire Transfer [$25 USD additional fee]" -> "Bank Wire Transfer"
+      const bracketIndex = paymentMethodString.indexOf(" [");
+      if (bracketIndex !== -1) {
+        return paymentMethodString.substring(0, bracketIndex).trim(); // Display Value1
+      }
+
+      // If neither structure matches, return the original string (trimmed)
+      return paymentMethodString.trim();
+    };
+
 
     // --- Data Fetching for Orders View ---
     const fetchOrders = useCallback(async (signal) => {
@@ -96,7 +139,7 @@ function Dashboard({ initialView = 'orders' }) {
         if (!currentUser) {
             setStatusCounts({});
             setLoadingCounts(false);
-            setHasPendingOrInternational(false);
+            setHasPendingOrders(false); // Updated state setter
             return;
         }
         setLoadingCounts(true);
@@ -122,20 +165,19 @@ function Dashboard({ initialView = 'orders' }) {
             const counts = await response.json();
             if (signal && signal.aborted) return;
             setStatusCounts(counts || {});
-            setHasPendingOrInternational(!!(counts && (counts.pending > 0 || counts.international_manual > 0)));
+            // Updated logic: only check for pending
+            setHasPendingOrders(!!(counts && counts.pending > 0));
         } catch (error) {
-            // *** THIS IS THE FIX ***
-            // Ignore AbortError, which is common in React Strict Mode (dev environment)
             if (error.name !== 'AbortError') {
                 console.error("Error fetching status counts:", error.message);
                 if (!errorOrders) setErrorOrders("Could not load status counts.");
                 setStatusCounts({});
-                setHasPendingOrInternational(false);
+                setHasPendingOrders(false); // Updated state setter
             }
         } finally {
             if (!signal || !signal.aborted) setLoadingCounts(false);
         }
-    }, [VITE_API_BASE_URL, currentUser]);
+    }, [VITE_API_BASE_URL, currentUser, errorOrders]); // Added errorOrders to dep array for setErrorOrders
 
     const handleIngestOrders = useCallback(async () => {
         if (!VITE_API_BASE_URL) {
@@ -249,7 +291,7 @@ function Dashboard({ initialView = 'orders' }) {
             setLoadingOrders(false);
             setLoadingCounts(false);
             setErrorOrders(null);
-            setHasPendingOrInternational(false);
+            setHasPendingOrders(false); // Updated state setter
             setDailyRevenueData([]);
             setLoadingRevenue(false);
             setErrorRevenue(null);
@@ -273,17 +315,15 @@ function Dashboard({ initialView = 'orders' }) {
     const handleFilterChange = (event) => setFilterStatus(event.target.value);
 
     // --- Render Logic ---
+    // Removed 'international_manual'
     const orderedDropdownStatuses = [
         { value: 'new', label: 'New' },
         { value: 'RFQ Sent', label: 'RFQ Sent' },
         { value: 'pending', label: 'Pending' },
-        { value: 'international_manual', label: 'International' },
         { value: 'Processed', label: 'Processed' },
         { value: 'Completed Offline', label: 'Completed Offline' }
     ];
 
-    // Get today's date in UTC, formatted as YYYY-MM-DD
-    // 'en-CA' locale is a common way to get this format.
     const todayUTCString = new Date().toLocaleDateString('en-CA', { timeZone: 'UTC' });
 
 
@@ -315,7 +355,7 @@ function Dashboard({ initialView = 'orders' }) {
                         <div className="dashboard-filters">
                             <label htmlFor="statusFilter" style={{ fontWeight: '500', color: 'var(--text-main)'}}>
                                 Filter by Status:
-                                {hasPendingOrInternational && <span style={{ color: 'red', marginLeft: '2px', fontWeight: 'bold' }}>*</span>}
+                                {hasPendingOrders && <span style={{ color: 'red', marginLeft: '2px', fontWeight: 'bold' }}>*</span>} 
                             </label>
                             <select
                                 id="statusFilter"
@@ -327,10 +367,8 @@ function Dashboard({ initialView = 'orders' }) {
                                 {orderedDropdownStatuses.map(statusObj => {
                                     const count = statusCounts[statusObj.value];
                                     const displayCount = (count !== undefined) ? ` (${count})` : ' (0)';
-                                    const optionAsterisk = (
-                                        (statusObj.value === 'pending' && statusCounts.pending > 0) ||
-                                        (statusObj.value === 'international_manual' && statusCounts.international_manual > 0)
-                                    ) ? '*' : '';
+                                    // Updated asterisk logic
+                                    const optionAsterisk = (statusObj.value === 'pending' && statusCounts.pending > 0) ? '*' : '';
                                     return (
                                         <option key={statusObj.value} value={statusObj.value}>
                                             {statusObj.label}{displayCount}{optionAsterisk}
@@ -368,6 +406,9 @@ function Dashboard({ initialView = 'orders' }) {
                                         const hasCustomerNotes = order.customer_notes && order.customer_notes.trim() !== '';
                                         const initialCommentLength = 70;
                                         const displayShippingMethod = formatShippingMethod(order.customer_shipping_method);
+                                        // Apply new payment method formatting here
+                                        const displayPaymentMethod = formatDashboardPaymentMethod(order.payment_method);
+
                                         return (
                                             <tr key={order.id} className="clickable-row" onClick={() => handleRowClick(order.id)}
                                                 title={hasCustomerNotes ? `Comments: ${order.customer_notes.substring(0,100)}${order.customer_notes.length > 100 ? '...' : ''}` : 'View Order Details'}>
@@ -380,7 +421,7 @@ function Dashboard({ initialView = 'orders' }) {
                                                 <td data-label="Status" className="hide-mobile">
                                                     <span className={`order-status-badge-table status-${(order.status || 'unknown').toLowerCase().replace(/\s+/g, '-')}`}>{order.status || 'Unknown'}</span>
                                                 </td>
-                                                <td data-label="Paid by">{order.payment_method || 'N/A'}</td>
+                                                <td data-label="Paid by">{displayPaymentMethod || 'N/A'}</td>
                                                 <td data-label="Ship Method">{displayShippingMethod}</td>
                                                 <td data-label="Ship To">{`${order.customer_shipping_city || '?'}, ${order.customer_shipping_state || '?'}`}</td>
                                                 <td data-label="Int'l" className="hide-mobile">{order.is_international ? 'Yes' : 'No'}</td>
@@ -433,18 +474,17 @@ function Dashboard({ initialView = 'orders' }) {
                     {!loadingRevenue && !errorRevenue && dailyRevenueData.length > 0 && (
                         <div className="daily-revenue-list">
                             {dailyRevenueData.map(item => {
-                                // MODIFIED: Conditional rendering for "today (UTC)" with zero sales
                                 if (item.sale_date === todayUTCString && item.daily_revenue === 0) {
-                                    return null; // Don't render this item
+                                    return null;
                                 }
                                 return (
                                     <div key={item.sale_date} className="daily-revenue-item">
-                                        <span style={{ marginRight: 'auto' }}> {/* Date Span */}
+                                        <span style={{ marginRight: 'auto' }}>
                                             {new Date(item.sale_date + 'T00:00:00Z').toLocaleDateString('en-US', {
                                                 year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC'
                                             })}
                                         </span>
-                                        <span style={{ /* Revenue Span */
+                                        <span style={{
                                             fontWeight: item.daily_revenue > 0 ? 'bold' : 'normal',
                                             color: item.daily_revenue > 0 ? 'green' : (item.daily_revenue === 0 ? 'orange' : 'inherit'),
                                             textAlign: 'right'

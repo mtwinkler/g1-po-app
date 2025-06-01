@@ -543,7 +543,7 @@ h3 { letter-spacing: 0.5px; }
     .process-order-button, .back-to-dashboard-button {
         width: 100%; 
         min-width: 0; 
-        font-size: 1.5em; 
+        font-size: 1.3em; 
         font-weight: 900;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -996,7 +996,7 @@ h3 { letter-spacing: 0.5px; }
   margin-bottom: var(--spacing-xl);
 }
 
-.international-order-processor .form-section {
+/* .international-order-processor .form-section {
   margin-top: var(--spacing-lg);
   padding-top: var(--spacing-md);
   border-top: 1px solid var(--border-light);
@@ -1004,7 +1004,7 @@ h3 { letter-spacing: 0.5px; }
 .international-order-processor .form-section:first-child {
   border-top: none;
   padding-top: 0;
-}
+} */
 
 .international-order-processor h5 {
   font-size: 1.1em;
@@ -1120,7 +1120,7 @@ h3 { letter-spacing: 0.5px; }
     position: relative;
     padding-left: 50%; /* Space for data labels */
     white-space: normal;
-    text-align: right; /* Align content to the right */
+    text-align: left; /* Align content to the right */
   }
   .customs-items-table td::before {
     content: attr(data-label); /* Use data-label attribute for pseudo-headers */
