@@ -9,6 +9,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Dashboard from './components/Dashboard';
 import OrderDetail from './components/OrderDetail';
 import Login from './components/Login';
+import CustomsInfoList from './components/CustomsInfoList'; // Adjust path as needed
+import CustomsInfoForm from './components/CustomsInfoForm';   // Adjust path as needed
 import ProtectedRoute from './components/ProtectedRoute';
 
 // --- Import Utilities Section Components ---
@@ -179,6 +181,23 @@ function AppContent() {
           />
 
           <Route path="/utils/delete-order" element={<ProtectedRoute><DeleteOrderUtil /></ProtectedRoute>} />
+
+          {/* --- Customs Product Information CRUD --- */}
+          <Route path="/admin/customs-info" element={
+              <ProtectedRoute>
+                  <CustomsInfoList />
+              </ProtectedRoute>
+          } />
+          <Route path="/admin/customs-info/add" element={
+              <ProtectedRoute>
+                  <CustomsInfoForm />
+              </ProtectedRoute>
+          } />
+          <Route path="/admin/customs-info/edit/:itemId" element={ // Use itemId for the integer ID
+              <ProtectedRoute>
+                  <CustomsInfoForm />
+              </ProtectedRoute>
+          } />
 
           {/* Catch-all Route for 404 Not Found */}
           <Route

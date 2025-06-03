@@ -423,6 +423,8 @@ from blueprints.quickbooks import quickbooks_bp
 from blueprints.reports import reports_bp
 from blueprints.utils_routes import utils_bp 
 from blueprints.international import international_bp
+from blueprints.customs_info_crud import customs_info_bp
+
 
 app.register_blueprint(orders_bp, url_prefix='/api')
 app.register_blueprint(suppliers_bp, url_prefix='/api')
@@ -431,6 +433,7 @@ app.register_blueprint(quickbooks_bp, url_prefix='/api')
 app.register_blueprint(reports_bp, url_prefix='/api')    
 app.register_blueprint(utils_bp, url_prefix='/api/utils')  
 app.register_blueprint(international_bp, url_prefix='/api') 
+app.register_blueprint(customs_info_bp, url_prefix='/api')
 
 print("DEBUG APP_SETUP: All Blueprints registered.")
 

@@ -35,7 +35,7 @@ const formatShippingMethod = (methodString) => {
   if (lowerMethod.includes('next day air early a.m.') || lowerMethod.includes('next day air early am') || lowerMethod.includes('next day air e')) return 'UPS Next Day Air Early A.M.';
   if (lowerMethod.includes('next day air') || lowerMethod.includes('nda')) return 'UPS Next Day Air';
   if (lowerMethod.includes('2nd day air') || lowerMethod.includes('second day air')) return 'UPS 2nd Day Air';
-  if (lowerMethod.includes('ground') && (lowerMethod.includes('ups') || !lowerMethod.includes('fedex'))) return 'UPS Ground'; // Ensure "ground" defaults to UPS unless "fedex" is present
+  if (lowerMethod.includes('ground') && (lowerMethod.includes('ups') || !lowerMethod.includes('fedex'))) return 'UPS Ground';
   if (lowerMethod.includes('worldwide expedited')) return 'UPS Worldwide Expedited';
   if (lowerMethod.includes('worldwide express')) return 'UPS Worldwide Express';
   if (lowerMethod.includes('worldwide saver')) return 'UPS Worldwide Saver';
@@ -47,10 +47,10 @@ const formatShippingMethod = (methodString) => {
   const bcMatch = methodString.match(/\(([^)]+)\)/);
   if (bcMatch && bcMatch[1]) {
     const extracted = bcMatch[1].trim();
-    const innerFormatted = formatShippingMethod(extracted); // Recursive call
+    const innerFormatted = formatShippingMethod(extracted); 
     return innerFormatted !== 'N/A' && innerFormatted.toLowerCase() !== extracted.toLowerCase() ? innerFormatted : extracted;
   }
-  return String(methodString).trim(); // Fallback to the original string if no specific mapping found
+  return String(methodString).trim(); 
 };
 
 
@@ -110,7 +110,7 @@ function DomesticOrderProcessor({
 
   const [processing, setProcessing] = useState(false);
   const [purchaseItems, setPurchaseItems] = useState([]);
-  const [shipmentMethod, setShipmentMethod] = useState('UPS Ground');
+  const [shipmentMethod, setShipmentMethod] = useState('UPS Ground'); // Default, will be overridden
   const [shipmentWeight, setShipmentWeight] = useState('');
   const [selectedMainSupplierTrigger, setSelectedMainSupplierTrigger] = useState('');
   const [isMultiSupplierMode, setIsMultiSupplierMode] = useState(false);
@@ -123,10 +123,8 @@ function DomesticOrderProcessor({
   const [multiSupplierShipmentDetails, setMultiSupplierShipmentDetails] = useState({});
   const [originalCustomerShippingMethod, setOriginalCustomerShippingMethod] = useState('UPS Ground');
   
-  // Billing states
-  const [selectedUpsBillingOption, setSelectedUpsBillingOption] = useState('g1_account'); // 'g1_account' or 'recipient'
+  const [selectedUpsBillingOption, setSelectedUpsBillingOption] = useState('g1_account'); 
   const [customerUpsAccountNumber, setCustomerUpsAccountNumber] = useState('');
-  const [selectedFedexBillingOption, setSelectedFedexBillingOption] = useState('g1_account'); // 'g1_account' or 'recipient'
   const [customerFedexAccountNumber, setCustomerFedexAccountNumber] = useState('');
 
   const [isBlindDropShip, setIsBlindDropShip] = useState(false);
@@ -138,7 +136,9 @@ function DomesticOrderProcessor({
 
   const cleanPullSuffix = " - clean pull";
   const originalLineItems = originalLineItemsFromData || [];
+  
   const currentSelectedShippingOption = getSelectedShippingOption(shipmentMethod);
+
 
   useEffect(() => {
     if (isMultiSupplierMode && originalLineItems.length <= 1) {
@@ -150,45 +150,111 @@ function DomesticOrderProcessor({
   }, [originalLineItems.length, isMultiSupplierMode, selectedMainSupplierTrigger]);
 
   useEffect(() => {
+    // This effect initializes form fields based on orderData
     if (order) {
-        let determinedInitialShipMethod = 'UPS Ground';
-        let initialUpsBilling = 'g1_account';
-        let initialUpsAccount = '';
-        let initialFedexBilling = 'g1_account';
-        let initialFedexAccount = '';
+        let determinedInitialShipMethod = 'UPS Ground'; // Fallback default
+        let initialSelectedUpsBilling = 'g1_account'; // Used if carrier is UPS
+        let initialCustomerUpsAccount = '';       // Used if carrier is UPS & bill recipient
+        // initialCustomerFedexAccount is not needed as a temp variable here,
+        // as customerFedexAccountNumber state will be set directly later.
 
-        const customerSelectedUpsService = formatShippingMethod(order.customer_selected_freight_service);
-        const customerSelectedFedexService = formatShippingMethod(order.customer_selected_fedex_service);
-        const orderShippingMethodParsed = formatShippingMethod(order.customer_shipping_method);
+        if (order.is_bill_to_customer_fedex_account) {
+            // FedEx Bill Recipient Scenario
+            let fedexServiceToSet = null;
 
-        if (order.is_bill_to_customer_account && customerSelectedUpsService && getSelectedShippingOption(customerSelectedUpsService).carrier === 'ups') {
-            determinedInitialShipMethod = customerSelectedUpsService;
-            initialUpsBilling = 'recipient';
-            initialUpsAccount = order.customer_ups_account_number || '';
-        } else if (order.is_bill_to_customer_fedex_account && customerSelectedFedexService && getSelectedShippingOption(customerSelectedFedexService).carrier === 'fedex') {
-            determinedInitialShipMethod = customerSelectedFedexService;
-            initialFedexBilling = 'recipient';
-            initialFedexAccount = order.customer_fedex_account_number || '';
-        } else if (orderShippingMethodParsed) {
-            const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === orderShippingMethodParsed);
-            if (matchedOption) {
-                determinedInitialShipMethod = matchedOption.value;
-                if (matchedOption.carrier === 'ups' && order.is_bill_to_customer_account) {
-                   initialUpsBilling = 'recipient';
-                   initialUpsAccount = order.customer_ups_account_number || '';
-                } else if (matchedOption.carrier === 'fedex' && order.is_bill_to_customer_fedex_account) {
-                   initialFedexBilling = 'recipient';
-                   initialFedexAccount = order.customer_fedex_account_number || '';
+            // Helper function to check and attempt to map a raw service string to a specific FedEx service value
+            const mapToFedexService = (rawServiceString) => {
+                if (!rawServiceString || typeof rawServiceString !== 'string') return null;
+
+                // Attempt 1: Use formatShippingMethod and check if it's a known FedEx service
+                const formattedService = formatShippingMethod(rawServiceString);
+                const optionByFormattedValue = getSelectedShippingOption(formattedService);
+                if (optionByFormattedValue.carrier === 'fedex') {
+                    return formattedService; // Already a specific FedEx constant like "FEDEX_PRIORITY_OVERNIGHT"
+                }
+
+                // Attempt 2: If formatShippingMethod didn't yield a direct FedEx service,
+                // try matching the raw string (or parts of it) against FedEx option labels.
+                const lowerRawServiceString = rawServiceString.toLowerCase().trim();
+                const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt =>
+                    opt.carrier === 'fedex' &&
+                    opt.label.toLowerCase().includes(lowerRawServiceString)
+                );
+                if (matchedOption) {
+                    return matchedOption.value; // Return the value like "FEDEX_PRIORITY_OVERNIGHT"
+                }
+                return null; // No specific FedEx service found for this raw string
+            };
+
+            // Prioritize customer_selected_fedex_service from the order
+            fedexServiceToSet = mapToFedexService(order.customer_selected_fedex_service);
+
+            // If not found via customer_selected_fedex_service, try customer_shipping_method
+            if (!fedexServiceToSet) {
+                fedexServiceToSet = mapToFedexService(order.customer_shipping_method);
+            }
+
+            if (fedexServiceToSet) {
+                determinedInitialShipMethod = fedexServiceToSet;
+            } else {
+                // Fallback: If order indicates FedEx billing but no specific service could be determined,
+                // default to the first available FedEx option (e.g., FedEx Ground).
+                const defaultFedExOpt = SHIPPING_METHODS_OPTIONS.find(opt => opt.carrier === 'fedex');
+                if (defaultFedExOpt) {
+                    determinedInitialShipMethod = defaultFedExOpt.value;
                 }
             }
+        } else if (order.is_bill_to_customer_account) { // UPS Bill Recipient
+            initialSelectedUpsBilling = 'recipient';
+            initialCustomerUpsAccount = order.customer_ups_account_number || '';
+            
+            const formattedUpsService = formatShippingMethod(order.customer_selected_freight_service);
+            const formattedOrderMethodForUps = formatShippingMethod(order.customer_shipping_method);
+
+            if (formattedUpsService && getSelectedShippingOption(formattedUpsService).carrier === 'ups') {
+                determinedInitialShipMethod = formattedUpsService;
+            } else if (formattedOrderMethodForUps && getSelectedShippingOption(formattedOrderMethodForUps).carrier === 'ups') {
+                determinedInitialShipMethod = formattedOrderMethodForUps;
+            } else {
+                // Fallback for UPS if needed
+                const defaultUpsOpt = SHIPPING_METHODS_OPTIONS.find(opt => opt.carrier === 'ups');
+                if (defaultUpsOpt) {
+                    determinedInitialShipMethod = defaultUpsOpt.value;
+                }
+            }
+        } else { // Neither explicit bill-to-customer, use order's shipping method generally
+             const formattedOrderMethodGeneral = formatShippingMethod(order.customer_shipping_method);
+             // Ensure it's not 'N/A' and is a valid option, otherwise it sticks to 'UPS Ground' or whatever getSelectedShippingOption resolves
+             if (formattedOrderMethodGeneral && formattedOrderMethodGeneral !== 'N/A') {
+                determinedInitialShipMethod = formattedOrderMethodGeneral;
+             }
         }
+
         setShipmentMethod(determinedInitialShipMethod);
-        setOriginalCustomerShippingMethod(determinedInitialShipMethod);
-        setSelectedUpsBillingOption(initialUpsBilling);
-        setCustomerUpsAccountNumber(initialUpsAccount);
-        setSelectedFedexBillingOption(initialFedexBilling);
-        setCustomerFedexAccountNumber(initialFedexAccount);
+        setOriginalCustomerShippingMethod(determinedInitialShipMethod); 
+
+        // Now, set billing options based on the determinedInitialShipMethod's carrier
+        const finalSelectedMethodDetails = getSelectedShippingOption(determinedInitialShipMethod);
+
+        if (finalSelectedMethodDetails.carrier === 'fedex') {
+            setSelectedUpsBillingOption('g1_account'); // Reset UPS specific state
+            setCustomerUpsAccountNumber('');
+            // For FedEx, customerFedexAccountNumber was already set if order.is_bill_to_customer_fedex_account was true.
+            // If it wasn't (e.g. order method was FedEx but no explicit bill-to-customer flag),
+            // we still set it to recipient, and populate account if available from order.
+            setCustomerFedexAccountNumber(order.customer_fedex_account_number || ''); 
+        } else if (finalSelectedMethodDetails.carrier === 'ups') {
+            setSelectedUpsBillingOption(initialSelectedUpsBilling); // This was set based on order.is_bill_to_customer_account
+            setCustomerUpsAccountNumber(initialCustomerUpsAccount); // This was set based on order.is_bill_to_customer_account
+            setCustomerFedexAccountNumber(''); // Reset FedEx specific state
+        } else { // Carrier is null or other (e.g. if determinedInitialShipMethod ended up being a raw unmapped string)
+            setSelectedUpsBillingOption('g1_account');
+            setCustomerUpsAccountNumber('');
+            setCustomerFedexAccountNumber('');
+        }
     }
+
+    // Initialize purchase items, etc.
     if (originalLineItems) {
         const initialItemsForPoForm = originalLineItems.map(item => ({
             original_order_line_item_id: item.line_item_id, sku: item.hpe_option_pn || item.original_sku || '',
@@ -207,10 +273,21 @@ function DomesticOrderProcessor({
         });
         setMultiSupplierItemDescriptions(initialMultiDesc);
     } else { setPurchaseItems([]); setMultiSupplierItemDescriptions({}); }
-    setSelectedMainSupplierTrigger(''); setIsMultiSupplierMode(false); setIsG1OnsiteFulfillmentMode(false);
-    setSingleOrderPoNotes(''); setLineItemAssignments({}); setPoNotesBySupplier({}); setMultiSupplierItemCosts({});
-    setMultiSupplierShipmentDetails({}); setShipmentWeight(''); setIsBlindDropShip(false);
-  }, [orderData, cleanPullSuffix]);
+    
+    // Reset other form states if orderData changes (excluding the shipment method/billing already set)
+    if (selectedMainSupplierTrigger) setSelectedMainSupplierTrigger(''); 
+    setIsMultiSupplierMode(false); 
+    setIsG1OnsiteFulfillmentMode(false);
+    setSingleOrderPoNotes(''); 
+    setLineItemAssignments({}); 
+    setPoNotesBySupplier({}); 
+    setMultiSupplierItemCosts({});
+    // setMultiSupplierItemDescriptions({}); // Already handled above with originalLineItems
+    setMultiSupplierShipmentDetails({}); 
+    if (shipmentWeight) setShipmentWeight(''); 
+    setIsBlindDropShip(false);
+
+  }, [orderData, cleanPullSuffix]); 
 
   useEffect(() => {
     if (!orderData || !order || !originalLineItems) {
@@ -280,32 +357,30 @@ function DomesticOrderProcessor({
   }, [debouncedSku, skuToLookup.index, cleanPullSuffix, apiService, isMultiSupplierMode, isG1OnsiteFulfillmentMode]);
 
   const handleMainSupplierTriggerChange = (e) => {
-    const value = e.target.value; setSelectedMainSupplierTrigger(value);
-    setLocalProcessError(null); setGlobalProcessError(null); setProcessSuccess(false);
-    let defaultMethodForThisMode = 'UPS Ground';
-    let defaultUpsBilling = 'g1_account', defaultUpsAcct = '', defaultFedexBilling = 'g1_account', defaultFedexAcct = '';
-    if (order) {
-        const customerSelectedUpsService = formatShippingMethod(order.customer_selected_freight_service);
-        const customerSelectedFedexService = formatShippingMethod(order.customer_selected_fedex_service);
-        const orderShippingMethodParsed = formatShippingMethod(order.customer_shipping_method);
+    const value = e.target.value; 
+    setSelectedMainSupplierTrigger(value);
+    setLocalProcessError(null); 
+    setGlobalProcessError(null); 
+    setProcessSuccess(false);
 
-        if (order.is_bill_to_customer_account && customerSelectedUpsService && getSelectedShippingOption(customerSelectedUpsService).carrier === 'ups') {
-            defaultMethodForThisMode = customerSelectedUpsService; defaultUpsBilling = 'recipient'; defaultUpsAcct = order.customer_ups_account_number || '';
-        } else if (order.is_bill_to_customer_fedex_account && customerSelectedFedexService && getSelectedShippingOption(customerSelectedFedexService).carrier === 'fedex') {
-            defaultMethodForThisMode = customerSelectedFedexService; defaultFedexBilling = 'recipient'; defaultFedexAcct = order.customer_fedex_account_number || '';
-        } else if (orderShippingMethodParsed) {
-            const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt => opt.value === orderShippingMethodParsed);
-            if (matchedOption) {
-                defaultMethodForThisMode = matchedOption.value;
-                if (matchedOption.carrier === 'ups' && order.is_bill_to_customer_account) { defaultUpsBilling = 'recipient'; defaultUpsAcct = order.customer_ups_account_number || ''; }
-                else if (matchedOption.carrier === 'fedex' && order.is_bill_to_customer_fedex_account) { defaultFedexBilling = 'recipient'; defaultFedexAcct = order.customer_fedex_account_number || ''; }
-            }
-        }
+    const newSelectedMethodDetails = getSelectedShippingOption(originalCustomerShippingMethod);
+    setShipmentMethod(originalCustomerShippingMethod);
+    setShipmentWeight(''); 
+    setIsBlindDropShip(false);
+
+    if (newSelectedMethodDetails.carrier === 'fedex') {
+        setSelectedUpsBillingOption('g1_account');
+        setCustomerUpsAccountNumber('');
+        setCustomerFedexAccountNumber(order?.is_bill_to_customer_fedex_account ? (order.customer_fedex_account_number || '') : '');
+    } else if (newSelectedMethodDetails.carrier === 'ups') {
+        setSelectedUpsBillingOption(order?.is_bill_to_customer_account ? 'recipient' : 'g1_account');
+        setCustomerUpsAccountNumber(order?.is_bill_to_customer_account ? (order.customer_ups_account_number || '') : '');
+        setCustomerFedexAccountNumber('');
+    } else {
+        setSelectedUpsBillingOption('g1_account');
+        setCustomerUpsAccountNumber('');
+        setCustomerFedexAccountNumber('');
     }
-    setOriginalCustomerShippingMethod(defaultMethodForThisMode); setShipmentMethod(defaultMethodForThisMode);
-    setSelectedUpsBillingOption(defaultUpsBilling); setCustomerUpsAccountNumber(defaultUpsAcct);
-    setSelectedFedexBillingOption(defaultFedexBilling); setCustomerFedexAccountNumber(defaultFedexAcct);
-    setShipmentWeight(''); setIsBlindDropShip(false);
 
     if (value === G1_ONSITE_FULFILLMENT_VALUE) {
         setIsG1OnsiteFulfillmentMode(true); setIsMultiSupplierMode(false); setSingleOrderPoNotes(''); setPurchaseItems([]);
@@ -320,55 +395,79 @@ function DomesticOrderProcessor({
         const s = suppliers.find(sup => sup.id === parseInt(value, 10)); setSingleOrderPoNotes(s?.defaultponotes || '');
         if (originalLineItems) setPurchaseItems(originalLineItems.map(item => ({ original_order_line_item_id: item.line_item_id, sku: item.hpe_option_pn || item.original_sku || '', description: (item.hpe_po_description || item.line_item_name || '') + ((item.hpe_po_description || item.line_item_name || '').endsWith(cleanPullSuffix) ? '' : cleanPullSuffix), skuInputValue: item.hpe_option_pn || item.original_sku || '', quantity: item.quantity || 1, unit_cost: '', condition: 'New', original_sku: item.original_sku, hpe_option_pn: item.hpe_option_pn, original_name: item.line_item_name, hpe_po_description: item.hpe_po_description, hpe_pn_type: item.hpe_pn_type, })));
         else setPurchaseItems([]);
-        setLineItemAssignments({}); setPoNotesBySupplier({}); setMultiSupplierItemCosts({}); setMultiSupplierItemDescriptions({}); setMultiSupplierShipmentDetails({});
+        setLineItemAssignments({}); setPoNotesBySupplier({}); setMultiSupplierItemCosts({}); 
+        // setMultiSupplierItemDescriptions({}); // Resetting this here might clear descriptions needed if switching back from multi-supplier mode if not careful. However, the multi-supplier block re-initializes it.
+        setMultiSupplierShipmentDetails({});
     }
   };
   const handleSingleOrderPoNotesChange = (e) => setSingleOrderPoNotes(e.target.value);
   const handleLineItemSupplierAssignment = (originalLineItemId, supplierId) => {
     setLineItemAssignments(prev => ({ ...prev, [originalLineItemId]: supplierId }));
     if (supplierId && !poNotesBySupplier[supplierId]) { const s = suppliers.find(sup => sup.id === parseInt(supplierId, 10)); setPoNotesBySupplier(prev => ({ ...prev, [supplierId]: s?.defaultponotes || '' })); }
+    
     if (supplierId && isMultiSupplierMode && !multiSupplierShipmentDetails[supplierId]) {
         const initialShipOptionForMulti = getSelectedShippingOption(originalCustomerShippingMethod);
+        let initialUpsBill = 'g1_account', initialUpsAcct = '';
+        let initialFedexAcct = ''; 
+
+        if (initialShipOptionForMulti.carrier === 'ups') {
+            if (order?.is_bill_to_customer_account) {
+                initialUpsBill = 'recipient';
+                initialUpsAcct = order.customer_ups_account_number || '';
+            }
+        } else if (initialShipOptionForMulti.carrier === 'fedex') {
+             if (order?.is_bill_to_customer_fedex_account) {
+                initialFedexAcct = order.customer_fedex_account_number || '';
+             }
+        }
+
         setMultiSupplierShipmentDetails(prev => ({ ...prev, [supplierId]: {
-            method: originalCustomerShippingMethod, weight: '',
-            selectedUpsBillingOption: initialShipOptionForMulti.carrier === 'ups' && order?.is_bill_to_customer_account ? 'recipient' : 'g1_account',
-            customerUpsAccount: initialShipOptionForMulti.carrier === 'ups' && order?.is_bill_to_customer_account ? (order.customer_ups_account_number || '') : '',
-            selectedFedexBillingOption: initialShipOptionForMulti.carrier === 'fedex' && order?.is_bill_to_customer_fedex_account ? 'recipient' : 'g1_account',
-            customerFedexAccount: initialShipOptionForMulti.carrier === 'fedex' && order?.is_bill_to_customer_fedex_account ? (order.customer_fedex_account_number || '') : ''
+            method: originalCustomerShippingMethod, 
+            weight: '',
+            selectedUpsBillingOption: initialUpsBill,
+            customerUpsAccount: initialUpsAcct,
+            customerFedexAccount: initialFedexAcct
         }}));
     }
   };
   const handlePoNotesBySupplierChange = (supplierId, notes) => setPoNotesBySupplier(prev => ({ ...prev, [supplierId]: notes }));
   const handleMultiSupplierItemCostChange = (originalLineItemId, cost) => setMultiSupplierItemCosts(prev => ({ ...prev, [originalLineItemId]: cost }));
   const handleMultiSupplierItemDescriptionChange = (originalLineItemId, description) => setMultiSupplierItemDescriptions(prev => ({ ...prev, [originalLineItemId]: description }));
+  
   const handleMultiSupplierShipmentDetailChange = (supplierId, field, value) => {
     setMultiSupplierShipmentDetails(prev => {
-        const currentDetails = prev[supplierId] || { method: originalCustomerShippingMethod, weight: '', selectedUpsBillingOption: 'g1_account', customerUpsAccount: '', selectedFedexBillingOption: 'g1_account', customerFedexAccount: '' };
+        const currentDetails = prev[supplierId] || { 
+            method: originalCustomerShippingMethod, 
+            weight: '', 
+            selectedUpsBillingOption: 'g1_account', 
+            customerUpsAccount: '', 
+            customerFedexAccount: '' 
+        };
         const newDetailsForSupplier = { ...currentDetails, [field]: value };
+
         if (field === 'method') {
             const selectedOpt = getSelectedShippingOption(value);
             if (selectedOpt?.carrier === 'ups') {
                 newDetailsForSupplier.selectedUpsBillingOption = order?.is_bill_to_customer_account ? 'recipient' : 'g1_account';
                 newDetailsForSupplier.customerUpsAccount = (order?.is_bill_to_customer_account && order?.customer_ups_account_number) ? order.customer_ups_account_number : '';
-                newDetailsForSupplier.selectedFedexBillingOption = 'g1_account'; newDetailsForSupplier.customerFedexAccount = '';
+                newDetailsForSupplier.customerFedexAccount = '';
             } else if (selectedOpt?.carrier === 'fedex') {
-                newDetailsForSupplier.selectedFedexBillingOption = order?.is_bill_to_customer_fedex_account ? 'recipient' : 'g1_account';
                 newDetailsForSupplier.customerFedexAccount = (order?.is_bill_to_customer_fedex_account && order?.customer_fedex_account_number) ? order.customer_fedex_account_number : '';
-                newDetailsForSupplier.selectedUpsBillingOption = 'g1_account'; newDetailsForSupplier.customerUpsAccount = '';
+                newDetailsForSupplier.selectedUpsBillingOption = 'g1_account'; 
+                newDetailsForSupplier.customerUpsAccount = '';
             } else { 
-                newDetailsForSupplier.selectedUpsBillingOption = 'g1_account'; newDetailsForSupplier.customerUpsAccount = '';
-                newDetailsForSupplier.selectedFedexBillingOption = 'g1_account'; newDetailsForSupplier.customerFedexAccount = '';
+                newDetailsForSupplier.selectedUpsBillingOption = 'g1_account'; 
+                newDetailsForSupplier.customerUpsAccount = '';
+                newDetailsForSupplier.customerFedexAccount = '';
             }
-        } else if (field === 'selectedUpsBillingOption') {
+        } else if (field === 'selectedUpsBillingOption') { 
             if (value === 'recipient') newDetailsForSupplier.customerUpsAccount = order?.customer_ups_account_number || '';
             else newDetailsForSupplier.customerUpsAccount = '';
-        } else if (field === 'selectedFedexBillingOption') {
-            if (value === 'recipient') newDetailsForSupplier.customerFedexAccount = order?.customer_fedex_account_number || '';
-            else newDetailsForSupplier.customerFedexAccount = '';
         }
         return { ...prev, [supplierId]: newDetailsForSupplier };
     });
   };
+
   const handlePurchaseItemChange = (index, field, value) => {
     setPurchaseItems(prevItems => {
         const items = [...prevItems];
@@ -376,20 +475,24 @@ function DomesticOrderProcessor({
         return items;
     });
   };
+
   const handleShipmentMethodChange = (e) => {
-    const newMethod = e.target.value; setShipmentMethod(newMethod);
+    const newMethod = e.target.value; 
+    setShipmentMethod(newMethod);
     const selectedOpt = getSelectedShippingOption(newMethod);
+
     if (selectedOpt?.carrier === 'ups') {
         setSelectedUpsBillingOption(order?.is_bill_to_customer_account ? 'recipient' : 'g1_account');
         setCustomerUpsAccountNumber((order?.is_bill_to_customer_account && order?.customer_ups_account_number) ? order.customer_ups_account_number : '');
-        setSelectedFedexBillingOption('g1_account'); setCustomerFedexAccountNumber('');
+        setCustomerFedexAccountNumber('');
     } else if (selectedOpt?.carrier === 'fedex') {
-        setSelectedFedexBillingOption(order?.is_bill_to_customer_fedex_account ? 'recipient' : 'g1_account');
         setCustomerFedexAccountNumber((order?.is_bill_to_customer_fedex_account && order?.customer_fedex_account_number) ? order.customer_fedex_account_number : '');
-        setSelectedUpsBillingOption('g1_account'); setCustomerUpsAccountNumber('');
-    } else {
-        setSelectedFedexBillingOption('g1_account'); setCustomerFedexAccountNumber('');
-        setSelectedUpsBillingOption('g1_account'); setCustomerUpsAccountNumber('');
+        setSelectedUpsBillingOption('g1_account'); 
+        setCustomerUpsAccountNumber('');
+    } else { 
+        setSelectedUpsBillingOption('g1_account'); 
+        setCustomerUpsAccountNumber('');
+        setCustomerFedexAccountNumber('');
     }
   };
   const handleShipmentWeightChange = (e) => setShipmentWeight(e.target.value);
@@ -400,23 +503,32 @@ function DomesticOrderProcessor({
     if (!apiService) { setGlobalProcessError("API service is not available."); return; }
     setProcessing(true); setLocalProcessError(null); setGlobalProcessError(null); setProcessSuccess(false);
     let payloadAssignments = [];
+    const currentShipmentCarrier = currentSelectedShippingOption?.carrier;
+
     if (isG1OnsiteFulfillmentMode) {
         if (originalLineItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setLocalProcessError("Invalid shipment weight for G1 Onsite."); setProcessing(false); return; }
             if (!shipmentMethod || !currentSelectedShippingOption) { setLocalProcessError("Select shipment method for G1 Onsite."); setProcessing(false); return; }
-            if (currentSelectedShippingOption.carrier === 'fedex' && selectedFedexBillingOption === 'recipient' && !customerFedexAccountNumber.trim()) { setLocalProcessError("Customer FedEx Acct # required for G1 Onsite Bill Recipient (FedEx)."); setProcessing(false); return; }
-            if (currentSelectedShippingOption.carrier === 'ups' && selectedUpsBillingOption === 'recipient' && !customerUpsAccountNumber.trim()) { setLocalProcessError("Customer UPS Acct # required for G1 Onsite Bill Recipient (UPS)."); setProcessing(false); return; }
+            
+            if (currentShipmentCarrier === 'fedex' && !customerFedexAccountNumber.trim()) { 
+                setLocalProcessError("Customer FedEx Acct # required for G1 Onsite Bill Recipient (FedEx)."); setProcessing(false); return; 
+            }
+            if (currentShipmentCarrier === 'ups' && selectedUpsBillingOption === 'recipient' && !customerUpsAccountNumber.trim()) { 
+                setLocalProcessError("Customer UPS Acct # required for G1 Onsite Bill Recipient (UPS)."); setProcessing(false); return; 
+            }
         }
         payloadAssignments.push({
-            supplier_id: G1_ONSITE_FULFILLMENT_VALUE, payment_instructions: "G1 Onsite Fulfillment", po_line_items: [],
+            supplier_id: G1_ONSITE_FULFILLMENT_VALUE, 
+            payment_instructions: "G1 Onsite Fulfillment", 
+            po_line_items: [],
             total_shipment_weight_lbs: originalLineItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null,
             shipment_method: originalLineItems.length > 0 ? shipmentMethod : null,
-            carrier: originalLineItems.length > 0 ? (currentSelectedShippingOption?.carrier || null) : null,
-            is_bill_to_customer_fedex_account: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' ? (selectedFedexBillingOption === 'recipient') : false,
-            customer_fedex_account_number: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' && selectedFedexBillingOption === 'recipient' ? customerFedexAccountNumber.trim() : null,
-            is_bill_to_customer_ups_account: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' ? (selectedUpsBillingOption === 'recipient') : false,
-            customer_ups_account_number: originalLineItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' && selectedUpsBillingOption === 'recipient' ? customerUpsAccountNumber.trim() : null,
+            carrier: originalLineItems.length > 0 ? currentShipmentCarrier : null,
+            is_bill_to_customer_fedex_account: originalLineItems.length > 0 && currentShipmentCarrier === 'fedex', 
+            customer_fedex_account_number: originalLineItems.length > 0 && currentShipmentCarrier === 'fedex' ? customerFedexAccountNumber.trim() : null,
+            is_bill_to_customer_ups_account: originalLineItems.length > 0 && currentShipmentCarrier === 'ups' ? (selectedUpsBillingOption === 'recipient') : false,
+            customer_ups_account_number: originalLineItems.length > 0 && currentShipmentCarrier === 'ups' && selectedUpsBillingOption === 'recipient' ? customerUpsAccountNumber.trim() : null,
             is_blind_drop_ship: isBlindDropShip
         });
     } else if (isMultiSupplierMode) {
@@ -438,43 +550,63 @@ function DomesticOrderProcessor({
                     if (!String(descForPo).trim()) { itemCostValidationError = `Missing desc for SKU ${item.original_sku || 'N/A'} (Sup: ${supplier?.name}).`; return null; }
                     return { original_order_line_item_id: item.line_item_id, sku: item.hpe_option_pn || item.original_sku, description: String(descForPo).trim(), quantity: item.quantity, unit_cost: costFloat.toFixed(2), condition: 'New' };
                 }).filter(Boolean);
+
                 if (itemCostValidationError) { setLocalProcessError(itemCostValidationError); setProcessing(false); return; }
                 if (poLineItems.length !== itemsForThisSupplier.length && itemsForThisSupplier.length > 0) { setLocalProcessError("Item validation errors for a supplier."); setProcessing(false); return; }
+                
                 const shipDetailsForPo = multiSupplierShipmentDetails[supId] || {};
                 const poMethod = shipDetailsForPo.method, poWeight = shipDetailsForPo.weight;
                 const selectedPoShipOptMulti = getSelectedShippingOption(poMethod);
+                const poCarrier = selectedPoShipOptMulti?.carrier;
+
                 if (poMethod && (!poWeight || parseFloat(poWeight) <= 0)) { setLocalProcessError(`Invalid weight for PO to ${supplier?.name}.`); setProcessing(false); return; }
                 if (!poMethod && poWeight && parseFloat(poWeight) > 0) { setLocalProcessError(`Shipping method required for PO to ${supplier?.name}.`); setProcessing(false); return; }
-                const poFedexBillRecipient = shipDetailsForPo.selectedFedexBillingOption === 'recipient';
-                const poFedexAcct = shipDetailsForPo.customerFedexAccount || '';
+                
                 const poUpsBillRecipient = shipDetailsForPo.selectedUpsBillingOption === 'recipient';
                 const poUpsAcct = shipDetailsForPo.customerUpsAccount || '';
-                if (selectedPoShipOptMulti?.carrier === 'fedex' && poFedexBillRecipient && !poFedexAcct.trim()) { setLocalProcessError(`Customer FedEx Acct # for PO to ${supplier?.name}.`); setProcessing(false); return; }
-                if (selectedPoShipOptMulti?.carrier === 'ups' && poUpsBillRecipient && !poUpsAcct.trim()) { setLocalProcessError(`Customer UPS Acct # for PO to ${supplier?.name}.`); setProcessing(false); return; }
+                const poFedexAcct = shipDetailsForPo.customerFedexAccount || ''; 
+
+                if (poCarrier === 'fedex' && !poFedexAcct.trim()) { 
+                    setLocalProcessError(`Customer FedEx Acct # for PO to ${supplier?.name}.`); setProcessing(false); return; 
+                }
+                if (poCarrier === 'ups' && poUpsBillRecipient && !poUpsAcct.trim()) { 
+                    setLocalProcessError(`Customer UPS Acct # for PO to ${supplier?.name}.`); setProcessing(false); return; 
+                }
+
                 payloadAssignments.push({
-                    supplier_id: parseInt(supId, 10), payment_instructions: poNotesBySupplier[supId] || "", po_line_items: poLineItems,
-                    total_shipment_weight_lbs: poWeight ? parseFloat(poWeight).toFixed(1) : null, shipment_method: poMethod || null,
-                    carrier: selectedPoShipOptMulti?.carrier || (poMethod ? null : null),
-                    is_bill_to_customer_fedex_account: selectedPoShipOptMulti?.carrier === 'fedex' ? poFedexBillRecipient : false,
-                    customer_fedex_account_number: selectedPoShipOptMulti?.carrier === 'fedex' && poFedexBillRecipient ? poFedexAcct.trim() : null,
-                    is_bill_to_customer_ups_account: selectedPoShipOptMulti?.carrier === 'ups' ? poUpsBillRecipient : false,
-                    customer_ups_account_number: selectedPoShipOptMulti?.carrier === 'ups' && poUpsBillRecipient ? poUpsAcct.trim() : null,
+                    supplier_id: parseInt(supId, 10), 
+                    payment_instructions: poNotesBySupplier[supId] || "", 
+                    po_line_items: poLineItems,
+                    total_shipment_weight_lbs: poWeight ? parseFloat(poWeight).toFixed(1) : null, 
+                    shipment_method: poMethod || null,
+                    carrier: poCarrier || (poMethod ? null : null),
+                    is_bill_to_customer_fedex_account: poCarrier === 'fedex', 
+                    customer_fedex_account_number: poCarrier === 'fedex' ? poFedexAcct.trim() : null,
+                    is_bill_to_customer_ups_account: poCarrier === 'ups' ? poUpsBillRecipient : false,
+                    customer_ups_account_number: poCarrier === 'ups' && poUpsBillRecipient ? poUpsAcct.trim() : null,
                     is_blind_drop_ship: isBlindDropShip 
                 });
             }
         }
         if (payloadAssignments.length === 0 && originalLineItems.length > 0) { setLocalProcessError("No items for PO in multi-supplier mode."); setProcessing(false); return; }
-    } else { // Single Supplier Mode
+    } else { 
         const singleSelectedSupId = selectedMainSupplierTrigger;
         if (!singleSelectedSupId || singleSelectedSupId === MULTI_SUPPLIER_MODE_VALUE || singleSelectedSupId === G1_ONSITE_FULFILLMENT_VALUE) { setLocalProcessError("Select a supplier."); setProcessing(false); return; }
+        
         const currentPurchaseItems = purchaseItems; 
         if (currentPurchaseItems.length > 0) {
             const weightFloat = parseFloat(shipmentWeight);
             if (!shipmentWeight || isNaN(weightFloat) || weightFloat <= 0) { setLocalProcessError("Invalid shipment weight."); setProcessing(false); return; }
             if (!shipmentMethod || !currentSelectedShippingOption) { setLocalProcessError("Select a shipment method."); setProcessing(false); return; }
-            if (currentSelectedShippingOption.carrier === 'fedex' && selectedFedexBillingOption === 'recipient' && !customerFedexAccountNumber.trim()) { setLocalProcessError("Customer FedEx Acct # for Bill Recipient (FedEx)."); setProcessing(false); return; }
-            if (currentSelectedShippingOption.carrier === 'ups' && selectedUpsBillingOption === 'recipient' && !customerUpsAccountNumber.trim()) { setLocalProcessError("Customer UPS Acct # for Bill Recipient (UPS)."); setProcessing(false); return; }
+
+            if (currentShipmentCarrier === 'fedex' && !customerFedexAccountNumber.trim()) { 
+                setLocalProcessError("Customer FedEx Acct # for Bill Recipient (FedEx)."); setProcessing(false); return; 
+            }
+            if (currentShipmentCarrier === 'ups' && selectedUpsBillingOption === 'recipient' && !customerUpsAccountNumber.trim()) { 
+                setLocalProcessError("Customer UPS Acct # for Bill Recipient (UPS)."); setProcessing(false); return; 
+            }
         }
+
         let itemValidationError = null;
         const finalPurchaseItems = currentPurchaseItems.map((item, index) => {
             const quantityInt = parseInt(item.quantity, 10); const costFloat = parseFloat(item.unit_cost);
@@ -484,19 +616,22 @@ function DomesticOrderProcessor({
             if (!String(item.description).trim()) { itemValidationError = `Item #${index + 1}: Desc required.`; return null; }
             return { original_order_line_item_id: item.original_order_line_item_id, sku: String(item.skuInputValue).trim(), description: String(item.description).trim(), quantity: quantityInt, unit_cost: costFloat.toFixed(2), condition: item.condition || 'New' };
         }).filter(Boolean);
+
         if (itemValidationError) { setLocalProcessError(itemValidationError); setProcessing(false); return; }
         if (finalPurchaseItems.length === 0 && originalLineItems.length > 0) { setLocalProcessError("No valid line items for PO."); setProcessing(false); return; }
+        
         if (finalPurchaseItems.length > 0 || originalLineItems.length === 0) { 
             payloadAssignments.push({
-                supplier_id: parseInt(singleSelectedSupId, 10), payment_instructions: singleOrderPoNotes,
+                supplier_id: parseInt(singleSelectedSupId, 10), 
+                payment_instructions: singleOrderPoNotes,
                 total_shipment_weight_lbs: finalPurchaseItems.length > 0 ? parseFloat(shipmentWeight).toFixed(1) : null,
                 shipment_method: finalPurchaseItems.length > 0 ? shipmentMethod : null,
                 po_line_items: finalPurchaseItems,
-                carrier: finalPurchaseItems.length > 0 ? (currentSelectedShippingOption?.carrier || null) : null,
-                is_bill_to_customer_fedex_account: finalPurchaseItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' ? (selectedFedexBillingOption === 'recipient') : false,
-                customer_fedex_account_number: finalPurchaseItems.length > 0 && currentSelectedShippingOption?.carrier === 'fedex' && selectedFedexBillingOption === 'recipient' ? customerFedexAccountNumber.trim() : null,
-                is_bill_to_customer_ups_account: finalPurchaseItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' ? (selectedUpsBillingOption === 'recipient') : false,
-                customer_ups_account_number: finalPurchaseItems.length > 0 && currentSelectedShippingOption?.carrier === 'ups' && selectedUpsBillingOption === 'recipient' ? customerUpsAccountNumber.trim() : null,
+                carrier: finalPurchaseItems.length > 0 ? currentShipmentCarrier : null,
+                is_bill_to_customer_fedex_account: finalPurchaseItems.length > 0 && currentShipmentCarrier === 'fedex', 
+                customer_fedex_account_number: finalPurchaseItems.length > 0 && currentShipmentCarrier === 'fedex' ? customerFedexAccountNumber.trim() : null,
+                is_bill_to_customer_ups_account: finalPurchaseItems.length > 0 && currentShipmentCarrier === 'ups' ? (selectedUpsBillingOption === 'recipient') : false,
+                customer_ups_account_number: finalPurchaseItems.length > 0 && currentShipmentCarrier === 'ups' && selectedUpsBillingOption === 'recipient' ? customerUpsAccountNumber.trim() : null,
                 is_blind_drop_ship: isBlindDropShip
             });
         }
@@ -507,14 +642,14 @@ function DomesticOrderProcessor({
     try {
         const finalPayload = { assignments: payloadAssignments };
         const responseData = await apiService.post(`/orders/${order.id}/process`, finalPayload);
-        setProcessSuccess(true); // Use parent's setter
+        setProcessSuccess(true); 
         setProcessSuccessMessage(responseData.message || "Order processed successfully!");
         if(setProcessedPOsInfo) setProcessedPOsInfo(Array.isArray(responseData.processed_purchase_orders) ? responseData.processed_purchase_orders : []);
         const ac = new AbortController(); await fetchOrderAndSuppliers(ac.signal, true); 
     } catch (err) {
         let errorMsg = err.data?.error || err.data?.message || err.message || "Processing error.";
         if (err.status === 401 || err.status === 403) { errorMsg = "Unauthorized. Log in again."; navigate('/login'); }
-        setLocalProcessError(errorMsg); setGlobalProcessError(errorMsg); // Set both local and global
+        setLocalProcessError(errorMsg); setGlobalProcessError(errorMsg); 
         setProcessSuccess(false); if(setProcessedPOsInfo) setProcessedPOsInfo([]);
     } finally { setProcessing(false); }
   };
@@ -532,7 +667,7 @@ function DomesticOrderProcessor({
                 <option value="">-- Select Supplier --</option>
                 {(suppliers || []).map(supplier => (<option key={supplier.id} value={supplier.id}>{supplier.name || 'Unnamed Supplier'}</option>))}
                 {originalLineItems.length > 1 && (<option value={MULTI_SUPPLIER_MODE_VALUE}>** Use Multiple Suppliers **</option>)}
-                {originalLineItems.length >= 0 && (<option value={G1_ONSITE_FULFILLMENT_VALUE}>G1 Onsite Fulfillment</option>)} {/* Allow G1 onsite even for 0 items */}
+                {originalLineItems.length >= 0 && (<option value={G1_ONSITE_FULFILLMENT_VALUE}>G1 Onsite Fulfillment</option>)}
             </select>
         </div>
       </section>
@@ -573,15 +708,11 @@ function DomesticOrderProcessor({
                 </>)}
                 {currentSelectedShippingOption?.carrier === 'fedex' && (originalLineItems.length > 0 || purchaseItems.length > 0) && (<>
                     <label htmlFor="selectedFedexBillingOptionSingle">FedEx Billing:</label>
-                    <select id="selectedFedexBillingOptionSingle" value={selectedFedexBillingOption} disabled={disableEditableFormFields}
-                        onChange={(e) => { setSelectedFedexBillingOption(e.target.value); if (e.target.value === 'recipient') setCustomerFedexAccountNumber(order?.customer_fedex_account_number || ''); else setCustomerFedexAccountNumber(''); }}>
-                        <option value="g1_account">Ship on G1 Account (FedEx)</option>
-                        <option value="recipient">Bill Recipient Account (FedEx)</option>
-                    </select>
-                    {selectedFedexBillingOption === 'recipient' && (<>
-                        <label htmlFor="customerFedexAccountSingle">Recipient FedEx Acct #:</label>
-                        <input type="text" id="customerFedexAccountSingle" value={customerFedexAccountNumber} onChange={(e) => setCustomerFedexAccountNumber(e.target.value)} placeholder="FedEx Account Number" required disabled={disableEditableFormFields} />
-                    </>)}
+                    <input type="text" id="selectedFedexBillingOptionSingle" className="form-control-plaintext" value="Bill Recipient Account (FedEx)" readOnly disabled 
+                           style={{ opacity: 0.7, border: '1px solid var(--border-input)', padding: '0.375rem 0.75rem', borderRadius: '.25rem', backgroundColor: 'var(--bg-disabled)' }} />
+                    
+                    <label htmlFor="customerFedexAccountSingle">Recipient FedEx Acct #:</label>
+                    <input type="text" id="customerFedexAccountSingle" value={customerFedexAccountNumber} onChange={(e) => setCustomerFedexAccountNumber(e.target.value)} placeholder="FedEx Account Number" required disabled={disableEditableFormFields} />
                 </>)}
             </div></section>
             <section className="branding-options-section card" style={{ marginTop: 'var(--spacing-lg)' }}><h3>Branding Options</h3><div className="form-grid"> 
@@ -599,7 +730,12 @@ function DomesticOrderProcessor({
             {[...new Set(Object.values(lineItemAssignments))].filter(id => id).map(supplierId => {
                 const supplier = suppliers.find(s => s.id === parseInt(supplierId, 10)); if (!supplier) return null;
                 const itemsForThisSupplier = originalLineItems.filter(item => lineItemAssignments[item.line_item_id] === supplierId);
-                const currentPoShipDetails = multiSupplierShipmentDetails[supplierId] || { method: originalCustomerShippingMethod, weight: '', selectedUpsBillingOption: 'g1_account', customerUpsAccount: '', selectedFedexBillingOption: 'g1_account', customerFedexAccount: ''};
+                const currentPoShipDetails = multiSupplierShipmentDetails[supplierId] || { 
+                    method: originalCustomerShippingMethod, 
+                    weight: '', 
+                    selectedUpsBillingOption: 'g1_account', customerUpsAccount: '', 
+                    customerFedexAccount: ''
+                };
                 const selectedPoShipOption = getSelectedShippingOption(currentPoShipDetails.method);
                 return (
                     <section key={supplierId} className="supplier-po-draft card"><h4>PO Draft for: {supplier.name}</h4>
@@ -614,6 +750,7 @@ function DomesticOrderProcessor({
                                 {SHIPPING_METHODS_OPTIONS.map(opt => <option key={`${opt.value}-${opt.carrier}-multi-${supplierId}`} value={opt.value}>{opt.label}</option>)}</select>
                             <label htmlFor={`shipWeightMulti-${supplierId}`}>Weight (lbs):</label>
                             <input type="number" id={`shipWeightMulti-${supplierId}`} value={currentPoShipDetails.weight} onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'weight', e.target.value)} step="0.1" min="0.1" placeholder="e.g., 2.0" required={itemsForThisSupplier.length > 0} disabled={disableAllActions} />
+                            
                             {selectedPoShipOption?.carrier === 'ups' && (<>
                                 <label htmlFor={`selectedUpsBillingOptionMulti-${supplierId}`}>UPS Billing:</label>
                                 <select id={`selectedUpsBillingOptionMulti-${supplierId}`} value={currentPoShipDetails.selectedUpsBillingOption} disabled={disableAllActions}
@@ -625,13 +762,12 @@ function DomesticOrderProcessor({
                                 </>)}</>)}
                             {selectedPoShipOption?.carrier === 'fedex' && (<>
                                 <label htmlFor={`selectedFedexBillingOptionMulti-${supplierId}`}>FedEx Billing:</label>
-                                <select id={`selectedFedexBillingOptionMulti-${supplierId}`} value={currentPoShipDetails.selectedFedexBillingOption} disabled={disableAllActions}
-                                    onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'selectedFedexBillingOption', e.target.value)}>
-                                    <option value="g1_account">Ship on G1 Account (FedEx)</option><option value="recipient">Bill Recipient Account (FedEx)</option></select>
-                                {currentPoShipDetails.selectedFedexBillingOption === 'recipient' && (<>
-                                    <label htmlFor={`customerFedexAccountMulti-${supplierId}`}>Recipient FedEx Acct #:</label>
-                                    <input type="text" id={`customerFedexAccountMulti-${supplierId}`} value={currentPoShipDetails.customerFedexAccount} onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'customerFedexAccount', e.target.value)} placeholder="FedEx Account Number" required disabled={disableAllActions} />
-                                </>)}</>)}</div>
+                                <input type="text" id={`selectedFedexBillingOptionMulti-${supplierId}`} className="form-control-plaintext" value="Bill Recipient Account (FedEx)" readOnly disabled 
+                                       style={{ opacity: 0.7, border: '1px solid var(--border-input)', padding: '0.375rem 0.75rem', borderRadius: '.25rem', backgroundColor: 'var(--bg-disabled)' }}/>
+                                <label htmlFor={`customerFedexAccountMulti-${supplierId}`}>Recipient FedEx Acct #:</label>
+                                <input type="text" id={`customerFedexAccountMulti-${supplierId}`} value={currentPoShipDetails.customerFedexAccount} onChange={(e) => handleMultiSupplierShipmentDetailChange(supplierId, 'customerFedexAccount', e.target.value)} placeholder="FedEx Account Number" required disabled={disableAllActions} />
+                                </>)}
+                        </div>
                         <div className="form-grid" style={{marginTop: 'var(--spacing-md)'}}><label htmlFor={`poNotes-${supplierId}`} style={{gridColumn: '1 / -1', textAlign: 'left'}}>PO Notes for {supplier.name}:</label><textarea id={`poNotes-${supplierId}`} value={poNotesBySupplier[supplierId] || ''} onChange={(e) => handlePoNotesBySupplierChange(supplierId, e.target.value)} rows="3" disabled={disableAllActions} style={{gridColumn: '1 / -1', width: '100%'}}/></div></section>);})}
             <section className="card" style={{marginTop: 'var(--spacing-lg)'}}><h3>Packing Slip Branding</h3><div className="form-grid">
                     <label htmlFor="brandingOptionMultiGlobal">Branding:</label>
@@ -651,6 +787,7 @@ function DomesticOrderProcessor({
               <label htmlFor="brandingOptionG1">Branding:</label>
               <select id="brandingOptionG1" value={isBlindDropShip ? 'blind' : 'g1'} onChange={handleBrandingChange} disabled={disableEditableFormFields}>
                   <option value="g1">Global One Technology Branding</option><option value="blind">Blind Ship (Generic Packing Slip)</option></select>
+              
               {currentSelectedShippingOption?.carrier === 'ups' && originalLineItems.length > 0 && (<>
                   <label htmlFor="selectedUpsBillingOptionG1">UPS Billing:</label>
                   <select id="selectedUpsBillingOptionG1" value={selectedUpsBillingOption} disabled={disableEditableFormFields}
@@ -662,13 +799,12 @@ function DomesticOrderProcessor({
                   </>)}</>)}
               {currentSelectedShippingOption?.carrier === 'fedex' && originalLineItems.length > 0 && (<>
                   <label htmlFor="selectedFedexBillingOptionG1">FedEx Billing:</label>
-                  <select id="selectedFedexBillingOptionG1" value={selectedFedexBillingOption} disabled={disableEditableFormFields}
-                      onChange={(e) => { setSelectedFedexBillingOption(e.target.value); if (e.target.value === 'recipient') setCustomerFedexAccountNumber(order?.customer_fedex_account_number || ''); else setCustomerFedexAccountNumber(''); }}>
-                      <option value="g1_account">Ship on G1 Account (FedEx)</option><option value="recipient">Bill Recipient Account (FedEx)</option></select>
-                  {selectedFedexBillingOption === 'recipient' && (<>
-                      <label htmlFor="customerFedexAccountG1">Recipient FedEx Acct #:</label>
-                      <input type="text" id="customerFedexAccountG1" value={customerFedexAccountNumber} onChange={(e) => setCustomerFedexAccountNumber(e.target.value)} placeholder="FedEx Account Number" required disabled={disableEditableFormFields} />
-                  </>)}</>)}</div></section>
+                  <input type="text" id="selectedFedexBillingOptionG1" className="form-control-plaintext" value="Bill Recipient Account (FedEx)" readOnly disabled
+                         style={{ opacity: 0.7, border: '1px solid var(--border-input)', padding: '0.375rem 0.75rem', borderRadius: '.25rem', backgroundColor: 'var(--bg-disabled)' }} />
+                  <label htmlFor="customerFedexAccountG1">Recipient FedEx Acct #:</label>
+                  <input type="text" id="customerFedexAccountG1" value={customerFedexAccountNumber} onChange={(e) => setCustomerFedexAccountNumber(e.target.value)} placeholder="FedEx Account Number" required disabled={disableEditableFormFields} />
+                  </>)}
+            </div></section>
             <div className="order-actions"> <button type="submit" disabled={disableAllActions || processing} className="process-order-button"> {processing ? 'Processing G1 Fulfillment...' : 'PROCESS G1 ONSITE FULFILLMENT'} </button> </div></form>)}
       {localProcessError && <div className="error-message" style={{ marginTop: '10px' }}>{localProcessError}</div>}
     </>

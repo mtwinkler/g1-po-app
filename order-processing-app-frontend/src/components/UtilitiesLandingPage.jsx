@@ -44,6 +44,12 @@ function UtilitiesLandingPage() {
           <p>Manage PO descriptions for HPE Option PNs.</p>
         </Link>
 
+
+        <Link to="/admin/customs-info" className="utility-card">
+          <h2>Customs Product Information</h2>
+          <p>Add, view, and edit customs product details (descriptions, tariff codes, COOs).</p>
+        </Link>
+
         <Link to="/utils/delete-order" className="utility-card">
           <h2>Delete Local Order Data</h2>
           <p>Remove an order and its related data from this application's database.</p>
@@ -61,5 +67,7 @@ function UtilitiesLandingPage() {
     </div>
   );
 }
+
+
 
 export default UtilitiesLandingPage;

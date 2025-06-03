@@ -667,94 +667,188 @@ def generate_ups_international_shipment(shipment_payload_from_frontend):
         return None, None
 
 def generate_fedex_label_raw(order_data, ship_from_address, total_weight_lbs, customer_shipping_method_name, access_token):
-    if not access_token: print("ERROR FEDEX_LABEL_RAW: FedEx Access token not provided."); return None, None
-    if not FEDEX_SHIPPER_ACCOUNT_NUMBER: print("ERROR FEDEX_LABEL_RAW: FEDEX_SHIPPER_ACCOUNT_NUMBER not configured."); return None, None
-    fedex_service_type_enum = map_shipping_method_to_fedex_code(customer_shipping_method_name)
-    if not fedex_service_type_enum: print(f"ERROR FEDEX_LABEL_RAW: Could not map shipping method '{customer_shipping_method_name}'."); return None, None
-    ship_to_street_lines = [s for s in [order_data.get('customer_shipping_address_line1'), order_data.get('customer_shipping_address_line2')] if s and s.strip()]
-    if not ship_to_street_lines: print("ERROR FEDEX_LABEL_RAW: Ship To address line 1 is missing."); return None, None
+    if not access_token:
+        print("ERROR FEDEX_LABEL_RAW: FedEx Access token not provided.")
+        return None, None
+    if not FEDEX_SHIPPER_ACCOUNT_NUMBER: # This is G1's account, still needed for the API request structure, but not for payment.
+        print("ERROR FEDEX_LABEL_RAW: FEDEX_SHIPPER_ACCOUNT_NUMBER (G1's main account) not configured for API call.")
+        return None, None
 
+    fedex_service_type_enum = map_shipping_method_to_fedex_code(customer_shipping_method_name)
+    if not fedex_service_type_enum:
+        print(f"ERROR FEDEX_LABEL_RAW: Could not map shipping method '{customer_shipping_method_name}'.")
+        return None, None
+
+    ship_to_street_lines = [s for s in [order_data.get('customer_shipping_address_line1'), order_data.get('customer_shipping_address_line2')] if s and s.strip()]
+    if not ship_to_street_lines:
+        print("ERROR FEDEX_LABEL_RAW: Ship To address line 1 is missing.")
+        return None, None
+
+    # --- State/Province Code Processing (remains the same) ---
     ship_to_country_code_from_data = order_data.get('customer_shipping_country_iso2', 'US')
-    print(f"DEBUG FEDEX_LABEL_RAW (ShipTo): Raw country_iso2: '{ship_to_country_code_from_data}'")
+    # print(f"DEBUG FEDEX_LABEL_RAW (ShipTo): Raw country_iso2: '{ship_to_country_code_from_data}'")
     ship_to_country_code_upper = ship_to_country_code_from_data.upper() if ship_to_country_code_from_data and len(ship_to_country_code_from_data) == 2 else 'US'
     if not ship_to_country_code_from_data or len(ship_to_country_code_from_data) != 2:
         print(f"WARN FEDEX_LABEL_RAW (ShipTo): Invalid/missing 'customer_shipping_country_iso2' ('{ship_to_country_code_from_data}'). Defaulting to 'US'. Original full name: '{order_data.get('customer_shipping_country')}'")
         ship_to_country_code_upper = 'US'
-    print(f"DEBUG FEDEX_LABEL_RAW (ShipTo): Processed CountryCode: '{ship_to_country_code_upper}'")
+    # print(f"DEBUG FEDEX_LABEL_RAW (ShipTo): Processed CountryCode: '{ship_to_country_code_upper}'")
     ship_to_state_input = order_data.get('customer_shipping_state', '')
     ship_to_state_processed = _get_processed_state_code(ship_to_state_input, ship_to_country_code_upper, "ShipTo")
     if ship_to_state_processed is None: return None, None
-    print(f"DEBUG FEDEX_LABEL_RAW (ShipTo): Processed StateProvinceCode: '{ship_to_state_processed}' from input '{ship_to_state_input}'")
+    # print(f"DEBUG FEDEX_LABEL_RAW (ShipTo): Processed StateProvinceCode: '{ship_to_state_processed}' from input '{ship_to_state_input}'")
 
     ship_from_country_input = ship_from_address.get('country', 'US')
-    print(f"DEBUG FEDEX_LABEL_RAW (Shipper): Raw country: '{ship_from_country_input}'")
+    # print(f"DEBUG FEDEX_LABEL_RAW (Shipper): Raw country: '{ship_from_country_input}'")
     ship_from_country_code_upper = ship_from_country_input.upper() if ship_from_country_input and len(ship_from_country_input) == 2 else 'US'
     if not ship_from_country_input or len(ship_from_country_input) != 2:
          print(f"WARN FEDEX_LABEL_RAW (Shipper): Invalid or non-ISO2 'country' ('{ship_from_country_input}') in ship_from_address. Defaulting to 'US'.")
          ship_from_country_code_upper = 'US'
-    print(f"DEBUG FEDEX_LABEL_RAW (Shipper): Processed CountryCode: '{ship_from_country_code_upper}'")
+    # print(f"DEBUG FEDEX_LABEL_RAW (Shipper): Processed CountryCode: '{ship_from_country_code_upper}'")
     ship_from_state_input = ship_from_address.get('state', '')
     ship_from_state_processed = _get_processed_state_code(ship_from_state_input, ship_from_country_code_upper, "Shipper")
     if ship_from_state_processed is None: return None, None
-    print(f"DEBUG FEDEX_LABEL_RAW (Shipper): Processed StateProvinceCode: '{ship_from_state_processed}' from input '{ship_from_state_input}'")
+    # print(f"DEBUG FEDEX_LABEL_RAW (Shipper): Processed StateProvinceCode: '{ship_from_state_processed}' from input '{ship_from_state_input}'")
+    # --- End State/Province Code Processing ---
 
-    payment_info = {}
-    is_bill_recipient_fedex = order_data.get('is_bill_to_customer_fedex_account', False)
-    customer_fedex_acct_num_from_order = order_data.get('customer_fedex_account_number')
-    if is_bill_recipient_fedex and customer_fedex_acct_num_from_order:
-        print(f"DEBUG FEDEX_LABEL_RAW: Attempting Bill Recipient FedEx Account: {customer_fedex_acct_num_from_order}")
-        payment_info = {"paymentType": "RECIPIENT", "payor": {"responsibleParty": {"accountNumber": {"value": str(customer_fedex_acct_num_from_order)}}}}
-    else:
-        print(f"DEBUG FEDEX_LABEL_RAW: Defaulting to Bill SENDER. Account: {FEDEX_SHIPPER_ACCOUNT_NUMBER}")
-        payment_info = {"paymentType": "SENDER", "payor": {"responsibleParty": {"accountNumber": {"value": str(FEDEX_SHIPPER_ACCOUNT_NUMBER)}}}}
+    # --- Payment Information for FedEx (MUST BE RECIPIENT) ---
+    is_bill_to_customer_fedex_account_flag = order_data.get('is_bill_to_customer_fedex_account', False) # This flag comes from the frontend payload
+    customer_fedex_acct_num_from_payload = order_data.get('customer_fedex_account_number') # This also comes from the frontend payload
+
+    if not is_bill_to_customer_fedex_account_flag or not customer_fedex_acct_num_from_payload:
+        error_msg = (f"ERROR FEDEX_LABEL_RAW: FedEx shipments must be 'Bill Recipient'. "
+                     f"Required data from frontend payload was missing or invalid. "
+                     f"is_bill_to_customer_fedex_account: {is_bill_to_customer_fedex_account_flag}, "
+                     f"customer_fedex_account_number: '{customer_fedex_acct_num_from_payload}'.")
+        print(error_msg)
+        # Optionally, you could raise an exception here that the calling route can catch
+        # to send a more specific error message back to the frontend.
+        return None, None # Cannot proceed without recipient billing details
+
+    print(f"DEBUG FEDEX_LABEL_RAW: Processing as Bill Recipient FedEx. Account: {customer_fedex_acct_num_from_payload}")
+    payment_info = {
+        "paymentType": "RECIPIENT",
+        "payor": {
+            "responsibleParty": {
+                "accountNumber": {"value": str(customer_fedex_acct_num_from_payload)}
+            }
+        }
+    }
+    # --- End Payment Information ---
+
     shipper_contact_name = ship_from_address.get('contact_person', ship_from_address.get('name', 'Shipping Dept'))
-    shipper_company_name = ship_from_address.get('name', 'Your Company LLC')
+    shipper_company_name = ship_from_address.get('name', 'Your Company LLC') # This is G1's company name
+
     if not all([ship_from_address.get('street_1'), ship_from_address.get('city'), ship_from_state_processed, ship_from_address.get('zip'), ship_from_country_code_upper, ship_from_address.get('phone')]):
-        print("ERROR FEDEX_LABEL_RAW: Shipper (Ship From) address not fully configured or state mapping failed."); return None, None
+        print("ERROR FEDEX_LABEL_RAW: Shipper (Ship From) address not fully configured or state mapping failed.")
+        return None, None
+
     requested_shipment_payload = {
-        "shipper": {"contact": {"personName": shipper_contact_name, "companyName": shipper_company_name, "phoneNumber": (ship_from_address.get('phone') or "").replace('-', '').replace('(', '').replace(')', '').replace(' ', '')},
-                    "address": {"streetLines": [s for s in [ship_from_address.get('street_1'), ship_from_address.get('street_2')] if s and s.strip()], "city": ship_from_address.get('city'), "stateOrProvinceCode": ship_from_state_processed, "postalCode": str(ship_from_address.get('zip')), "countryCode": ship_from_country_code_upper}},
-        "recipients": [{"contact": {"personName": order_data.get('customer_name', 'N/A'), "companyName": order_data.get('customer_company', ''), "phoneNumber": (order_data.get('customer_phone') or "").replace('-', '').replace('(', '').replace(')', '').replace(' ', '')},
-                       "address": {"streetLines": ship_to_street_lines, "city": order_data.get('customer_shipping_city'), "stateOrProvinceCode": ship_to_state_processed, "postalCode": str(order_data.get('customer_shipping_zip', '')), "countryCode": ship_to_country_code_upper, "residential": False }}],
-        "shipDatestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d'), "serviceType": fedex_service_type_enum, "packagingType": "YOUR_PACKAGING", "pickupType": "DROPOFF_AT_FEDEX_LOCATION",
-        "shippingChargesPayment": payment_info, "labelSpecification": {"imageType": "PDF", "labelStockType": "PAPER_85X11_TOP_HALF_LABEL"},
-        "requestedPackageLineItems": [{"weight": {"units": "LB", "value": round(float(max(0.1, total_weight_lbs)), 1)}, "customerReferences": [{"customerReferenceType": "CUSTOMER_REFERENCE", "value": str(order_data.get('bigcommerce_order_id', 'N/A'))}]}]}
-    final_api_payload = {"labelResponseOptions": "LABEL", "requestedShipment": requested_shipment_payload, "accountNumber": {"value": str(FEDEX_SHIPPER_ACCOUNT_NUMBER)}}
-    headers = {"Authorization": f"Bearer {access_token}", "X-locale": "en_US", "Content-Type": "application/json"}
+        "shipper": {
+            "contact": {"personName": shipper_contact_name, "companyName": shipper_company_name, "phoneNumber": (ship_from_address.get('phone') or "").replace('-', '').replace('(', '').replace(')', '').replace(' ', '')},
+            "address": {"streetLines": [s for s in [ship_from_address.get('street_1'), ship_from_address.get('street_2')] if s and s.strip()], "city": ship_from_address.get('city'), "stateOrProvinceCode": ship_from_state_processed, "postalCode": str(ship_from_address.get('zip')), "countryCode": ship_from_country_code_upper}
+        },
+        "recipients": [{
+            "contact": {"personName": order_data.get('customer_name', 'N/A'), "companyName": order_data.get('customer_company', ''), "phoneNumber": (order_data.get('customer_phone') or "").replace('-', '').replace('(', '').replace(')', '').replace(' ', '')},
+            "address": {"streetLines": ship_to_street_lines, "city": order_data.get('customer_shipping_city'), "stateOrProvinceCode": ship_to_state_processed, "postalCode": str(order_data.get('customer_shipping_zip', '')), "countryCode": ship_to_country_code_upper, "residential": False }
+        }],
+        "shipDatestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+        "serviceType": fedex_service_type_enum,
+        "packagingType": "YOUR_PACKAGING",
+        "pickupType": "DROPOFF_AT_FEDEX_LOCATION", # Or USE_SCHEDULED_PICKUP if applicable
+        "shippingChargesPayment": payment_info,
+        "labelSpecification": {"imageType": "PDF", "labelStockType": "PAPER_85X11_TOP_HALF_LABEL"}, # Or your preferred stock
+        "requestedPackageLineItems": [{
+            "weight": {"units": "LB", "value": round(float(max(0.1, total_weight_lbs)), 1)},
+            "customerReferences": [{"customerReferenceType": "CUSTOMER_REFERENCE", "value": str(order_data.get('bigcommerce_order_id', 'N/A'))}]
+        }]
+    }
+
+    # The accountNumber for the API call itself is G1's main FedEx account, not the payor necessarily.
+    final_api_payload = {
+        "labelResponseOptions": "LABEL",
+        "requestedShipment": requested_shipment_payload,
+        "accountNumber": {"value": str(FEDEX_SHIPPER_ACCOUNT_NUMBER)} # G1's account for API authentication/authorization
+    }
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "X-locale": "en_US", # Or your locale
+        "Content-Type": "application/json"
+    }
+
     try:
+        # ... (rest of the try-except block for API call, response handling, and base64 decoding remains the same) ...
         response = requests.post(FEDEX_SHIP_API_URL, headers=headers, json=final_api_payload)
         print(f"DEBUG FEDEX_LABEL_RAW: FedEx API Response Status: {response.status_code}", flush=True)
+        # Log the exact payload sent for debugging purposes, be mindful of sensitive data in production logs
+        # print(f"DEBUG FEDEX_LABEL_RAW: Payload sent to FedEx: {json.dumps(final_api_payload, indent=2)}")
         response_data = response.json()
-        response.raise_for_status()
+        # print(f"DEBUG FEDEX_LABEL_RAW: Response Data from FedEx: {json.dumps(response_data, indent=2)}")
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
         if response_data.get("errors"):
-            errors = response_data.get("errors", []); error_messages = "; ".join([f"Code {err.get('code')}: {err.get('message')}" for err in errors])
-            print(f"ERROR FEDEX_LABEL_RAW: FedEx API returned errors: {error_messages}. Full: {errors}"); return None, None
-        output = response_data.get("output", {}); transaction_shipments = output.get("transactionShipments", [])
-        if not transaction_shipments: print(f"ERROR FEDEX_LABEL_RAW: 'transactionShipments' missing. Output: {output}"); return None, None
-        first_shipment = transaction_shipments[0]; tracking_number = first_shipment.get("masterTrackingNumber"); encoded_label_data = None
+            errors = response_data.get("errors", [])
+            error_messages = "; ".join([f"Code {err.get('code')}: {err.get('message')}" for err in errors])
+            print(f"ERROR FEDEX_LABEL_RAW: FedEx API returned errors: {error_messages}. Full: {json.dumps(errors, indent=2)}")
+            return None, None
+
+        output = response_data.get("output", {})
+        transaction_shipments = output.get("transactionShipments", [])
+        if not transaction_shipments:
+            print(f"ERROR FEDEX_LABEL_RAW: 'transactionShipments' missing from FedEx response. Output: {json.dumps(output, indent=2)}")
+            return None, None
+
+        first_shipment = transaction_shipments[0]
+        tracking_number = first_shipment.get("masterTrackingNumber")
+        encoded_label_data = None
+
         piece_responses = first_shipment.get("pieceResponses", [])
         if piece_responses and piece_responses[0].get("packageDocuments"):
             for doc in piece_responses[0].get("packageDocuments", []):
-                if doc.get("encodedLabel") or doc.get("content"): encoded_label_data = doc.get("encodedLabel") or doc.get("content"); break
-        elif first_shipment.get("packageDocuments"):
+                if doc.get("encodedLabel") or doc.get("content"): # Check for both, sometimes 'content' is used
+                    encoded_label_data = doc.get("encodedLabel") or doc.get("content")
+                    break
+        elif first_shipment.get("packageDocuments"): # Fallback for older or different response structures
              for doc in first_shipment.get("packageDocuments", []):
-                if doc.get("encodedLabel") or doc.get("content"): encoded_label_data = doc.get("encodedLabel") or doc.get("content"); break
+                if doc.get("encodedLabel") or doc.get("content"):
+                    encoded_label_data = doc.get("encodedLabel") or doc.get("content")
+                    break
+        
         if tracking_number and encoded_label_data:
-            print(f"INFO FEDEX_LABEL_RAW: FedEx Label generated. Tracking: {tracking_number}")
-            try: return base64.b64decode(encoded_label_data), tracking_number
-            except Exception as b64_e: print(f"ERROR FEDEX_LABEL_RAW: Failed to decode base64 label: {b64_e}"); return None, tracking_number
-        elif tracking_number: print(f"WARN FEDEX_LABEL_RAW: Tracking {tracking_number} obtained, but no label data. Details: {first_shipment}"); return None, tracking_number
-        else: print(f"ERROR FEDEX_LABEL_RAW: No tracking or label. Details: {first_shipment}"); return None, None
+            print(f"INFO FEDEX_LABEL_RAW: FedEx Label generated successfully. Tracking: {tracking_number}")
+            try:
+                return base64.b64decode(encoded_label_data), tracking_number
+            except Exception as b64_e:
+                print(f"ERROR FEDEX_LABEL_RAW: Failed to decode base64 label data for tracking {tracking_number}: {b64_e}")
+                return None, tracking_number # Return tracking even if decoding fails
+        elif tracking_number:
+            print(f"WARN FEDEX_LABEL_RAW: Tracking number {tracking_number} obtained, but no encoded label data found in the response. Details: {json.dumps(first_shipment, indent=2)}")
+            return None, tracking_number
+        else:
+            print(f"ERROR FEDEX_LABEL_RAW: No tracking number or label data found in FedEx response. Details: {json.dumps(first_shipment, indent=2)}")
+            return None, None
+
     except requests.exceptions.HTTPError as http_err:
-        response_content = "Could not decode JSON or no response."
-        try: response_content = http_err.response.json() if http_err.response is not None else "No response."
-        except json.JSONDecodeError: response_content = http_err.response.text if http_err.response is not None else "No text."
-        print(f"ERROR FEDEX_LABEL_RAW: HTTPError: {http_err}. Response: {str(response_content)[:1000]}"); return None, None
-    except requests.exceptions.RequestException as req_err: print(f"ERROR FEDEX_LABEL_RAW: ReqException: {req_err}"); traceback.print_exc(); return None, None
-    except json.JSONDecodeError as json_err:
+        response_content = "Could not decode JSON or no response object available."
+        if http_err.response is not None:
+            try:
+                response_content = http_err.response.json()
+            except json.JSONDecodeError:
+                response_content = http_err.response.text
+        print(f"ERROR FEDEX_LABEL_RAW: HTTPError occurred during FedEx API call: {http_err}. Response: {str(response_content)[:1000]}")
+        return None, None
+    except requests.exceptions.RequestException as req_err:
+        print(f"ERROR FEDEX_LABEL_RAW: RequestException occurred during FedEx API call: {req_err}")
+        traceback.print_exc()
+        return None, None
+    except json.JSONDecodeError as json_err: # If response.json() fails
         response_text_snippet = response.text[:500] if hasattr(response, 'text') and response.text else "N/A"
-        print(f"ERROR FEDEX_LABEL_RAW: JSONDecodeError: {json_err}. Resp text snippet: {response_text_snippet}"); return None, None
-    except Exception as e: print(f"ERROR FEDEX_LABEL_RAW: Unexpected Exception: {e}"); traceback.print_exc(); return None, None
+        print(f"ERROR FEDEX_LABEL_RAW: Failed to decode JSON response from FedEx API: {json_err}. Response snippet: {response_text_snippet}")
+        return None, None
+    except Exception as e:
+        print(f"ERROR FEDEX_LABEL_RAW: An unexpected exception occurred: {e}")
+        traceback.print_exc()
+        return None, None
 
 def generate_fedex_label(order_data, ship_from_address, total_weight_lbs, customer_shipping_method_name):
     print(f"DEBUG FEDEX_GEN_LABEL: Initiating FedEx label for order {order_data.get('bigcommerce_order_id', 'N/A')}, Wt {total_weight_lbs}, Method '{customer_shipping_method_name}'")

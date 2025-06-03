@@ -1,0 +1,10 @@
+/* frontend/src/components/CustomsInfoForm.css */
+@import './FormCommon.css'; /* Import the common form styles */
+
+/* Add any CustomsInfoForm-specific styles here if needed. */
+/* For example, if you have a specific field that needs different styling: */
+/*
+.form-page-container #default_country_of_origin {
+  text-transform: uppercase; // Example style
+}
+*/
