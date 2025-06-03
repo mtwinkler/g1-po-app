@@ -149,112 +149,107 @@ function DomesticOrderProcessor({
     }
   }, [originalLineItems.length, isMultiSupplierMode, selectedMainSupplierTrigger]);
 
-  useEffect(() => {
-    // This effect initializes form fields based on orderData
+useEffect(() => {
+    console.log('[DOMESTIC] orderData useEffect triggered. orderData available:', !!orderData);
+    const { order /*, line_items: originalLineItemsFromData */ } = orderData || {}; // Ensure orderData is not null
+
     if (order) {
-        let determinedInitialShipMethod = 'UPS Ground'; // Fallback default
-        let initialSelectedUpsBilling = 'g1_account'; // Used if carrier is UPS
-        let initialCustomerUpsAccount = '';       // Used if carrier is UPS & bill recipient
-        // initialCustomerFedexAccount is not needed as a temp variable here,
-        // as customerFedexAccountNumber state will be set directly later.
+        console.log('[DOMESTIC] order object exists. Customer notes:', order.customer_notes);
+        let determinedInitialShipMethod = 'UPS Ground';
+        let initialSelectedUpsBilling = 'g1_account';
+        let initialCustomerUpsAccount = '';
 
         if (order.is_bill_to_customer_fedex_account) {
-            // FedEx Bill Recipient Scenario
             let fedexServiceToSet = null;
-
-            // Helper function to check and attempt to map a raw service string to a specific FedEx service value
             const mapToFedexService = (rawServiceString) => {
                 if (!rawServiceString || typeof rawServiceString !== 'string') return null;
-
-                // Attempt 1: Use formatShippingMethod and check if it's a known FedEx service
                 const formattedService = formatShippingMethod(rawServiceString);
                 const optionByFormattedValue = getSelectedShippingOption(formattedService);
                 if (optionByFormattedValue.carrier === 'fedex') {
-                    return formattedService; // Already a specific FedEx constant like "FEDEX_PRIORITY_OVERNIGHT"
+                    return formattedService;
                 }
-
-                // Attempt 2: If formatShippingMethod didn't yield a direct FedEx service,
-                // try matching the raw string (or parts of it) against FedEx option labels.
                 const lowerRawServiceString = rawServiceString.toLowerCase().trim();
                 const matchedOption = SHIPPING_METHODS_OPTIONS.find(opt =>
                     opt.carrier === 'fedex' &&
                     opt.label.toLowerCase().includes(lowerRawServiceString)
                 );
                 if (matchedOption) {
-                    return matchedOption.value; // Return the value like "FEDEX_PRIORITY_OVERNIGHT"
+                    return matchedOption.value;
                 }
-                return null; // No specific FedEx service found for this raw string
+                return null;
             };
-
-            // Prioritize customer_selected_fedex_service from the order
             fedexServiceToSet = mapToFedexService(order.customer_selected_fedex_service);
-
-            // If not found via customer_selected_fedex_service, try customer_shipping_method
             if (!fedexServiceToSet) {
                 fedexServiceToSet = mapToFedexService(order.customer_shipping_method);
             }
-
             if (fedexServiceToSet) {
                 determinedInitialShipMethod = fedexServiceToSet;
             } else {
-                // Fallback: If order indicates FedEx billing but no specific service could be determined,
-                // default to the first available FedEx option (e.g., FedEx Ground).
                 const defaultFedExOpt = SHIPPING_METHODS_OPTIONS.find(opt => opt.carrier === 'fedex');
                 if (defaultFedExOpt) {
                     determinedInitialShipMethod = defaultFedExOpt.value;
                 }
             }
-        } else if (order.is_bill_to_customer_account) { // UPS Bill Recipient
+        } else if (order.is_bill_to_customer_account) {
             initialSelectedUpsBilling = 'recipient';
             initialCustomerUpsAccount = order.customer_ups_account_number || '';
-            
             const formattedUpsService = formatShippingMethod(order.customer_selected_freight_service);
             const formattedOrderMethodForUps = formatShippingMethod(order.customer_shipping_method);
-
             if (formattedUpsService && getSelectedShippingOption(formattedUpsService).carrier === 'ups') {
                 determinedInitialShipMethod = formattedUpsService;
             } else if (formattedOrderMethodForUps && getSelectedShippingOption(formattedOrderMethodForUps).carrier === 'ups') {
                 determinedInitialShipMethod = formattedOrderMethodForUps;
             } else {
-                // Fallback for UPS if needed
                 const defaultUpsOpt = SHIPPING_METHODS_OPTIONS.find(opt => opt.carrier === 'ups');
                 if (defaultUpsOpt) {
                     determinedInitialShipMethod = defaultUpsOpt.value;
                 }
             }
-        } else { // Neither explicit bill-to-customer, use order's shipping method generally
+        } else {
              const formattedOrderMethodGeneral = formatShippingMethod(order.customer_shipping_method);
-             // Ensure it's not 'N/A' and is a valid option, otherwise it sticks to 'UPS Ground' or whatever getSelectedShippingOption resolves
              if (formattedOrderMethodGeneral && formattedOrderMethodGeneral !== 'N/A') {
                 determinedInitialShipMethod = formattedOrderMethodGeneral;
              }
         }
 
         setShipmentMethod(determinedInitialShipMethod);
-        setOriginalCustomerShippingMethod(determinedInitialShipMethod); 
+        setOriginalCustomerShippingMethod(determinedInitialShipMethod);
 
-        // Now, set billing options based on the determinedInitialShipMethod's carrier
         const finalSelectedMethodDetails = getSelectedShippingOption(determinedInitialShipMethod);
 
         if (finalSelectedMethodDetails.carrier === 'fedex') {
-            setSelectedUpsBillingOption('g1_account'); // Reset UPS specific state
+            setSelectedUpsBillingOption('g1_account');
             setCustomerUpsAccountNumber('');
-            // For FedEx, customerFedexAccountNumber was already set if order.is_bill_to_customer_fedex_account was true.
-            // If it wasn't (e.g. order method was FedEx but no explicit bill-to-customer flag),
-            // we still set it to recipient, and populate account if available from order.
-            setCustomerFedexAccountNumber(order.customer_fedex_account_number || ''); 
+            setCustomerFedexAccountNumber(order.customer_fedex_account_number || '');
         } else if (finalSelectedMethodDetails.carrier === 'ups') {
-            setSelectedUpsBillingOption(initialSelectedUpsBilling); // This was set based on order.is_bill_to_customer_account
-            setCustomerUpsAccountNumber(initialCustomerUpsAccount); // This was set based on order.is_bill_to_customer_account
-            setCustomerFedexAccountNumber(''); // Reset FedEx specific state
-        } else { // Carrier is null or other (e.g. if determinedInitialShipMethod ended up being a raw unmapped string)
+            setSelectedUpsBillingOption(initialSelectedUpsBilling);
+            setCustomerUpsAccountNumber(initialCustomerUpsAccount);
+            setCustomerFedexAccountNumber('');
+        } else {
             setSelectedUpsBillingOption('g1_account');
             setCustomerUpsAccountNumber('');
             setCustomerFedexAccountNumber('');
         }
+
+        // Logic to set initial isBlindDropShip based on customer_notes
+        let initialBlindDropShipValue = false; // Renamed to avoid conflict with state variable if any
+        if (order.customer_notes && typeof order.customer_notes === 'string') {
+            console.log('[DOMESTIC] Checking notes content:', `"${order.customer_notes.toLowerCase()}"`);
+            if (order.customer_notes.toLowerCase().includes('blind')) {
+                initialBlindDropShipValue = true;
+                console.log('[DOMESTIC] "blind" keyword FOUND in notes.');
+            } else {
+                console.log('[DOMESTIC] "blind" keyword NOT found in notes.');
+            }
+        } else {
+            console.log('[DOMESTIC] Customer notes are missing, not a string, or order object is incomplete for notes.');
+        }
+        console.log('[DOMESTIC] Attempting to set isBlindDropShip to:', initialBlindDropShipValue);
+        setIsBlindDropShip(initialBlindDropShipValue);
+    } else {
+        console.log('[DOMESTIC] order object is undefined in this run of main useEffect.');
     }
 
-    // Initialize purchase items, etc.
     if (originalLineItems) {
         const initialItemsForPoForm = originalLineItems.map(item => ({
             original_order_line_item_id: item.line_item_id, sku: item.hpe_option_pn || item.original_sku || '',
@@ -272,22 +267,28 @@ function DomesticOrderProcessor({
             initialMultiDesc[item.line_item_id] = defaultDescription;
         });
         setMultiSupplierItemDescriptions(initialMultiDesc);
-    } else { setPurchaseItems([]); setMultiSupplierItemDescriptions({}); }
-    
-    // Reset other form states if orderData changes (excluding the shipment method/billing already set)
-    if (selectedMainSupplierTrigger) setSelectedMainSupplierTrigger(''); 
-    setIsMultiSupplierMode(false); 
-    setIsG1OnsiteFulfillmentMode(false);
-    setSingleOrderPoNotes(''); 
-    setLineItemAssignments({}); 
-    setPoNotesBySupplier({}); 
-    setMultiSupplierItemCosts({});
-    // setMultiSupplierItemDescriptions({}); // Already handled above with originalLineItems
-    setMultiSupplierShipmentDetails({}); 
-    if (shipmentWeight) setShipmentWeight(''); 
-    setIsBlindDropShip(false);
+    } else {
+        setPurchaseItems([]);
+        setMultiSupplierItemDescriptions({});
+    }
 
-  }, [orderData, cleanPullSuffix]); 
+    if (selectedMainSupplierTrigger) setSelectedMainSupplierTrigger('');
+    setIsMultiSupplierMode(false);
+    setIsG1OnsiteFulfillmentMode(false);
+    setSingleOrderPoNotes('');
+    setLineItemAssignments({});
+    setPoNotesBySupplier({});
+    setMultiSupplierItemCosts({});
+    setMultiSupplierShipmentDetails({});
+    if (shipmentWeight) setShipmentWeight('');
+    // The setIsBlindDropShip(false) line that was here previously is intentionally removed.
+  }, [orderData, cleanPullSuffix]);
+
+  // Add this separate useEffect to monitor changes to the isBlindDropShip state
+  useEffect(() => {
+    console.log('[DOMESTIC] isBlindDropShip state changed to:', isBlindDropShip);
+  }, [isBlindDropShip]);
+
 
   useEffect(() => {
     if (!orderData || !order || !originalLineItems) {
@@ -357,6 +358,7 @@ function DomesticOrderProcessor({
   }, [debouncedSku, skuToLookup.index, cleanPullSuffix, apiService, isMultiSupplierMode, isG1OnsiteFulfillmentMode]);
 
   const handleMainSupplierTriggerChange = (e) => {
+    console.log('[DOMESTIC] handleMainSupplierTriggerChange CALLED. Event:', e); // <<< ADD THIS LOG
     const value = e.target.value; 
     setSelectedMainSupplierTrigger(value);
     setLocalProcessError(null); 
@@ -366,7 +368,6 @@ function DomesticOrderProcessor({
     const newSelectedMethodDetails = getSelectedShippingOption(originalCustomerShippingMethod);
     setShipmentMethod(originalCustomerShippingMethod);
     setShipmentWeight(''); 
-    setIsBlindDropShip(false);
 
     if (newSelectedMethodDetails.carrier === 'fedex') {
         setSelectedUpsBillingOption('g1_account');

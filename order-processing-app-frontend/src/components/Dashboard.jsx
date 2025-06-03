@@ -4,38 +4,30 @@ import { Link, useNavigate } from 'react-router-dom';
 import './Dashboard.css'; // Ensure this is imported
 import { useAuth } from '../contexts/AuthContext';
 
-// Added prop: initialView can be 'orders' or 'dailySales'
 function Dashboard({ initialView = 'orders' }) {
     const { currentUser, loading: authLoading } = useAuth();
     const navigate = useNavigate();
     const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-    // The view to display, controlled by prop
     const [currentView, setCurrentView] = useState(initialView);
-
-    // Orders Tab State
     const [orders, setOrders] = useState([]);
     const [loadingOrders, setLoadingOrders] = useState(initialView === 'orders');
     const [errorOrders, setErrorOrders] = useState(null);
-    const [filterStatus, setFilterStatus] = useState('new');
+    const [filterStatus, setFilterStatus] = useState('new'); // Default filter
     const [ingesting, setIngesting] = useState(false);
     const [ingestionMessage, setIngestionMessage] = useState('');
     const [statusCounts, setStatusCounts] = useState({});
     const [loadingCounts, setLoadingCounts] = useState(initialView === 'orders');
     const [hasPendingOrders, setHasPendingOrders] = useState(false); 
 
-    // Daily Sales Tab State
     const [dailyRevenueData, setDailyRevenueData] = useState([]);
     const [loadingRevenue, setLoadingRevenue] = useState(initialView === 'dailySales');
     const [errorRevenue, setErrorRevenue] = useState(null);
 
-    // --- Helper Functions ---
     const formatShippingMethod = (method) => {
         if (!method) { return 'N/A'; }
         if (typeof method !== 'string') { return String(method); }
-
         const trimmedMethod = method.trim();
-
         const bracketIndex = trimmedMethod.indexOf(" [");
         if (bracketIndex !== -1) {
             const partBeforeBracket = trimmedMethod.substring(0, bracketIndex);
@@ -45,14 +37,11 @@ function Dashboard({ initialView = 'orders' }) {
             }
             return partBeforeBracket.trim(); 
         }
-
         const parenthesisMatch = trimmedMethod.match(/^(.*?)\s*\(([^)]+)\)$/);
         if (parenthesisMatch && parenthesisMatch[2]) {
             return parenthesisMatch[2].trim(); 
         }
-        
         if (trimmedMethod.toLowerCase() === 'free shipping') { return 'UPS® Ground'; }
-        
         return trimmedMethod; 
     };
 
@@ -165,8 +154,8 @@ function Dashboard({ initialView = 'orders' }) {
                 setIngestionMessage(result.message || "Ingestion process completed successfully.");
                 if (currentView === 'orders') {
                     const abortController = new AbortController();
-                    fetchOrders(abortController.signal);
-                    fetchStatusCounts(abortController.signal);
+                    fetchOrders(abortController.signal); // Re-fetch orders for the current filter
+                    fetchStatusCounts(abortController.signal); // Re-fetch all counts
                 }
             }
         } catch (err) {
@@ -235,11 +224,19 @@ function Dashboard({ initialView = 'orders' }) {
 
     const handleRowClick = (orderId) => navigate(`/orders/${orderId}`);
     const handleLinkClick = (e) => e.stopPropagation();
-    const handleFilterChange = (event) => setFilterStatus(event.target.value);
+    const handleFilterChange = (event) => {
+        setFilterStatus(event.target.value);
+        // No need to manually call fetchOrders here, the useEffect will pick up filterStatus change
+    };
 
+    // --- MODIFIED: Add new statuses to the dropdown ---
     const orderedDropdownStatuses = [
-        { value: 'new', label: 'New' }, { value: 'RFQ Sent', label: 'RFQ Sent' },
-        { value: 'pending', label: 'Pending' }, { value: 'Processed', label: 'Processed' },
+        { value: 'new', label: 'New' },
+        { value: 'Unpaid/Not Invoiced', label: 'Unpaid/Not Invoiced' }, // New
+        { value: 'Unpaid/Invoiced', label: 'Unpaid/Invoiced' },     // New (Ready for fulfillment)
+        { value: 'RFQ Sent', label: 'RFQ Sent' },
+        { value: 'pending', label: 'Pending' },
+        { value: 'Processed', label: 'Processed' },
         { value: 'Completed Offline', label: 'Completed Offline' }
     ];
     const todayUTCString = new Date().toLocaleDateString('en-CA', { timeZone: 'UTC' });
@@ -296,7 +293,7 @@ function Dashboard({ initialView = 'orders' }) {
                                         <th>Ship Method</th><th>Ship To</th>
                                         <th className="hide-mobile">Int'l</th><th className="hide-mobile">Created</th>
                                         <th>Comments</th><th>Total</th>
-                                        {/* <th>Actions</th>  <--- REMOVED Actions header from here --- */}
+                                        {/* Actions column removed as per user's correction */}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -313,12 +310,12 @@ function Dashboard({ initialView = 'orders' }) {
                                                 title={hasCustomerNotes ? `Comments: ${order.customer_notes.substring(0,100)}${order.customer_notes.length > 100 ? '...' : ''}` : 'View Order Details'}>
                                                 <td data-label="Order #">
                                                     <Link to={`/orders/${order.id}`} onClick={handleLinkClick}>{order.bigcommerce_order_id || order.id}</Link>
-                                                    <span className={`order-status-badge-table status-${(order.status || 'unknown').toLowerCase().replace(/\s+/g, '-')}`} style={{display: 'block', marginTop: '5px', textAlign:'center'}}>{order.status || 'Unknown'}</span>
+                                                    <span className={`order-status-badge-table status-${(order.status || 'unknown').toLowerCase().replace(/\s+/g, '-').replace('/', '-')}`} style={{display: 'block', marginTop: '5px', textAlign:'center'}}>{order.status || 'Unknown'}</span>
                                                 </td>
                                                 <td data-label="Order Date" className="mobile-order-date-cell">{formattedDate}</td>
                                                 <td data-label="Customer">{order.customer_company || order.customer_name || 'N/A'}</td>
                                                 <td data-label="Status" className="hide-mobile">
-                                                    <span className={`order-status-badge-table status-${(order.status || 'unknown').toLowerCase().replace(/\s+/g, '-')}`}>{order.status || 'Unknown'}</span>
+                                                    <span className={`order-status-badge-table status-${(order.status || 'unknown').toLowerCase().replace(/\s+/g, '-').replace('/', '-')}`}>{order.status || 'Unknown'}</span>
                                                 </td>
                                                 <td data-label="Paid by">{displayPaymentMethod || 'N/A'}</td>
                                                 <td data-label="Ship Method">{displayShippingMethod}</td>
@@ -329,7 +326,6 @@ function Dashboard({ initialView = 'orders' }) {
                                                     <span className="comment-value">{hasCustomerNotes ? (<>{order.customer_notes.substring(0, initialCommentLength)}{order.customer_notes.length > initialCommentLength ? '...' : ''}</>) : (null)}</span>
                                                 </td>
                                                 <td data-label="Total" className="total-column">${(order.total_sale_price && !isNaN(parseFloat(order.total_sale_price))) ? parseFloat(order.total_sale_price).toFixed(2) : '0.00'}</td>
-                                                {/* --- REMOVED Actions cell from here --- */}
                                             </tr>
                                         );
                                     })}
@@ -355,6 +351,7 @@ function Dashboard({ initialView = 'orders' }) {
             )}
 
             {currentView === 'dailySales' && (
+                // ... (dailySales view remains unchanged) ...
                 <div className="revenue-tab-content card">
                     <h3>Daily Revenue - Last 14 Days</h3>
                     {loadingRevenue && <p className="loading-message">Loading revenue data...</p>}

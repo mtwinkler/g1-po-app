@@ -159,7 +159,7 @@ def get_order_status_counts():
             if row_dict and row_dict.get('status') is not None:
                 status_counts_dict[row_dict['status']] = row_dict.get('order_count', 0)
         print(f"DEBUG GET_STATUS_COUNTS: Fetched counts: {status_counts_dict}")
-        defined_statuses = ['new', 'RFQ Sent', 'Processed', 'international_manual', 'pending', 'Completed Offline']
+        defined_statuses = ['new', 'RFQ Sent', 'Processed', 'Unpaid/Not Invoiced', 'Unpaid/Invoiced', 'international_manual', 'pending', 'Completed Offline']
         for s in defined_statuses:
             if s not in status_counts_dict: status_counts_dict[s] = 0
         return jsonify(make_json_safe(status_counts_dict)), 200
@@ -178,7 +178,7 @@ def update_order_status(order_id):
     data = request.get_json()
     new_status = data.get('status')
     if not new_status: return jsonify({"error": "Missing 'status' in request body"}), 400
-    allowed_statuses = ['new', 'Processed', 'RFQ Sent', 'international_manual', 'pending', 'Completed Offline', 'other_status']
+    allowed_statuses = ['new', 'Processed', 'RFQ Sent','Unpaid/Not Invoiced', 'Unpaid/Invoiced', 'international_manual', 'pending', 'Completed Offline', 'other_status']
     if new_status not in allowed_statuses: return jsonify({"error": f"Invalid status value: {new_status}"}), 400
     db_conn = None
     transaction = None
@@ -210,23 +210,23 @@ def update_order_status(order_id):
 @verify_firebase_token
 def ingest_orders_route():
     try:
-        print("INFO INGEST: Received request for /api/ingest_orders", flush=True)
+        current_app.logger.info("INFO INGEST: Received request for /api/ingest_orders", flush=True) # Changed print to logger
         if not bc_api_base_url_v2 or not bc_headers:
-            print("ERROR INGEST: BigCommerce API credentials not fully configured.", flush=True)
+            current_app.logger.error("ERROR INGEST: BigCommerce API credentials not fully configured.", flush=True)
             return jsonify({"message": "BigCommerce API credentials not fully configured."}), 500
         try:
             target_status_id = int(bc_processing_status_id)
         except (ValueError, TypeError):
-            print(f"ERROR INGEST: BC_PROCESSING_STATUS_ID '{bc_processing_status_id}' is invalid.", flush=True)
+            current_app.logger.error(f"ERROR INGEST: BC_PROCESSING_STATUS_ID '{bc_processing_status_id}' is invalid.", flush=True)
             return jsonify({"message": f"BC_PROCESSING_STATUS_ID '{bc_processing_status_id}' is invalid."}), 500
 
         if engine is None:
-            print("ERROR INGEST: Database engine not initialized.", flush=True)
+            current_app.logger.error("ERROR INGEST: Database engine not initialized.", flush=True)
             return jsonify({"message": "Database engine not initialized."}), 500
         
         orders_list_endpoint = f"{bc_api_base_url_v2}orders"
         api_params = {'status_id': target_status_id, 'sort': 'date_created:asc', 'limit': 250}
-        print(f"DEBUG INGEST: Fetching orders with status ID {target_status_id} from {orders_list_endpoint}", flush=True)
+        current_app.logger.info(f"DEBUG INGEST: Fetching orders with status ID {target_status_id} from {orders_list_endpoint}", flush=True)
 
         response = requests.get(orders_list_endpoint, headers=bc_headers, params=api_params)
         response.raise_for_status() 
@@ -236,29 +236,29 @@ def ingest_orders_route():
             try:
                 orders_list_from_bc = response.json()
             except json.JSONDecodeError as json_err:
-                print(f"ERROR INGEST: Failed to decode JSON from BigCommerce. Error: {json_err}. Response text: {response.text[:500]}", flush=True)
+                current_app.logger.error(f"ERROR INGEST: Failed to decode JSON from BigCommerce. Error: {json_err}. Response text: {response.text[:500]}", flush=True)
                 return jsonify({"message": "Ingestion failed: Could not parse response from BigCommerce."}), 500
         else:
-            print("INFO INGEST: BigCommerce API returned an empty response. No orders to process for this status.", flush=True)
+            current_app.logger.info("INFO INGEST: BigCommerce API returned an empty response. No orders to process for this status.", flush=True)
         
         if not isinstance(orders_list_from_bc, list):
-            print(f"ERROR INGEST: Unexpected API response format after JSON parse. Expected list, got {type(orders_list_from_bc)}", flush=True)
+            current_app.logger.error(f"ERROR INGEST: Unexpected API response format after JSON parse. Expected list, got {type(orders_list_from_bc)}", flush=True)
             return jsonify({"message": "Ingestion failed: Unexpected API response format."}), 500
 
         if not orders_list_from_bc:
-            print(f"INFO INGEST: Successfully ingested 0 orders with BC status ID '{target_status_id}'.", flush=True)
+            current_app.logger.info(f"INFO INGEST: Successfully ingested 0 orders with BC status ID '{target_status_id}'.", flush=True)
             return jsonify({"message": f"Successfully ingested 0 orders with BC status ID '{target_status_id}'."}), 200
 
         ingested_count, inserted_count_this_run, updated_count_this_run = 0, 0, 0
         with engine.connect() as conn:
             with conn.begin():
-                print(f"DEBUG INGEST: Processing {len(orders_list_from_bc)} orders from BigCommerce.", flush=True)
+                current_app.logger.info(f"DEBUG INGEST: Processing {len(orders_list_from_bc)} orders from BigCommerce.", flush=True)
                 for bc_order_summary in orders_list_from_bc:
                     order_id_from_bc = bc_order_summary.get('id')
-                    print(f"--- DEBUG INGEST FOR BC ORDER ID: {order_id_from_bc} ---")
+                    current_app.logger.info(f"--- DEBUG INGEST FOR BC ORDER ID: {order_id_from_bc} ---", flush=True) # Changed print to logger
                     bc_billing_address = bc_order_summary.get('billing_address', {})
                     if order_id_from_bc is None:
-                        print("WARN INGEST: Skipping order summary with missing 'id'.", flush=True)
+                        current_app.logger.warn("WARN INGEST: Skipping order summary with missing 'id'.", flush=True)
                         continue
 
                     shipping_addresses_list, products_list = [], []
@@ -277,17 +277,17 @@ def ingest_orders_route():
                             is_international = bool(shipping_country_code and shipping_country_code.upper() != domestic_country_code.upper())
                             calculated_shipping_method_name = customer_shipping_address.get('shipping_method', bc_order_summary.get('shipping_method', 'N/A'))
                         else:
-                            print(f"WARN INGEST: No valid shipping address found for BC Order {order_id_from_bc}.", flush=True)
+                            current_app.logger.warn(f"WARN INGEST: No valid shipping address found for BC Order {order_id_from_bc}.", flush=True)
 
                         products_url = f"{bc_api_base_url_v2}orders/{order_id_from_bc}/products"
                         products_res = requests.get(products_url, headers=bc_headers)
                         products_res.raise_for_status()
                         products_list = products_res.json()
                         if not isinstance(products_list, list):
-                            print(f"WARN INGEST: Products list for BC Order {order_id_from_bc} is not a list. Treating as empty.", flush=True)
+                            current_app.logger.warn(f"WARN INGEST: Products list for BC Order {order_id_from_bc} is not a list. Treating as empty.", flush=True)
                             products_list = []
                     except requests.exceptions.RequestException as sub_req_e:
-                        print(f"ERROR INGEST: Could not fetch sub-resources for BC Order {order_id_from_bc}: {sub_req_e}. Skipping this order.", flush=True)
+                        current_app.logger.error(f"ERROR INGEST: Could not fetch sub-resources for BC Order {order_id_from_bc}: {sub_req_e}. Skipping this order.", flush=True)
                         continue
                     
                     raw_customer_message = bc_order_summary.get('customer_message', '').strip()
@@ -350,9 +350,9 @@ def ingest_orders_route():
                         sensitive_pattern = re.compile(r'\*{10}.*?\*{10}', re.DOTALL)
                         customer_notes_for_db = sensitive_pattern.sub('', customer_notes_for_db).strip()
                     if compliance_ids_data:
-                        print(f"DEBUG INGEST: Parsed Compliance IDs for BC Order {order_id_from_bc}: {compliance_ids_data}", flush=True)
+                        current_app.logger.info(f"DEBUG INGEST: Parsed Compliance IDs for BC Order {order_id_from_bc}: {compliance_ids_data}", flush=True) # Changed print to logger
                     else:
-                        print(f"DEBUG INGEST: No Compliance IDs parsed for BC Order {order_id_from_bc}. Raw message: '{raw_customer_message}' -> Freight/User Notes part: '{message_for_freight_and_user_notes}'", flush=True)
+                        current_app.logger.info(f"DEBUG INGEST: No Compliance IDs parsed for BC Order {order_id_from_bc}. Raw message: '{raw_customer_message}' -> Freight/User Notes part: '{message_for_freight_and_user_notes}'", flush=True) # Changed print to logger
                     db_compliance_info = json.dumps(compliance_ids_data) if compliance_ids_data else None
 
                     existing_order_row = conn.execute(
@@ -375,54 +375,49 @@ def ingest_orders_route():
                     bc_total_inc_tax = Decimal(bc_order_summary.get('total_inc_tax', '0.00'))
                     bc_shipping_cost_from_api = Decimal(bc_order_summary.get('shipping_cost_ex_tax', '0.00'))
                     current_time_utc = datetime.now(timezone.utc)
-                    target_app_status = 'new'
+                    
+                    # --- MODIFIED STATUS DETERMINATION LOGIC ---
+                    payment_method_for_status = bc_order_summary.get('payment_method', '').lower()
+                    current_app.logger.info(f"DEBUG INGEST: Raw Payment Method from BC for order {order_id_from_bc}: '{bc_order_summary.get('payment_method', '')}' -> Lowercase: '{payment_method_for_status}'")
+                    
+                    if 'bank deposit' in payment_method_for_status or \
+                       'wire transfer' in payment_method_for_status or \
+                       'bank transfer' in payment_method_for_status: # Add other variations if necessary
+                        target_app_status = 'Unpaid/Not Invoiced'
+                    else:
+                        target_app_status = 'new' # Default for other payment methods
+                    current_app.logger.info(f"DEBUG INGEST: Order {order_id_from_bc} - Determined App Status: '{target_app_status}'")
+                    # --- END OF MODIFIED STATUS DETERMINATION LOGIC ---
+
                     if existing_order_row:
                         db_status = existing_order_row.status
-                        finalized_or_manual_statuses = ['Processed', 'Completed Offline', 'pending', 'RFQ Sent']
+                        # Add 'Unpaid/Invoiced' to prevent reverting it if it was already processed to that stage
+                        finalized_or_manual_statuses = ['Processed', 'Completed Offline', 'pending', 'RFQ Sent', 'Unpaid/Invoiced']
                         if db_status in finalized_or_manual_statuses:
-                            ingested_count += 1; continue
+                            ingested_count += 1
+                            current_app.logger.info(f"DEBUG INGEST: Order {order_id_from_bc} (DB ID: {existing_order_row.id}) already in status '{db_status}'. Skipping further processing for this order by ingest_orders.", flush=True)
+                            continue
+                        
                         update_fields = {}
+                        # ... (Your existing logic for comparing and adding fields to update_fields) ...
                         if existing_order_row.is_international != is_international: update_fields['is_international'] = is_international
                         if existing_order_row.payment_method != bc_order_summary.get('payment_method'): update_fields['payment_method'] = bc_order_summary.get('payment_method')
-                        if existing_order_row.bigcommerce_order_tax != bc_total_tax: update_fields['bigcommerce_order_tax'] = bc_total_tax
-                        if existing_order_row.customer_notes != customer_notes_for_db: update_fields['customer_notes'] = customer_notes_for_db
-                        existing_compliance_info_from_db = existing_order_row.compliance_info
-                        parsed_existing_compliance_dict = {}
-                        if isinstance(existing_compliance_info_from_db, str):
-                            try: parsed_existing_compliance_dict = json.loads(existing_compliance_info_from_db) if existing_compliance_info_from_db else {}
-                            except json.JSONDecodeError:  parsed_existing_compliance_dict = {}
-                        elif isinstance(existing_compliance_info_from_db, dict): 
-                            parsed_existing_compliance_dict = existing_compliance_info_from_db if existing_compliance_info_from_db else {}
-                        if parsed_existing_compliance_dict != compliance_ids_data: update_fields['compliance_info'] = db_compliance_info 
-                        if not hasattr(existing_order_row, 'bc_shipping_cost_ex_tax') or existing_order_row.bc_shipping_cost_ex_tax != bc_shipping_cost_from_api:
-                            update_fields['bc_shipping_cost_ex_tax'] = bc_shipping_cost_from_api
-                        billing_fields_to_check = {
-                            'customer_billing_first_name': bc_billing_address.get('first_name'), 'customer_billing_last_name': bc_billing_address.get('last_name'),
-                            'customer_billing_company': bc_billing_address.get('company'), 'customer_billing_street_1': bc_billing_address.get('street_1'),
-                            'customer_billing_street_2': bc_billing_address.get('street_2'), 'customer_billing_city': bc_billing_address.get('city'),
-                            'customer_billing_state': bc_billing_address.get('state'), 'customer_billing_zip': bc_billing_address.get('zip'),
-                            'customer_billing_country': bc_billing_address.get('country'), 'customer_billing_country_iso2': bc_billing_address.get('country_iso2'),
-                            'customer_billing_phone': bc_billing_address.get('phone')
-                        }
-                        for field_name, new_value in billing_fields_to_check.items():
-                            if not hasattr(existing_order_row, field_name) or getattr(existing_order_row, field_name) != new_value:
-                                update_fields[field_name] = new_value
-                        if existing_order_row.customer_selected_freight_service != parsed_customer_selected_ups_service: update_fields['customer_selected_freight_service'] = parsed_customer_selected_ups_service
-                        if existing_order_row.customer_ups_account_number != parsed_customer_ups_account_num: update_fields['customer_ups_account_number'] = parsed_customer_ups_account_num
-                        if existing_order_row.customer_ups_account_zipcode != customer_ups_account_zipcode: update_fields['customer_ups_account_zipcode'] = customer_ups_account_zipcode
-                        if existing_order_row.is_bill_to_customer_account != is_bill_to_customer_ups_acct: update_fields['is_bill_to_customer_account'] = is_bill_to_customer_ups_acct
-                        if existing_order_row.customer_selected_fedex_service != parsed_customer_selected_fedex_service: update_fields['customer_selected_fedex_service'] = parsed_customer_selected_fedex_service
-                        if existing_order_row.customer_fedex_account_number != parsed_customer_fedex_account_num: update_fields['customer_fedex_account_number'] = parsed_customer_fedex_account_num
-                        if existing_order_row.is_bill_to_customer_fedex_account != is_bill_to_customer_fedex_acct: update_fields['is_bill_to_customer_fedex_account'] = is_bill_to_customer_fedex_acct
-                        if db_status not in finalized_or_manual_statuses:
-                            new_app_status_by_ingest = 'new'
-                            if db_status != new_app_status_by_ingest: 
-                                update_fields['status'] = new_app_status_by_ingest
+                        # ... (ensure all relevant fields are compared and added to update_fields if changed)
+                        
+                        # Always update 'status' if it's different from the newly determined target_app_status
+                        # and the current DB status is not one of the finalized/manual ones.
+                        if db_status != target_app_status: # No need to check finalized_or_manual_statuses here again as we `continue` above
+                            update_fields['status'] = target_app_status
+                        
                         if update_fields:
                             update_fields['updated_at'] = current_time_utc
                             set_clauses = [f"{key} = :{key}" for key in update_fields.keys()]
                             conn.execute(text(f"UPDATE orders SET {', '.join(set_clauses)} WHERE id = :id"), {"id": existing_order_row.id, **update_fields})
                             updated_count_this_run += 1
+                            current_app.logger.info(f"DEBUG INGEST: Updated existing order {order_id_from_bc} (DB ID: {existing_order_row.id}). Fields updated: {list(update_fields.keys())}", flush=True)
+                        else:
+                            current_app.logger.info(f"DEBUG INGEST: No updates needed for existing order {order_id_from_bc} (DB ID: {existing_order_row.id}) which is not in a finalized status.", flush=True)
+
                     else: 
                         order_values = {
                             "bigcommerce_order_id": order_id_from_bc,
@@ -444,9 +439,9 @@ def ingest_orders_route():
                             "total_sale_price": bc_total_inc_tax, 
                             "bigcommerce_order_tax": bc_total_tax, 
                             "bc_shipping_cost_ex_tax": bc_shipping_cost_from_api,
-                            "status": target_app_status, 
+                            "status": target_app_status, # Use the determined status
                             "is_international": is_international, 
-                            "payment_method": bc_order_summary.get('payment_method'),
+                            "payment_method": bc_order_summary.get('payment_method'), # Store the raw payment method
                             "created_at": current_time_utc, "updated_at": current_time_utc,
                             "customer_selected_freight_service": parsed_customer_selected_ups_service, 
                             "customer_ups_account_number": parsed_customer_ups_account_num,
@@ -467,12 +462,16 @@ def ingest_orders_route():
                             "customer_billing_country_iso2": bc_billing_address.get('country_iso2'),
                             "customer_billing_phone": bc_billing_address.get('phone')
                         }
+                        
                         order_columns = list(order_values.keys())
                         order_placeholders = [f":{col}" for col in order_columns]
                         insert_sql_str = f"INSERT INTO orders ({', '.join(order_columns)}) VALUES ({', '.join(order_placeholders)}) RETURNING id"
                         insert_sql = text(insert_sql_str)
                         inserted_order_id = conn.execute(insert_sql, order_values).scalar_one()
                         inserted_count_this_run += 1
+                        current_app.logger.info(f"DEBUG INGEST: Inserted new order {order_id_from_bc} with DB ID {inserted_order_id} and status '{target_app_status}'.", flush=True)
+
+
                         if products_list:
                             for item in products_list:
                                 if not isinstance(item, dict): continue
@@ -481,15 +480,15 @@ def ingest_orders_route():
                                 li_placeholders = [f":{col}" for col in li_cols_list]
                                 conn.execute(text(f"INSERT INTO order_line_items ({', '.join(li_cols_list)}) VALUES ({', '.join(li_placeholders)})"), li_values)
                     ingested_count += 1
-        print(f"INFO INGEST: Processed {ingested_count} orders. Inserted: {inserted_count_this_run}, Updated: {updated_count_this_run}.", flush=True)
+        current_app.logger.info(f"INFO INGEST: Processed {ingested_count} orders. Inserted: {inserted_count_this_run}, Updated: {updated_count_this_run}.", flush=True)
         return jsonify({"message": f"Processed {ingested_count} orders. Inserted {inserted_count_this_run} new. Updated {updated_count_this_run}."}), 200
     except requests.exceptions.RequestException as req_e:
         error_msg = f"BC API Request failed: {req_e}"
         status_code, resp_preview = (req_e.response.status_code, req_e.response.text[:500]) if req_e.response is not None else ('N/A', 'N/A')
-        print(f"ERROR INGEST: {error_msg}, Status: {status_code}, Response: {resp_preview}", flush=True); traceback.print_exc(file=sys.stderr); sys.stderr.flush()
+        current_app.logger.error(f"ERROR INGEST: {error_msg}, Status: {status_code}, Response: {resp_preview}", exc_info=True, flush=True)
         return jsonify({"message": error_msg, "status_code": status_code, "response_preview": resp_preview}), 500
     except Exception as e:
-        print(f"ERROR INGEST: Unexpected error: {e}", flush=True); traceback.print_exc(file=sys.stderr); sys.stderr.flush()
+        current_app.logger.error(f"ERROR INGEST: Unexpected error: {e}", exc_info=True, flush=True)
         return jsonify({"message": f"Unexpected error: {str(e)}", "error_type": type(e).__name__}), 500
     
 
@@ -1073,3 +1072,159 @@ def send_order_receipt_route(order_id):
             db_conn.close()
             current_app.logger.debug(f"SEND_RECEIPT: DB Connection closed for order ID {order_id}")
 # --- END OF send_order_receipt_route ---
+
+# --- START OF NEW ENDPOINT: Send Wire Transfer Invoice ---
+@orders_bp.route('/orders/<int:order_id>/send-wire-invoice', methods=['POST'])
+@verify_firebase_token
+def send_wire_invoice_route(order_id):
+    user_email_for_log = g.user_email if hasattr(g, 'user_email') else 'Unknown User'
+    current_app.logger.info(f"SEND_WIRE_INVOICE: User {user_email_for_log} initiated for order ID: {order_id}")
+    
+    db_conn = None
+    transaction = None
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is missing."}), 400
+        
+        recipient_email = data.get('email')
+        add_wire_fee_frontend_flag = data.get('add_wire_fee', False) 
+
+        if not recipient_email:
+            return jsonify({"error": "Recipient email is required."}), 400
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", recipient_email): # Ensure re is imported
+            return jsonify({"error": "Invalid recipient email format."}), 400
+
+        # Ensure all necessary services are available
+        if engine is None: current_app.logger.error("SEND_WIRE_INVOICE: Database engine not available."); return jsonify({"error": "Database engine not available."}), 500
+        if document_generator is None: current_app.logger.error("SEND_WIRE_INVOICE: Document generator not available."); return jsonify({"error": "Document generator service not available."}), 500
+        if email_service is None: current_app.logger.error("SEND_WIRE_INVOICE: Email service not available."); return jsonify({"error": "Email service not available."}), 500
+        if shipping_service is None: current_app.logger.error("SEND_WIRE_INVOICE: Shipping service not available."); return jsonify({"error": "Shipping service (for BC update) not available."}), 500
+
+        db_conn = engine.connect()
+        transaction = db_conn.begin()
+
+        # 1. Fetch Order Details (include all necessary fields for PDF and logic)
+        order_query_str = """
+            SELECT 
+                o.id, o.bigcommerce_order_id, o.customer_name, o.customer_company, o.customer_email AS order_customer_email,
+                o.customer_shipping_address_line1, o.customer_shipping_address_line2,
+                o.customer_shipping_city, o.customer_shipping_state, o.customer_shipping_zip,
+                o.customer_shipping_country, o.customer_shipping_country_iso2,
+                o.customer_billing_first_name, o.customer_billing_last_name, o.customer_billing_company,
+                o.customer_billing_street_1, o.customer_billing_street_2, o.customer_billing_city,
+                o.customer_billing_state, o.customer_billing_zip, o.customer_billing_country, o.customer_billing_country_iso2,
+                o.payment_method, o.customer_shipping_method,
+                o.total_sale_price, o.bigcommerce_order_tax, o.bc_shipping_cost_ex_tax,
+                o.status, o.updated_at, o.order_date, o.compliance_info 
+            FROM orders o
+            WHERE o.id = :order_id
+        """
+        order_record = db_conn.execute(text(order_query_str), {"order_id": order_id}).fetchone()
+
+        if not order_record:
+            if transaction.is_active: transaction.rollback()
+            current_app.logger.warn(f"SEND_WIRE_INVOICE: Order ID {order_id} not found.")
+            return jsonify({"error": f"Order with ID {order_id} not found."}), 404
+
+        order_data = convert_row_to_dict(order_record) # convert_row_to_dict should handle Decimal/datetime
+        
+        if order_data.get('status', '').lower() != 'unpaid/not invoiced':
+            if transaction.is_active: transaction.rollback()
+            current_app.logger.warn(f"SEND_WIRE_INVOICE: Order ID {order_id} is not 'Unpaid/Not Invoiced'. Status: {order_data.get('status')}")
+            return jsonify({"error": f"Wire invoice can only be sent for 'Unpaid/Not Invoiced' orders. Current status: {order_data.get('status')}"}), 400
+
+        # Fetch Line Items and their HPE PO Descriptions
+        base_line_items_sql = """
+            SELECT oli.sku AS original_sku, oli.name AS line_item_name, oli.quantity, oli.sale_price
+            FROM order_line_items oli 
+            WHERE oli.order_id = :order_id_param ORDER BY oli.id
+        """
+        base_line_items_records = db_conn.execute(text(base_line_items_sql), {"order_id_param": order_id}).fetchall()
+        line_items_data_for_pdf = []
+        for row in base_line_items_records:
+            item_dict = convert_row_to_dict(row)
+            hpe_option_pn, _, _ = get_hpe_mapping_with_fallback(item_dict.get('original_sku'), db_conn)
+            item_dict['hpe_po_description'] = None
+            if hpe_option_pn:
+                desc_query = text("SELECT po_description FROM hpe_description_mappings WHERE option_pn = :option_pn")
+                custom_desc = db_conn.execute(desc_query, {"option_pn": hpe_option_pn}).scalar_one_or_none()
+                if custom_desc: item_dict['hpe_po_description'] = custom_desc
+            item_dict['pdf_description'] = item_dict['hpe_po_description'] or item_dict.get('line_item_name', 'N/A')
+            line_items_data_for_pdf.append(item_dict)
+        
+        # Prepare order_data for the PDF generator
+        invoice_date_from_order = order_data.get('order_date') 
+        order_data['invoice_date_display'] = (invoice_date_from_order.strftime("%m/%d/%Y") if isinstance(invoice_date_from_order, (datetime, date)) 
+                                            else datetime.now(timezone.utc).strftime("%m/%d/%Y"))
+        order_data['due_date_display'] = order_data['invoice_date_display'] # Or specific logic for due date
+        
+        compliance_info_dict = order_data.get('compliance_info', {}) # convert_row_to_dict should make this a dict
+        order_data['customer_po_number'] = compliance_info_dict.get('Customer PO', 'N/A') if isinstance(compliance_info_dict, dict) else "N/A"
+        
+        # The generate_wire_transfer_invoice_pdf will handle adding the fee to line items and total internally based on apply_wire_fee
+        logo_uri = os.getenv("COMPANY_LOGO_GCS_URI")
+        pdf_bytes = document_generator.generate_wire_transfer_invoice_pdf(
+            order_data, 
+            line_items_data_for_pdf, 
+            apply_wire_fee=add_wire_fee_frontend_flag, 
+            logo_gcs_uri=logo_uri
+        )
+        
+        if not pdf_bytes:
+            if transaction.is_active: transaction.rollback()
+            current_app.logger.error(f"SEND_WIRE_INVOICE: PDF generation failed for order ID {order_id}.")
+            return jsonify({"error": "Failed to generate PDF wire invoice."}), 500
+
+        pdf_filename = f"Invoice_Order_{order_data.get('bigcommerce_order_id', order_id)}_{order_data['invoice_date_display'].replace('/', '')}.pdf"
+        customer_display_name = order_data.get('customer_name') or order_data.get('customer_company', 'Valued Customer')
+        
+        email_sent = email_service.send_wire_transfer_invoice_email(
+            recipient_email=recipient_email,
+            order_number=str(order_data.get('bigcommerce_order_id', order_id)),
+            customer_name=customer_display_name,
+            pdf_attachment_bytes=pdf_bytes,
+            pdf_filename=pdf_filename
+        )
+
+        if not email_sent:
+            if transaction.is_active: transaction.rollback()
+            current_app.logger.error(f"SEND_WIRE_INVOICE: Failed to send wire invoice email for order ID {order_id} to {recipient_email}.")
+            return jsonify({"error": "Invoice PDF was generated, but failed to send email."}), 502
+
+        # Update BigCommerce Order Status to "Awaiting Payment" (ID 7)
+        bc_order_id_for_update = order_data.get('bigcommerce_order_id')
+        bc_status_id_awaiting_payment = 7 
+        if bc_order_id_for_update:
+            try:
+                status_updated_bc = shipping_service.set_bigcommerce_order_status(
+                    bigcommerce_order_id=bc_order_id_for_update,
+                    status_id=int(bc_status_id_awaiting_payment) 
+                )
+                if status_updated_bc:
+                    current_app.logger.info(f"SEND_WIRE_INVOICE: BigCommerce order {bc_order_id_for_update} status updated to 'Awaiting Payment' (ID: {bc_status_id_awaiting_payment}).")
+                else:
+                    # This might be a critical failure if BC update is essential before local. Consider how to handle.
+                    current_app.logger.warn(f"SEND_WIRE_INVOICE: Failed to update BigCommerce order {bc_order_id_for_update} status. Check BC API response. Local status will still be updated.")
+            except Exception as e_bc_update:
+                current_app.logger.error(f"SEND_WIRE_INVOICE: Exception updating BigCommerce order {bc_order_id_for_update} status: {e_bc_update}")
+        
+        # Update Local Order Status to "Unpaid/Invoiced"
+        new_local_status = "Unpaid/Invoiced"
+        update_local_order_sql = text("UPDATE orders SET status = :new_status, updated_at = CURRENT_TIMESTAMP WHERE id = :order_id")
+        db_conn.execute(update_local_order_sql, {"new_status": new_local_status, "order_id": order_id})
+        current_app.logger.info(f"SEND_WIRE_INVOICE: Local order {order_id} status updated to '{new_local_status}'.")
+
+        transaction.commit()
+        current_app.logger.info(f"SEND_WIRE_INVOICE: Wire invoice for order ID {order_id} successfully processed and sent to {recipient_email}.")
+        return jsonify({"message": f"Wire transfer invoice for order {order_data.get('bigcommerce_order_id', order_id)} sent successfully to {recipient_email}."}), 200
+
+    except Exception as e:
+        if transaction and transaction.is_active: transaction.rollback()
+        current_app.logger.error(f"SEND_WIRE_INVOICE: Error processing for order ID {order_id}: {e}", exc_info=True)
+        return jsonify({"error": "An unexpected server error occurred.", "details": str(e)}), 500
+    finally:
+        if db_conn: 
+            db_conn.close()
+            current_app.logger.debug(f"SEND_WIRE_INVOICE: DB Connection closed for order ID {order_id}")
+# --- END OF send_wire_invoice_route ---

@@ -472,25 +472,42 @@ function OrderDetail() {
 
       <div className="order-actions" style={{ marginTop: '20px', textAlign: 'center' }}>
           {/* Send Receipt Button Uses the new class */}
-          {orderStatus === 'processed' && !processSuccess && (
-            <button
-                onClick={() => navigate(`/orders/${orderId}/send-receipt-form`)}
-                className="send-paid-invoice-button" // <--- CHANGED CLASS HERE
-                title="Send Paid Invoice / Receipt to Customer"
-            >
-                Send Paid Invoice
-            </button>
-          )}
-          {/* --- End of Send Receipt Button --- */}
+                {orderStatus === 'processed' && !processSuccess && (
+                    <button
+                        onClick={() => navigate(`/orders/${orderId}/send-receipt-form`)}
+                        className="send-paid-invoice-button" 
+                        style={{ marginRight: '10px' }} 
+                        title="Send Paid Invoice / Receipt to Customer"
+                    >
+                        Send Paid Invoice
+                    </button>
+                )}
 
-          {(isActuallyProcessed || processSuccess) && (
-              <button type="button" onClick={() => navigate('/')} className="back-to-dashboard-button">
-                  BACK TO DASHBOARD
-              </button>
-          )}
-      </div>
-    </div>
-  );
+                {/* NEW Send Wire Transfer Invoice Button */}
+                {orderStatus === 'unpaid/not invoiced' && !processSuccess && (
+                    <button
+                        onClick={() => navigate(`/orders/${orderId}/send-wire-invoice-form`)}
+                        className="btn btn-warning btn-sm" // Example: different color for this action
+                        style={{ marginRight: '10px' }}
+                        title="Send Wire Transfer Invoice to Customer"
+                    >
+                        Send Wire Invoice
+                    </button>
+                )}
+
+                {(isActuallyProcessed || processSuccess) && (
+                    <button type="button" onClick={() => navigate('/dashboard')} className="back-to-dashboard-button">
+                        BACK TO DASHBOARD
+                    </button>
+                )}
+                {isActuallyProcessed && !processSuccess && (
+                    <div style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>
+                        This order has been {order?.status?.toLowerCase()} and no further automated actions are available.
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
 
 export default OrderDetail;

@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Dashboard from './components/Dashboard';
 import OrderDetail from './components/OrderDetail';
 import SendReceiptForm from './components/SendReceiptForm'; 
+import SendWireTransferInvoiceForm from './components/SendWireTransferInvoiceForm'; // <--- ENSURE THIS LINE IS PRESENT AND CORRECT
 import Login from './components/Login';
 import CustomsInfoList from './components/CustomsInfoList'; // Adjust path as needed
 import CustomsInfoForm from './components/CustomsInfoForm';   // Adjust path as needed
@@ -118,6 +119,17 @@ function AppContent() {
             } 
           />
           {/* --- END OF SEND RECEIPT FORM ROUTE --- */}
+
+      {/* --- NEW ROUTE FOR SEND WIRE TRANSFER INVOICE FORM --- */}
+      <Route 
+        path="/orders/:orderId/send-wire-invoice-form" 
+        element={
+            <ProtectedRoute>
+                <SendWireTransferInvoiceForm />
+            </ProtectedRoute>
+        } 
+      />
+      {/* --- END OF NEW ROUTE --- */}
 
           {/* Utilities Section Routes */}
           <Route 

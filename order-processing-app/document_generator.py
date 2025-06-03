@@ -134,17 +134,25 @@ def get_custom_styles():
     
     styles.add(ParagraphStyle(name='Invoice_Num_Eloquia_Bold_Right', 
                                parent=styles['Normal_Eloquia_Bold_Right'], 
-                               fontSize=12, # Approx 30% > 9pt
+                               fontSize=12, 
                                leading=14))
 
+    # MODIFIED: TOTAL Label size back to normal bold or slightly larger
     styles.add(ParagraphStyle(name='Total_Label_Eloquia_Bold_Right', 
                                parent=styles['Normal_Eloquia_Bold_Right'], 
-                               fontSize=13,
-                               leading=15))
+                               fontSize=10, # Adjusted from 13pt back to 10pt (9pt is base)
+                               leading=12))
+    # Value can remain larger if desired
     styles.add(ParagraphStyle(name='Total_Value_Eloquia_Bold_Right', 
                                parent=styles['Normal_Eloquia_Bold_Right'], 
                                fontSize=13, 
                                leading=15))
+
+    # NEW: Style for the enlarged "Please send payment..." message
+    styles.add(ParagraphStyle(name='Payment_Message_Enlarged_Center',
+                               parent=styles['Normal_Eloquia_Center'],
+                               fontSize=10, # Approx 15% > 9pt (9 * 1.15 = 10.35)
+                               leading=12))
 
     styles.add(ParagraphStyle(name='H1_Eloquia', fontName='Helvetica-Bold', fontSize=16, leading=18, parent=styles['h1']))
     styles.add(ParagraphStyle(name='H1_Eloquia_Right', parent=styles['H1_Eloquia'], alignment=TA_RIGHT))
@@ -617,6 +625,241 @@ def _draw_invoice_footer(canvas, doc, styles): # Renamed from _draw_paid_invoice
     p_paid_message.drawOn(canvas, doc.leftMargin, p_paid_message_y_pos) 
     
     canvas.restoreState()
+
+# --- NEW FOOTER HELPER FUNCTION for Wire Transfer Invoice ---
+def _draw_wire_transfer_invoice_footer(canvas, doc, styles, wire_instructions_included=False):
+    canvas.saveState()
+    page_width = doc.width 
+    
+    payment_message_text = "Please send payment using the included payment instructions. Thank you for your order!"
+    # Use new enlarged style
+    p_payment_message = Paragraph(payment_message_text, styles['Payment_Message_Enlarged_Center']) 
+    
+    hr_footer = HRFlowable(width=doc.width, thickness=0.5, color=colors.lightgrey, spaceBefore=2, spaceAfter=2)
+
+    company_footer_lines = [
+        f"<b>{COMPANY_NAME}</b>",
+        f"Voice: {COMPANY_PHONE} &nbsp;&nbsp;&nbsp;&nbsp; Fax: {COMPANY_FAX}",
+        COMPANY_ADDRESS_PACKING_SLIP_FOOTER_LINE1,
+        f"Email: {COMPANY_EMAIL} &nbsp;&nbsp;&nbsp;&nbsp; Website: {COMPANY_WEBSITE}"
+    ]
+    p_company_footer = Paragraph("<br/>".join(company_footer_lines), styles['FooterStyle_Eloquia'])
+
+    w_comp, h_comp = p_company_footer.wrapOn(canvas, page_width, doc.bottomMargin)
+    hr_footer.wrapOn(canvas, page_width, 0) 
+    h_hr = hr_footer.height 
+    w_payment_msg, h_payment_msg = p_payment_message.wrapOn(canvas, page_width, doc.bottomMargin)
+    
+    current_y = 0.30 * inch 
+    p_company_footer.drawOn(canvas, doc.leftMargin, current_y)
+    current_y += h_comp 
+
+    hr_footer.drawOn(canvas, doc.leftMargin, current_y + hr_footer.spaceBefore) 
+    current_y += h_hr 
+    
+    # Previous adjustment moved it up. Let's ensure it's about 0.25 inches higher than default.
+    # The "default" would be current_y. We had + (0.25 * inch)
+    # The request is "move up about 1/4 inch" from where it *is now*.
+    # If the previous adjustment was already made and found insufficient, we add more.
+    # Assuming the base y_pos for message (current_y) is just above the HR.
+    # The previous version had: p_payment_message_y_pos = current_y + (0.25 * inch)
+    # If that wasn't enough, or if that was removed, let's ensure it's explicitly higher.
+    # Let's set it relative to the HR line + desired additional space.
+    p_payment_message_y_pos = current_y + (0.25 * inch) # This ensures it's 1/4 inch above the HR line's top boundary
+
+    p_payment_message.drawOn(canvas, doc.leftMargin, p_payment_message_y_pos) 
+    
+    canvas.restoreState()
+# --- END OF _draw_wire_transfer_invoice_footer ---
+
+def generate_wire_transfer_invoice_pdf(order_data, line_items_data, apply_wire_fee=False, logo_gcs_uri=None):
+    buffer = BytesIO()
+    doc_bottom_margin = 2.1 * inch 
+    doc = SimpleDocTemplate(buffer, pagesize=letter,
+                            leftMargin=0.75*inch, rightMargin=0.75*inch,
+                            topMargin=0.5*inch, bottomMargin=doc_bottom_margin)
+    styles = get_custom_styles()
+    story = []
+
+    # --- 1. Top Header ---
+    desired_logo_width_invoice = 1.8 * inch * 1.3 # 30% larger logo
+    logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=desired_logo_width_invoice)
+    invoice_title_para = Paragraph("INVOICE", styles['H1_Eloquia_Right']) # Title is "INVOICE"
+
+    top_header_data = [[logo_element, invoice_title_para]]
+    top_header_table = Table(top_header_data, colWidths=[doc.width * 0.55, doc.width * 0.45]) 
+    top_header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'), ('ALIGN', (0,0), (0,0), 'LEFT'),    
+        ('ALIGN', (1,0), (1,0), 'RIGHT'), ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 6), 
+    ]))
+    story.append(top_header_table)
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey, spaceBefore=0.05*inch, spaceAfter=0.15*inch))
+
+    # --- 2. Invoice # (larger), Date, Shipping Method (MODIFIED DISPLAY) ---
+    invoice_date_str = order_data.get('invoice_date_display', '') # From API
+    invoice_num_str = str(order_data.get('bigcommerce_order_id', 'N/A'))
+    
+    # Shipping Method: If "Value1 [Value2]", display "Value1"
+    raw_shipping_method = order_data.get('customer_shipping_method', 'N/A')
+    shipping_method_display = _format_payment_method_for_packing_slip(raw_shipping_method) # Re-use this helper for stripping "[...]"
+
+    # Create paragraphs for each line, to be added sequentially
+    invoice_num_para = Paragraph(f"Invoice #: {invoice_num_str}", styles['Invoice_Num_Eloquia_Bold_Right']) # Larger style
+    date_para = Paragraph(f"Date: {invoice_date_str}", styles['Normal_Eloquia_Right'])
+    shipping_method_para = Paragraph(f"Shipping Method: {escape(shipping_method_display)}", styles['Normal_Eloquia_Right'])
+    
+    story.append(invoice_num_para)
+    story.append(date_para)
+    story.append(shipping_method_para) # P.O., Payment Method, Due Date removed
+    story.append(Spacer(1, 0.2 * inch))
+
+    # --- 3. Addresses (Add customer name) ---
+    billing_customer_name_parts = []
+    if order_data.get('customer_billing_first_name'): billing_customer_name_parts.append(escape(order_data.get('customer_billing_first_name')))
+    if order_data.get('customer_billing_last_name'): billing_customer_name_parts.append(escape(order_data.get('customer_billing_last_name')))
+    billing_customer_name = " ".join(billing_customer_name_parts).strip()
+
+    bill_to_parts = []
+    if order_data.get('customer_billing_company'): bill_to_parts.append(escape(order_data.get('customer_billing_company')))
+    if billing_customer_name: bill_to_parts.append(billing_customer_name) # ADDED CUSTOMER NAME
+    bill_to_parts.append(escape(order_data.get('customer_billing_street_1', '')))
+    if order_data.get('customer_billing_street_2'): bill_to_parts.append(escape(order_data.get('customer_billing_street_2')))
+    bill_to_parts.append(f"{escape(order_data.get('customer_billing_city', ''))}, {escape(order_data.get('customer_billing_state', ''))} {escape(order_data.get('customer_billing_zip', ''))}")
+    if order_data.get('customer_billing_country_iso2') and order_data.get('customer_billing_country_iso2').upper() != 'US':
+        bill_to_parts.append(escape(order_data.get('customer_billing_country', '')))
+    bill_to_text = "<br/>".join(filter(None, bill_to_parts))
+    bill_to_para = Paragraph(bill_to_text, styles['Normal_Eloquia'])
+
+    # Shipping Address - Customer Name
+    # order_data.customer_name is usually full name from BC shipping.
+    shipping_customer_name = escape(order_data.get('customer_name', ''))
+
+    ship_to_parts = []
+    if order_data.get('customer_company'): ship_to_parts.append(escape(order_data.get('customer_company'))) # Usually from shipping_addresses[0].company
+    if shipping_customer_name: ship_to_parts.append(shipping_customer_name) # ADDED CUSTOMER NAME
+    ship_to_parts.append(escape(order_data.get('customer_shipping_address_line1', '')))
+    if order_data.get('customer_shipping_address_line2'): ship_to_parts.append(escape(order_data.get('customer_shipping_address_line2')))
+    ship_to_parts.append(f"{escape(order_data.get('customer_shipping_city', ''))}, {escape(order_data.get('customer_shipping_state', ''))} {escape(order_data.get('customer_shipping_zip', ''))}")
+    if order_data.get('customer_shipping_country_iso2') and order_data.get('customer_shipping_country_iso2').upper() != 'US':
+        ship_to_parts.append(escape(order_data.get('customer_shipping_country', '')))
+    ship_to_text = "<br/>".join(filter(None, ship_to_parts))
+    ship_to_para = Paragraph(ship_to_text, styles['Normal_Eloquia'])
+    
+    address_data = [
+        [Paragraph("<b>Bill To:</b>", styles['H3_Eloquia']), Paragraph("<b>Ship To:</b>", styles['H3_Eloquia'])],
+        [bill_to_para, ship_to_para]
+    ]
+    address_table = Table(address_data, colWidths=[doc.width * 0.5, doc.width * 0.5])
+    # ... (address_table style remains same)
+    story.append(address_table)
+    story.append(Spacer(1, 0.25 * inch)) # Space before items table (NO PAID STAMP HERE)
+
+    # --- 4. Line Items Table (Description changes already made) ---
+    # ... (items_table logic as previously updated for pdf_description - no changes here) ...
+    current_line_items = list(line_items_data) 
+    if apply_wire_fee:
+        wire_fee_amount_for_pdf = Decimal("25.00")
+        current_line_items.append({
+            'pdf_description': 'Bank Wire Transfer Fee', 'quantity': 1,
+            'sale_price': wire_fee_amount_for_pdf, 'is_fee': True 
+        })
+    items_header = [
+        Paragraph('<b>Description</b>', styles['Normal_Eloquia_Bold']),
+        Paragraph('<b>Qty</b>', styles['Normal_Eloquia_Bold_Center']),
+        Paragraph('<b>Each</b>', styles['Normal_Eloquia_Bold_Right']),
+        Paragraph('<b>Total</b>', styles['Normal_Eloquia_Bold_Right'])
+    ]
+    items_table_data = [items_header]
+    subtotal = Decimal('0.00')
+    for item in current_line_items:
+        qty = Decimal(str(item.get('quantity', 0)))
+        unit_price = Decimal(str(item.get('sale_price', '0.00')))
+        line_total = qty * unit_price
+        subtotal += line_total
+        desc_text = escape(item.get('pdf_description', item.get('line_item_name', 'N/A')))
+        items_table_data.append([
+            Paragraph(desc_text, styles['ItemDesc_Eloquia']),
+            Paragraph(str(qty), styles['Normal_Eloquia_Center']),
+            Paragraph(format_currency(unit_price), styles['Normal_Eloquia_Right']),
+            Paragraph(format_currency(line_total), styles['Normal_Eloquia_Right'])
+        ])
+    available_width_for_table = doc.width 
+    desc_col_width = available_width_for_table * 0.60 
+    qty_col_width = available_width_for_table * 0.10
+    each_col_width = available_width_for_table * 0.15
+    total_col_width = available_width_for_table * 0.15
+    items_table = Table(items_table_data, colWidths=[desc_col_width, qty_col_width, each_col_width, total_col_width])
+    items_table.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('TOPPADDING', (0,0), (-1,-1), 5), ('LEFTPADDING', (0,1), (0,-1), 2), 
+        ('RIGHTPADDING', (0,1), (0,-1), 2),
+    ]))
+    story.append(items_table)
+    story.append(Spacer(1, 0.05 * inch))
+
+    # --- 5. Financial Summary (TOTAL DUE label size adjusted) ---
+    shipping_cost = Decimal(str(order_data.get('bc_shipping_cost_ex_tax', '0.00')))
+    sales_tax = Decimal(str(order_data.get('bigcommerce_order_tax', '0.00')))
+    grand_total_due = subtotal + shipping_cost + sales_tax
+
+    summary_spacer_col_width = desc_col_width + qty_col_width 
+    summary_label_col_width = each_col_width 
+    summary_value_col_width = total_col_width 
+
+    summary_data = [
+        ['', Paragraph('Subtotal:', styles['Normal_Eloquia_Bold_Right']), Paragraph(format_currency(subtotal), styles['Normal_Eloquia_Right'])],
+        ['', Paragraph('Shipping:', styles['Normal_Eloquia_Bold_Right']), Paragraph(format_currency(shipping_cost), styles['Normal_Eloquia_Right'])],
+        ['', Paragraph('Sales Tax:', styles['Normal_Eloquia_Bold_Right']), Paragraph(format_currency(sales_tax), styles['Normal_Eloquia_Right'])],
+        # Use modified 'Total_Label_Eloquia_Bold_Right' for the label (now smaller)
+        # Value style 'Total_Value_Eloquia_Bold_Right' can remain larger if desired or also be adjusted
+        ['', Paragraph('TOTAL DUE:', styles['Total_Label_Eloquia_Bold_Right']), Paragraph(f"<b>{format_currency(grand_total_due)}</b>", styles['Total_Value_Eloquia_Bold_Right'])],
+    ]
+    # ... (summary_table creation and styling as before) ...
+    summary_table = Table(summary_data, 
+                          colWidths=[summary_spacer_col_width, summary_label_col_width, summary_value_col_width])
+    summary_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0), ('RIGHTPADDING', (0,0), (-1,-1), 0), 
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2), ('TOPPADDING', (0,0), (-1,-1), 2),
+        ('LINEABOVE', (1,3), (2,3), 0.5, colors.black), 
+        ('TOPPADDING', (1,3), (2,3), 5), ('BOTTOMPADDING', (1,3), (2,3), 5)
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.2 * inch))
+
+    # --- 6. Wire Transfer Instructions (Remains the same) ---
+    wire_instructions_text = """
+        <b>Wire Transfer Info:</b><br/>
+        Bank Name: U.S. Bank NA<br/>
+        SWIFT Code: USBKUS44IMT (for international transfers)<br/>
+        Routing Transit Number: 104000029<br/>
+        Beneficiary Account Number: 105702224939<br/>
+        Beneficiary Name: GLOBAL ONE TECHNOLOGY GROUP INC<br/>
+        Bank Address:<br/>
+        U.S. Bank NA<br/>
+        800 NICOLLET MALL<br/>
+        BC-MN-H201<br/>
+        MINNEAPOLIS, MN 55402
+    """
+    wire_instructions_para = Paragraph(wire_instructions_text, styles['Normal_Eloquia_Small'])
+    instruction_table_data = [[wire_instructions_para]]
+    instruction_table = Table(instruction_table_data, colWidths=[doc.width])
+    instruction_table.setStyle(TableStyle([
+        ('LEFTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 10)
+    ]))
+    story.append(instruction_table)
+
+    # --- Build with fixed footer ---
+    draw_footer_partial = partial(_draw_wire_transfer_invoice_footer, styles=styles, wire_instructions_included=True) 
+    doc.build(story, onFirstPage=draw_footer_partial, onLaterPages=draw_footer_partial)
+    
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+# --- END OF generate_wire_transfer_invoice_pdf FUNCTION ---
+
 
 def create_rotated_paid_stamp(styles): # styles argument might not be strictly needed if fonts hardcoded
     paid_text_content = "PAID"

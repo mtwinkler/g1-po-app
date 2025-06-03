@@ -359,13 +359,43 @@ def generate_ups_label_raw(order_data, ship_from_address, total_weight_lbs, cust
 
     ship_to_company_name = order_data.get('customer_company', '').strip()
     ship_to_contact_person_name = order_data.get('customer_name', '').strip()
-    ups_ship_to_name = ship_to_company_name if ship_to_company_name else ship_to_contact_person_name
-    if not ups_ship_to_name: print("ERROR UPS Payload: ShipTo Name missing."); return None, None
+    
+    # Determine the base name for ShipTo.Name
+    base_ups_ship_to_name = ship_to_company_name if ship_to_company_name else ship_to_contact_person_name
+    if not base_ups_ship_to_name: 
+        print("ERROR UPS Payload: ShipTo Name (company or contact) is missing."); return None, None
+    
+    # Truncate ups_ship_to_name to 35 characters
+    ups_ship_to_name = base_ups_ship_to_name[:35]
+    print(f"DEBUG UPS_LABEL_RAW (ShipTo Name): Original='{base_ups_ship_to_name}', Truncated='{ups_ship_to_name}'")
+
+    # AttentionName can also be truncated if necessary, though the limit might be different or less strict.
+    # For now, let's assume it's mainly the Name field. If AttentionName also causes issues, apply similar truncation.
     ups_attention_name = ship_to_contact_person_name if ship_to_company_name and ship_to_contact_person_name else ship_to_contact_person_name
+    ups_attention_name = ups_attention_name[:35] # Example: Truncating AttentionName as well
+    print(f"DEBUG UPS_LABEL_RAW (AttentionName): Original Contact='{ship_to_contact_person_name}', Truncated Attention='{ups_attention_name}'")
 
     # Construct Shipper block. ShipperNumber might be removed later if billing third party.
+    base_ship_from_name = ship_from_address.get('name', '').strip()
+    if not base_ship_from_name:
+        print("ERROR UPS Payload: ShipFrom Name (Shipper.Name) is missing from ship_from_address.")
+        # Depending on how critical this is, you might return None, None or use a default.
+        # For now, let's assume it's critical as per the UPS error.
+        return None, None 
+    
+    truncated_ship_from_name = base_ship_from_name[:35]
+    print(f"DEBUG UPS_LABEL_RAW (Shipper Name): Original='{base_ship_from_name}', Truncated='{truncated_ship_from_name}'")
+
+    base_ship_from_attention_name = ship_from_address.get('contact_person', '').strip()
+    # If AttentionName is not critical or can be omitted if too long, adjust logic.
+    # For consistency, truncating it if present.
+    truncated_ship_from_attention_name = base_ship_from_attention_name[:35]
+    if base_ship_from_attention_name: # Only log if there was an original attention name
+        print(f"DEBUG UPS_LABEL_RAW (Shipper AttentionName): Original='{base_ship_from_attention_name}', Truncated='{truncated_ship_from_attention_name}'")
+
     shipper_payload_block = {
-        "Name": ship_from_address.get('name'), "AttentionName": ship_from_address.get('contact_person'),
+        "Name": truncated_ship_from_name, 
+        "AttentionName": truncated_ship_from_attention_name,
         "Phone": {"Number": (ship_from_address.get('phone') or "").replace('-', '').replace('(', '').replace(')', '').replace(' ', '')},
         "Address": {
             "AddressLine": [addr for addr in [ship_from_address.get('street_1'), ship_from_address.get('street_2')] if addr and addr.strip()],

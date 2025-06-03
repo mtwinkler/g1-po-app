@@ -334,7 +334,8 @@ def send_customer_receipt_email(recipient_email, order_number, customer_name, pd
         <p>Please find your paid invoice attached to this email for your records.</p>
         <p>We appreciate your business!</p>
         <p>Sincerely,</p>
-        <p>The Team at {escape(company_display_name)}<br/>
+        <p>Mark T. Winkler<br/>
+        {escape(company_display_name)}<br/>
         {escape(COMPANY_WEBSITE) if 'COMPANY_WEBSITE' in globals() else ''}</p>
         """
         
@@ -346,7 +347,8 @@ def send_customer_receipt_email(recipient_email, order_number, customer_name, pd
         We appreciate your business!
 
         Sincerely,
-        The Team at {escape(company_display_name)}
+        Mark T. Winkler
+        {escape(company_display_name)}
         {escape(COMPANY_WEBSITE) if 'COMPANY_WEBSITE' in globals() else ''}
         """
 
@@ -386,6 +388,94 @@ def send_customer_receipt_email(recipient_email, order_number, customer_name, pd
         traceback.print_exc()
         return False
 
+# --- START OF NEW FUNCTION: send_wire_transfer_invoice_email ---
+def send_wire_transfer_invoice_email(recipient_email, order_number, customer_name, pdf_attachment_bytes, pdf_filename="Invoice.pdf"):
+    """
+    Sends a Wire Transfer Invoice email to the customer with the PDF attachment.
+    """
+    print(f"DEBUG EMAIL_SERVICE (WIRE_INVOICE): Attempting to send Wire Transfer Invoice for Order #{order_number} to {recipient_email}")
+
+    if EMAIL_SERVICE_PROVIDER != "postmark":
+        print(f"DEBUG EMAIL_SERVICE (WIRE_INVOICE): Email service provider is '{EMAIL_SERVICE_PROVIDER}', not 'postmark'. Skipping actual send.")
+        return False
+
+    if not PostmarkClient:
+        print("ERROR EMAIL_SERVICE (WIRE_INVOICE): PostmarkClient library is not available. Email not sent.")
+        return False
+
+    if not EMAIL_API_KEY or not EMAIL_SENDER_ADDRESS:
+        print("ERROR EMAIL_SERVICE (WIRE_INVOICE): Postmark Server Token (EMAIL_API_KEY) or Sender Address not configured.")
+        return False
+
+    if not recipient_email:
+        print(f"ERROR EMAIL_SERVICE (WIRE_INVOICE): No recipient email provided for Order #{order_number}.")
+        return False
+
+    if not pdf_attachment_bytes:
+        print(f"ERROR EMAIL_SERVICE (WIRE_INVOICE): No PDF attachment bytes provided for Order #{order_number}.")
+        return False
+
+    try:
+        client = PostmarkClient(server_token=EMAIL_API_KEY)
+        company_display_name = COMPANY_NAME_FOR_EMAIL # Uses the global from this module
+
+        subject = f"Invoice #{order_number} from {company_display_name} - Payment Instructions"
+        
+        html_body = f"""
+        <p>Dear {escape(customer_name if customer_name else 'Valued Customer')},</p>
+        <p>Thank you for your order (Order #{escape(str(order_number))}) with {escape(company_display_name)}!</p>
+        <p>Your invoice with wire transfer payment instructions is attached. Please remit payment at your earliest convenience.</p>
+        <p>If you have any questions, please don't hesitate to contact us.</p>
+        <p>Sincerely,</p>
+        <p>The Team at {escape(company_display_name)}<br/>
+        {escape(COMPANY_WEBSITE)}</p> 
+        """
+        
+        text_body = f"""
+        Dear {escape(customer_name if customer_name else 'Valued Customer')},
+
+        Thank you for your order (Order #{escape(str(order_number))}) with {escape(company_display_name)}!
+        Your invoice with wire transfer payment instructions is attached. Please remit payment at your earliest convenience.
+        If you have any questions, please don't hesitate to contact us.
+
+        Sincerely,
+        The Team at {escape(company_display_name)}
+        {escape(COMPANY_WEBSITE)}
+        """
+
+        email_attachments_for_postmark = [{
+            "Name": pdf_filename, 
+            "Content": base64.b64encode(pdf_attachment_bytes).decode('utf-8'),
+            "ContentType": "application/pdf"
+        }]
+
+        print(f"DEBUG EMAIL_SERVICE (WIRE_INVOICE): Sending Postmark email to {recipient_email} for Order #{order_number} with attachment: {pdf_filename}.")
+
+        email_params = {
+            "From": f"{company_display_name} <{EMAIL_SENDER_ADDRESS}>",
+            "To": recipient_email,
+            "Subject": subject,
+            "HtmlBody": html_body,
+            "TextBody": text_body, 
+            "Attachments": email_attachments_for_postmark,
+            "TrackOpens": True, 
+            "MessageStream": "outbound" 
+        }
+        
+        if EMAIL_BCC_ADDRESS: 
+            email_params["Bcc"] = EMAIL_BCC_ADDRESS
+            print(f"DEBUG EMAIL_SERVICE (WIRE_INVOICE): BCCing to {EMAIL_BCC_ADDRESS}")
+
+        response = client.emails.send(**email_params)
+
+        print(f"INFO EMAIL_SERVICE (WIRE_INVOICE): Wire Transfer Invoice email for Order #{order_number} sent successfully via Postmark. MessageID: {response.get('MessageID') if isinstance(response, dict) else 'N/A'}")
+        return True
+
+    except Exception as e:
+        print(f"CRITICAL EMAIL_SERVICE (WIRE_INVOICE): Failed to send Wire Transfer Invoice email for Order #{order_number} to {recipient_email} via Postmark: {e}")
+        traceback.print_exc()
+        return False
+# --- END OF send_wire_transfer_invoice_email ---
 
 if __name__ == '__main__':
     print("--- Testing Email Service ---")

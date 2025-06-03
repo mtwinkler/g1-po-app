@@ -170,13 +170,17 @@ function InternationalOrderProcessor({
     }
   `;
 
-  useEffect(() => {
+useEffect(() => {
+    console.log('[INTL] Main useEffect triggered. order prop available:', !!order, 'orderId:', orderId);
+
     const fetchInternationalDetailsFromApi = async () => {
-      if (apiService) {
+      if (apiService && orderId) { // Ensure orderId is present for API call
+        console.log('[INTL] Fetching international details from API for orderId:', orderId);
         setLoadingApiDetails(true);
         setApiDetailsError(null);
         try {
           const details = await apiService.get(`/order/${orderId}/international-details`);
+          console.log('[INTL] API response for international-details:', details);
           setInternationalApiDetails(details);
           setEditableCustomsItems(details?.line_items_customs_info?.map(item => ({ ...item })) || []);
           const initialValues = {};
@@ -184,51 +188,95 @@ function InternationalOrderProcessor({
           if (details?.required_compliance_fields) {
             details.required_compliance_fields.forEach(field => {
               const fieldKey = field.field_label;
-              if (field.id_owner === 'Shipper' && details.shipper_ein) initialValues[fieldKey] = details.shipper_ein;
-              else if (order.compliance_info?.[fieldKey] !== undefined) initialValues[fieldKey] = order.compliance_info[fieldKey];
-              else initialValues[fieldKey] = '';
-              if (field.has_exempt_option) initialExemptions[fieldKey] = (order.compliance_info?.[fieldKey] === 'EXEMPT');
+              if (field.id_owner === 'Shipper' && details.shipper_ein) {
+                initialValues[fieldKey] = details.shipper_ein;
+              } else if (order && order.compliance_info?.[fieldKey] !== undefined) { // Check if order exists
+                initialValues[fieldKey] = order.compliance_info[fieldKey];
+              } else {
+                initialValues[fieldKey] = '';
+              }
+              if (field.has_exempt_option && order && order.compliance_info?.[fieldKey] === 'EXEMPT') { // Check if order exists
+                initialExemptions[fieldKey] = true;
+              } else {
+                initialExemptions[fieldKey] = false;
+              }
             });
           }
           setDynamicComplianceValues(initialValues);
           setExemptions(initialExemptions);
         } catch (err) {
           const errorMsg = err.data?.message || err.message || "Failed to load detailed international order data.";
+          console.error('[INTL] Error fetching international details:', errorMsg, err);
           setApiDetailsError(errorMsg);
           if (setProcessError) setProcessError(errorMsg);
         } finally {
           setLoadingApiDetails(false);
         }
+      } else {
+        console.log('[INTL] Skipped fetching international details: apiService or orderId not available.');
       }
     };
 
     fetchInternationalDetailsFromApi();
 
-    // Set default billing option based on order data
-    if (order.is_bill_to_customer_account) {
-        setSelectedBillingOption("recipient");
-        setCustomerUpsAccountNumber(order.customer_ups_account_number || '');
-        const bZip = billing_address?.zip || order.customer_billing_zip;
-        setCustomerUpsAccountZipCode(bZip ? String(bZip).replace(/\s+/g, '') : '');
+    if (order) { // Ensure order object is available before proceeding
+        console.log('[INTL] order object exists. Customer notes:', order.customer_notes);
+        // Set default billing option based on order data
+        if (order.is_bill_to_customer_account) {
+            setSelectedBillingOption("recipient");
+            setCustomerUpsAccountNumber(order.customer_ups_account_number || '');
+            const bZip = billing_address?.zip || order.customer_billing_zip;
+            setCustomerUpsAccountZipCode(bZip ? String(bZip).replace(/\s+/g, '') : '');
+        } else {
+            setSelectedBillingOption("g1_account");
+            setCustomerUpsAccountNumber('');
+            setCustomerUpsAccountZipCode('');
+        }
+
+        // Logic to set initial isBlindDropShip based on customer_notes
+        let initialBlindDropShipValue = false;
+        if (order.customer_notes && typeof order.customer_notes === 'string') {
+            console.log('[INTL] Checking notes content:', `"${order.customer_notes.toLowerCase()}"`);
+            if (order.customer_notes.toLowerCase().includes('blind')) {
+                initialBlindDropShipValue = true;
+                console.log('[INTL] "blind" keyword FOUND in notes.');
+            } else {
+                console.log('[INTL] "blind" keyword NOT found in notes.');
+            }
+        } else {
+            console.log('[INTL] Customer notes are missing, not a string, or order object is incomplete for notes.');
+        }
+        console.log('[INTL] Attempting to set isBlindDropShip to:', initialBlindDropShipValue);
+        setIsBlindDropShip(initialBlindDropShipValue);
+
+        // Set selectedShippingService logic
+        let methodStringToMap = order.customer_shipping_method;
+        if (order.is_bill_to_customer_account && order.customer_selected_freight_service) {
+            methodStringToMap = order.customer_selected_freight_service;
+        }
+        const mappedServiceCode = mapBcShippingToIntlServiceCode(methodStringToMap);
+        if (mappedServiceCode) {
+            setSelectedShippingService(mappedServiceCode);
+        } else if (SHIPPING_METHODS_OPTIONS_INTL.length > 0) {
+            setSelectedShippingService(SHIPPING_METHODS_OPTIONS_INTL[0].value);
+            if (methodStringToMap) {
+                console.warn(`[INTL] Could not map shipping method "${methodStringToMap}". Defaulting.`);
+            }
+        } else {
+            setSelectedShippingService('');
+        }
     } else {
-        setSelectedBillingOption("g1_account");
-        setCustomerUpsAccountNumber(''); 
-        setCustomerUpsAccountZipCode('');
+        console.log('[INTL] order object is undefined in this run of main useEffect (after API call section). Defaulting isBlindDropShip to false.');
+        // If order isn't available, default isBlindDropShip; it might be set by useState(false) initially too.
+        // This explicit set ensures it's false if 'order' object is missing at this stage.
+        setIsBlindDropShip(false);
     }
-    
-    let methodStringToMap = order.customer_shipping_method;
-    if (order.is_bill_to_customer_account && order.customer_selected_freight_service) {
-        methodStringToMap = order.customer_selected_freight_service;
-    }
-    const mappedServiceCode = mapBcShippingToIntlServiceCode(methodStringToMap);
-    if (mappedServiceCode) setSelectedShippingService(mappedServiceCode);
-    else if (SHIPPING_METHODS_OPTIONS_INTL.length > 0) {
-        setSelectedShippingService(SHIPPING_METHODS_OPTIONS_INTL[0].value);
-        if (methodStringToMap) console.warn(`InternationalOrderProcessor: Could not map shipping method "${methodStringToMap}". Defaulting.`);
-    } else setSelectedShippingService('');
+  }, [orderId, order, apiService, setProcessError, billing_address?.zip]); // Ensure 'order' is correctly sourced from props/state and listed as a dependency
 
-  }, [orderId, order, apiService, setProcessError, billing_address?.zip]);
-
+  // Also, include this separate useEffect to monitor changes to the isBlindDropShip state
+  useEffect(() => {
+    console.log('[INTL] isBlindDropShip state changed to:', isBlindDropShip);
+  }, [isBlindDropShip]);
 
   useEffect(() => {
     let determinedShipmentDesc = "Computer Components"; 
