@@ -22,7 +22,7 @@ function Dashboard({ initialView = 'orders' }) {
     const [ingestionMessage, setIngestionMessage] = useState('');
     const [statusCounts, setStatusCounts] = useState({});
     const [loadingCounts, setLoadingCounts] = useState(initialView === 'orders');
-    const [hasPendingOrders, setHasPendingOrders] = useState(false); // Changed from hasPendingOrInternational
+    const [hasPendingOrders, setHasPendingOrders] = useState(false); 
 
     // Daily Sales Tab State
     const [dailyRevenueData, setDailyRevenueData] = useState([]);
@@ -36,27 +36,24 @@ function Dashboard({ initialView = 'orders' }) {
 
         const trimmedMethod = method.trim();
 
-        // Rule 2: If the structure is Value1 [Value2], then display only Value1
         const bracketIndex = trimmedMethod.indexOf(" [");
         if (bracketIndex !== -1) {
-            // Check if there's a parenthesis before the bracket, indicating "Value1 (ValueInParen) [Value2]"
             const partBeforeBracket = trimmedMethod.substring(0, bracketIndex);
             const parenthesisMatchInPart = partBeforeBracket.match(/^(.*?)\s*\(([^)]+)\)$/);
-            if (parenthesisMatchInPart && parenthesisMatchInPart[1]) { // e.g. "UPS Ground (UPS Standard) [Freight]" -> "UPS Standard"
+            if (parenthesisMatchInPart && parenthesisMatchInPart[1]) { 
                  return parenthesisMatchInPart[2].trim();
             }
-            return partBeforeBracket.trim(); // e.g., "UPS Ground [Freight]" -> "UPS Ground"
+            return partBeforeBracket.trim(); 
         }
 
-        // Rule 1: If the structure is Value1 (Value2), then display only Value2
         const parenthesisMatch = trimmedMethod.match(/^(.*?)\s*\(([^)]+)\)$/);
         if (parenthesisMatch && parenthesisMatch[2]) {
-            return parenthesisMatch[2].trim(); // e.g., "UPS (UPS Ground)" -> "UPS Ground"
+            return parenthesisMatch[2].trim(); 
         }
         
         if (trimmedMethod.toLowerCase() === 'free shipping') { return 'UPS® Ground'; }
         
-        return trimmedMethod; // Fallback to the original trimmed string
+        return trimmedMethod; 
     };
 
     const formatCurrencyDisplay = (amount) => {
@@ -67,69 +64,46 @@ function Dashboard({ initialView = 'orders' }) {
       if (typeof paymentMethodString !== 'string') {
         return 'N/A';
       }
-
-      // Check for "Value1 (Value2)" structure
-      // Example: "Credit Card (Processed Online)" -> "Processed Online"
       const parenthesisMatch = paymentMethodString.match(/^(.*?)\s*\(([^)]+)\)$/);
       if (parenthesisMatch && parenthesisMatch[2]) {
-        return parenthesisMatch[2].trim(); // Display Value2
+        return parenthesisMatch[2].trim(); 
       }
-
-      // Check for "Value1 [Value2]" structure
-      // Example: "Bank Wire Transfer [$25 USD additional fee]" -> "Bank Wire Transfer"
       const bracketIndex = paymentMethodString.indexOf(" [");
       if (bracketIndex !== -1) {
-        return paymentMethodString.substring(0, bracketIndex).trim(); // Display Value1
+        return paymentMethodString.substring(0, bracketIndex).trim(); 
       }
-
-      // If neither structure matches, return the original string (trimmed)
       return paymentMethodString.trim();
     };
 
-
-    // --- Data Fetching for Orders View ---
     const fetchOrders = useCallback(async (signal) => {
         if (!currentUser) {
-            setOrders([]);
-            setLoadingOrders(false);
-            setErrorOrders(null);
-            return;
+            setOrders([]); setLoadingOrders(false); setErrorOrders(null); return;
         }
-        setLoadingOrders(true);
-        setErrorOrders(null);
+        setLoadingOrders(true); setErrorOrders(null);
         if (!VITE_API_BASE_URL) {
-            setErrorOrders("API URL not configured.");
-            setLoadingOrders(false);
-            return;
+            setErrorOrders("API URL not configured."); setLoadingOrders(false); return;
         }
         try {
             const token = await currentUser.getIdToken(true);
             const statusParam = filterStatus ? `?status=${encodeURIComponent(filterStatus)}` : '';
             const displayOrdersApiUrl = `${VITE_API_BASE_URL}/orders${statusParam}`;
             const response = await fetch(displayOrdersApiUrl, {
-                signal,
-                headers: { 'Authorization': `Bearer ${token}` }
+                signal, headers: { 'Authorization': `Bearer ${token}` }
             });
-            if (signal && signal.aborted) return;
+            if (signal?.aborted) return;
             if (!response.ok) {
                 let errorMsg = `Failed to load orders. Status: ${response.status}`;
-                if (response.status === 401 || response.status === 403) {
-                    errorMsg = "Unauthorized to fetch orders. Please log in again.";
-                } else {
-                    try { const errorData = await response.json(); errorMsg = errorData.message || errorData.error || errorMsg; } catch (e) { /* ignore */ }
-                }
+                if (response.status === 401 || response.status === 403) errorMsg = "Unauthorized to fetch orders. Please log in again.";
+                else { try { const errorData = await response.json(); errorMsg = errorData.message || errorData.error || errorMsg; } catch (e) { /* ignore */ } }
                 throw new Error(errorMsg);
             }
             const data = await response.json();
-            if (signal && signal.aborted) return;
+            if (signal?.aborted) return;
             if (!Array.isArray(data)) throw new Error("Received orders data is not in the expected array format.");
             data.sort((a, b) => (new Date(b.order_date) || 0) - (new Date(a.order_date) || 0));
             setOrders(data || []);
         } catch (err) {
-            if (err.name !== 'AbortError') {
-                setErrorOrders(err.message || "Failed to fetch orders.");
-                setOrders([]);
-            }
+            if (err.name !== 'AbortError') { setErrorOrders(err.message || "Failed to fetch orders."); setOrders([]); }
         } finally {
             if (!signal || !signal.aborted) setLoadingOrders(false);
         }
@@ -137,24 +111,17 @@ function Dashboard({ initialView = 'orders' }) {
 
     const fetchStatusCounts = useCallback(async (signal) => {
         if (!currentUser) {
-            setStatusCounts({});
-            setLoadingCounts(false);
-            setHasPendingOrders(false); // Updated state setter
-            return;
+            setStatusCounts({}); setLoadingCounts(false); setHasPendingOrders(false); return;
         }
         setLoadingCounts(true);
-        if (!VITE_API_BASE_URL) {
-            setLoadingCounts(false);
-            return;
-        }
+        if (!VITE_API_BASE_URL) { setLoadingCounts(false); return; }
         try {
             const token = await currentUser.getIdToken(true);
             const countsApiUrl = `${VITE_API_BASE_URL}/orders/status-counts`;
             const response = await fetch(countsApiUrl, {
-                signal,
-                headers: { 'Authorization': `Bearer ${token}` }
+                signal, headers: { 'Authorization': `Bearer ${token}` }
             });
-            if (signal && signal.aborted) return;
+            if (signal?.aborted) return;
             if (!response.ok) {
                 if(response.status === 401 || response.status === 403) {
                     console.error("Unauthorized to fetch status counts.");
@@ -163,52 +130,36 @@ function Dashboard({ initialView = 'orders' }) {
                 throw new Error('Failed to fetch status counts');
             }
             const counts = await response.json();
-            if (signal && signal.aborted) return;
+            if (signal?.aborted) return;
             setStatusCounts(counts || {});
-            // Updated logic: only check for pending
             setHasPendingOrders(!!(counts && counts.pending > 0));
         } catch (error) {
             if (error.name !== 'AbortError') {
                 console.error("Error fetching status counts:", error.message);
                 if (!errorOrders) setErrorOrders("Could not load status counts.");
-                setStatusCounts({});
-                setHasPendingOrders(false); // Updated state setter
+                setStatusCounts({}); setHasPendingOrders(false); 
             }
         } finally {
             if (!signal || !signal.aborted) setLoadingCounts(false);
         }
-    }, [VITE_API_BASE_URL, currentUser, errorOrders]); // Added errorOrders to dep array for setErrorOrders
+    }, [VITE_API_BASE_URL, currentUser, errorOrders]); 
 
     const handleIngestOrders = useCallback(async () => {
-        if (!VITE_API_BASE_URL) {
-            setIngestionMessage("Error: API URL not configured.");
-            return;
-        }
-        if (!currentUser) {
-            setIngestionMessage("Please log in to ingest orders.");
-            return;
-        }
-        setIngesting(true);
-        setIngestionMessage('Importing orders from BigCommerce...');
+        if (!VITE_API_BASE_URL) { setIngestionMessage("Error: API URL not configured."); return; }
+        if (!currentUser) { setIngestionMessage("Please log in to ingest orders."); return; }
+        setIngesting(true); setIngestionMessage('Importing orders from BigCommerce...');
         try {
             const token = await currentUser.getIdToken(true);
             const ingestApiUrl = `${VITE_API_BASE_URL}/ingest_orders`;
             const response = await fetch(ingestApiUrl, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({})
             });
-            const result = await response.json().catch(() => ({
-                message: `Ingestion request failed with status ${response.status}. Response not JSON.`
-            }));
+            const result = await response.json().catch(() => ({ message: `Ingestion request failed with status ${response.status}. Response not JSON.` }));
             if (!response.ok) {
                 let errorMsg = `Error: ${result.message || result.error || `Failed with status ${response.status}`}`;
-                 if (response.status === 401 || response.status === 403) {
-                    errorMsg = "Unauthorized to ingest orders. Please log in again.";
-                }
+                 if (response.status === 401 || response.status === 403) errorMsg = "Unauthorized to ingest orders. Please log in again.";
                 setIngestionMessage(errorMsg);
             } else {
                 setIngestionMessage(result.message || "Ingestion process completed successfully.");
@@ -226,58 +177,39 @@ function Dashboard({ initialView = 'orders' }) {
         }
     }, [VITE_API_BASE_URL, currentUser, fetchOrders, fetchStatusCounts, currentView]);
 
-
-    // --- Data Fetching for Daily Sales View ---
     const fetchDailyRevenue = useCallback(async (signal) => {
         if (!currentUser) {
-            setDailyRevenueData([]);
-            setLoadingRevenue(false);
-            setErrorRevenue(null);
-            return;
+            setDailyRevenueData([]); setLoadingRevenue(false); setErrorRevenue(null); return;
         }
-        setLoadingRevenue(true);
-        setErrorRevenue(null);
+        setLoadingRevenue(true); setErrorRevenue(null);
         if (!VITE_API_BASE_URL) {
-            setErrorRevenue("API URL not configured.");
-            setLoadingRevenue(false);
-            return;
+            setErrorRevenue("API URL not configured."); setLoadingRevenue(false); return;
         }
         try {
             const token = await currentUser.getIdToken(true);
             const revenueApiUrl = `${VITE_API_BASE_URL}/reports/daily-revenue`;
             const response = await fetch(revenueApiUrl, {
-                signal,
-                headers: { 'Authorization': `Bearer ${token}` }
+                signal, headers: { 'Authorization': `Bearer ${token}` }
             });
-            if (signal && signal.aborted) return;
+            if (signal?.aborted) return;
             if (!response.ok) {
                 let errorMsg = `Failed to load revenue. Status: ${response.status}`;
-                 if (response.status === 401 || response.status === 403) {
-                    errorMsg = "Unauthorized to fetch revenue. Please log in again.";
-                } else {
-                    try { const errorData = await response.json(); errorMsg = errorData.message || errorData.error || errorMsg; } catch (e) { /* ignore */ }
-                }
+                 if (response.status === 401 || response.status === 403) errorMsg = "Unauthorized to fetch revenue. Please log in again.";
+                else { try { const errorData = await response.json(); errorMsg = errorData.message || errorData.error || errorMsg; } catch (e) { /* ignore */ } }
                 throw new Error(errorMsg);
             }
             const data = await response.json();
-            if (signal && signal.aborted) return;
+            if (signal?.aborted) return;
             if (!Array.isArray(data)) throw new Error("Received revenue data is not in the expected array format.");
             setDailyRevenueData(data || []);
         } catch (err) {
-            if (err.name !== 'AbortError') {
-                setErrorRevenue(err.message || "Failed to fetch daily revenue.");
-                setDailyRevenueData([]);
-            }
+            if (err.name !== 'AbortError') { setErrorRevenue(err.message || "Failed to fetch daily revenue."); setDailyRevenueData([]); }
         } finally {
             if (!signal || !signal.aborted) setLoadingRevenue(false);
         }
     }, [VITE_API_BASE_URL, currentUser]);
 
-
-    // --- Effects ---
-    useEffect(() => {
-        setCurrentView(initialView);
-    }, [initialView]);
+    useEffect(() => { setCurrentView(initialView); }, [initialView]);
 
     useEffect(() => {
         if (authLoading) {
@@ -286,18 +218,11 @@ function Dashboard({ initialView = 'orders' }) {
             return;
         }
         if (!currentUser) {
-            setOrders([]);
-            setStatusCounts({});
-            setLoadingOrders(false);
-            setLoadingCounts(false);
-            setErrorOrders(null);
-            setHasPendingOrders(false); // Updated state setter
-            setDailyRevenueData([]);
-            setLoadingRevenue(false);
-            setErrorRevenue(null);
+            setOrders([]); setStatusCounts({}); setLoadingOrders(false); setLoadingCounts(false);
+            setErrorOrders(null); setHasPendingOrders(false); 
+            setDailyRevenueData([]); setLoadingRevenue(false); setErrorRevenue(null);
             return;
         }
-
         const abortController = new AbortController();
         if (currentView === 'orders') {
             fetchOrders(abortController.signal);
@@ -308,29 +233,18 @@ function Dashboard({ initialView = 'orders' }) {
         return () => abortController.abort();
     }, [currentUser, authLoading, currentView, fetchOrders, fetchStatusCounts, fetchDailyRevenue, filterStatus]);
 
-
-    // --- Event Handlers ---
     const handleRowClick = (orderId) => navigate(`/orders/${orderId}`);
     const handleLinkClick = (e) => e.stopPropagation();
     const handleFilterChange = (event) => setFilterStatus(event.target.value);
 
-    // --- Render Logic ---
-    // Removed 'international_manual'
     const orderedDropdownStatuses = [
-        { value: 'new', label: 'New' },
-        { value: 'RFQ Sent', label: 'RFQ Sent' },
-        { value: 'pending', label: 'Pending' },
-        { value: 'Processed', label: 'Processed' },
+        { value: 'new', label: 'New' }, { value: 'RFQ Sent', label: 'RFQ Sent' },
+        { value: 'pending', label: 'Pending' }, { value: 'Processed', label: 'Processed' },
         { value: 'Completed Offline', label: 'Completed Offline' }
     ];
-
     const todayUTCString = new Date().toLocaleDateString('en-CA', { timeZone: 'UTC' });
 
-
-    if (authLoading && !currentUser) {
-        return <div className="loading-message">Loading session...</div>;
-    }
-
+    if (authLoading && !currentUser) return <div className="loading-message">Loading session...</div>;
     if (!currentUser) {
         return (
             <div className="dashboard-container" style={{ textAlign: 'center', marginTop: '50px' }}>
@@ -343,9 +257,7 @@ function Dashboard({ initialView = 'orders' }) {
     return (
         <div className="dashboard-container">
             <h2 style={{ lineHeight: '1.2', marginBottom: '20px', textShadow: '1px 1px 2px rgba(0,0,0,0.2)' }}>
-                <span style={{ fontSize: '90%', fontWeight: '600', display: 'block', color: 'var(--primary-accent-dark)' }}>
-                    Global One Technology
-                </span>
+                <span style={{ fontSize: '90%', fontWeight: '600', display: 'block', color: 'var(--primary-accent-dark)' }}>Global One Technology</span>
                 <span style={{ fontSize: '70%', fontWeight: '900', display: 'block', color: 'var(--primary-accent-dark)', letterSpacing: '0.3em' }}>{currentView === 'dailySales' ? 'Daily Sales Report' : 'Dashboard'}</span>
             </h2>
 
@@ -353,27 +265,15 @@ function Dashboard({ initialView = 'orders' }) {
                 <>
                     <div className="dashboard-controls-bar">
                         <div className="dashboard-filters">
-                            <label htmlFor="statusFilter" style={{ fontWeight: '500', color: 'var(--text-main)'}}>
-                                Filter by Status:
+                            <label htmlFor="statusFilter" style={{ fontWeight: '500', color: 'var(--text-main)'}}>Filter by Status:
                                 {hasPendingOrders && <span style={{ color: 'red', marginLeft: '2px', fontWeight: 'bold' }}>*</span>} 
                             </label>
-                            <select
-                                id="statusFilter"
-                                value={filterStatus}
-                                onChange={handleFilterChange}
-                                style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--border-input)', opacity: '65%'}}
-                                disabled={loadingCounts || ingesting}
-                            >
+                            <select id="statusFilter" value={filterStatus} onChange={handleFilterChange} style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--border-input)', opacity: '65%'}} disabled={loadingCounts || ingesting}>
                                 {orderedDropdownStatuses.map(statusObj => {
                                     const count = statusCounts[statusObj.value];
                                     const displayCount = (count !== undefined) ? ` (${count})` : ' (0)';
-                                    // Updated asterisk logic
                                     const optionAsterisk = (statusObj.value === 'pending' && statusCounts.pending > 0) ? '*' : '';
-                                    return (
-                                        <option key={statusObj.value} value={statusObj.value}>
-                                            {statusObj.label}{displayCount}{optionAsterisk}
-                                        </option>
-                                    );
+                                    return (<option key={statusObj.value} value={statusObj.value}>{statusObj.label}{displayCount}{optionAsterisk}</option>);
                                 })}
                             </select>
                         </div>
@@ -382,7 +282,6 @@ function Dashboard({ initialView = 'orders' }) {
                     {errorOrders && <div className="error-message" style={{ marginBottom: '15px' }}>Error: {errorOrders}</div>}
                     {loadingOrders && orders.length === 0 && !errorOrders && <div className="loading-message">Loading orders...</div>}
                     {loadingOrders && orders.length > 0 && <div className="loading-message" style={{marginTop: '10px', marginBottom: '10px'}}>Refreshing orders...</div>}
-
 
                     {orders.length === 0 && !loadingOrders && !errorOrders ? (
                         <p className="empty-list-message">No orders found{filterStatus ? ` with status '${orderedDropdownStatuses.find(s => s.value === filterStatus)?.label || filterStatus}'` : ''}.</p>
@@ -397,6 +296,7 @@ function Dashboard({ initialView = 'orders' }) {
                                         <th>Ship Method</th><th>Ship To</th>
                                         <th className="hide-mobile">Int'l</th><th className="hide-mobile">Created</th>
                                         <th>Comments</th><th>Total</th>
+                                        {/* <th>Actions</th>  <--- REMOVED Actions header from here --- */}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -406,7 +306,6 @@ function Dashboard({ initialView = 'orders' }) {
                                         const hasCustomerNotes = order.customer_notes && order.customer_notes.trim() !== '';
                                         const initialCommentLength = 70;
                                         const displayShippingMethod = formatShippingMethod(order.customer_shipping_method);
-                                        // Apply new payment method formatting here
                                         const displayPaymentMethod = formatDashboardPaymentMethod(order.payment_method);
 
                                         return (
@@ -430,6 +329,7 @@ function Dashboard({ initialView = 'orders' }) {
                                                     <span className="comment-value">{hasCustomerNotes ? (<>{order.customer_notes.substring(0, initialCommentLength)}{order.customer_notes.length > initialCommentLength ? '...' : ''}</>) : (null)}</span>
                                                 </td>
                                                 <td data-label="Total" className="total-column">${(order.total_sale_price && !isNaN(parseFloat(order.total_sale_price))) ? parseFloat(order.total_sale_price).toFixed(2) : '0.00'}</td>
+                                                {/* --- REMOVED Actions cell from here --- */}
                                             </tr>
                                         );
                                     })}
@@ -440,23 +340,12 @@ function Dashboard({ initialView = 'orders' }) {
                      <div className="ingest-controls-sticky-wrapper">
                         <div className="ingest-controls">
                             {ingestionMessage &&
-                                <div
-                                    className="ingestion-message"
-                                    style={{
-                                        color: ingestionMessage.toLowerCase().includes('error') || ingestionMessage.toLowerCase().includes('failed') ? 'var(--error-text)' : 'var(--success-text)',
-                                        alignSelf: 'center',
-                                        fontWeight: 500,
-                                        marginBottom: currentUser ? '8px' : '0'
-                                    }}>
+                                <div className="ingestion-message" style={{ color: ingestionMessage.toLowerCase().includes('error') || ingestionMessage.toLowerCase().includes('failed') ? 'var(--error-text)' : 'var(--success-text)', alignSelf: 'center', fontWeight: 500, marginBottom: currentUser ? '8px' : '0' }}>
                                     {ingestionMessage}
                                 </div>
                             }
                             {currentUser && (
-                                <button
-                                    onClick={handleIngestOrders}
-                                    disabled={ingesting || loadingCounts || loadingOrders}
-                                    className="btn btn-gradient btn-shadow-lift btn-primary"
-                                >
+                                <button onClick={handleIngestOrders} disabled={ingesting || loadingCounts || loadingOrders} className="btn btn-gradient btn-shadow-lift btn-primary">
                                     {ingesting ? 'Importing...' : (loadingCounts ? 'Loading Filters...' : 'IMPORT NEW ORDERS')}
                                 </button>
                             )}
@@ -474,21 +363,13 @@ function Dashboard({ initialView = 'orders' }) {
                     {!loadingRevenue && !errorRevenue && dailyRevenueData.length > 0 && (
                         <div className="daily-revenue-list">
                             {dailyRevenueData.map(item => {
-                                if (item.sale_date === todayUTCString && item.daily_revenue === 0) {
-                                    return null;
-                                }
+                                if (item.sale_date === todayUTCString && item.daily_revenue === 0) return null;
                                 return (
                                     <div key={item.sale_date} className="daily-revenue-item">
                                         <span style={{ marginRight: 'auto' }}>
-                                            {new Date(item.sale_date + 'T00:00:00Z').toLocaleDateString('en-US', {
-                                                year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC'
-                                            })}
+                                            {new Date(item.sale_date + 'T00:00:00Z').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
                                         </span>
-                                        <span style={{
-                                            fontWeight: item.daily_revenue > 0 ? 'bold' : 'normal',
-                                            color: item.daily_revenue > 0 ? 'green' : (item.daily_revenue === 0 ? 'orange' : 'inherit'),
-                                            textAlign: 'right'
-                                        }}>
+                                        <span style={{ fontWeight: item.daily_revenue > 0 ? 'bold' : 'normal', color: item.daily_revenue > 0 ? 'green' : (item.daily_revenue === 0 ? 'orange' : 'inherit'), textAlign: 'right' }}>
                                             {formatCurrencyDisplay(item.daily_revenue)}
                                         </span>
                                     </div>

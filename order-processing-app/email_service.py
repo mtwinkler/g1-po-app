@@ -5,6 +5,7 @@ import base64
 import traceback
 import re
 import json # For parsing Postmark error responses if needed
+from xml.sax.saxutils import escape
 from datetime import datetime, timezone # Not directly used in send_po_email but good practice
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ QUICKBOOKS_EMAIL_RECIPIENT = os.getenv("QUICKBOOKS_EMAIL_RECIPIENT", "sales@glob
 DAILY_IIF_EMAIL_SUBJECT_PREFIX = os.getenv("DAILY_IIF_EMAIL_SUBJECT_PREFIX", "Daily Purchase Orders IIF Batch for")
 # Your company name for email content - consider making this an env var too
 COMPANY_NAME_FOR_EMAIL = os.getenv("COMPANY_NAME_FOR_EMAIL", "Global One Technology")
-
+COMPANY_WEBSITE = os.getenv("COMPANY_WEBSITE", "www.globalonetechnology.com") 
 
 def _get_postmark_headers(): # This might not be needed if using PostmarkClient library
     """Helper to get Postmark API headers if using direct requests.
@@ -289,6 +290,99 @@ def send_sales_notification_email(recipient_email, subject, html_body, text_body
     except Exception as e:
         print(f"CRITICAL EMAIL_SERVICE (SALES_NOTIF): Failed to send notification email via Postmark: {e}")
         import traceback
+        traceback.print_exc()
+        return False
+
+def send_customer_receipt_email(recipient_email, order_number, customer_name, pdf_attachment_bytes, pdf_filename="Paid_Invoice.pdf"):
+    """
+    Sends a "Paid Invoice" / Receipt email to the customer with the PDF attachment.
+    """
+    print(f"DEBUG EMAIL_SERVICE (RECEIPT): Attempting to send receipt for Order #{order_number} to {recipient_email}")
+
+    if EMAIL_SERVICE_PROVIDER != "postmark":
+        print(f"DEBUG EMAIL_SERVICE (RECEIPT): Email service provider is '{EMAIL_SERVICE_PROVIDER}', not 'postmark'. Skipping actual send.")
+        return False
+
+    if not PostmarkClient:
+        print("ERROR EMAIL_SERVICE (RECEIPT): PostmarkClient library is not available. Email not sent.")
+        return False
+
+    if not EMAIL_API_KEY or not EMAIL_SENDER_ADDRESS: #
+        print("ERROR EMAIL_SERVICE (RECEIPT): Postmark Server Token (EMAIL_API_KEY) or Sender Address not configured.") #
+        return False
+
+    if not recipient_email:
+        print(f"ERROR EMAIL_SERVICE (RECEIPT): No recipient email provided for Order #{order_number}.")
+        return False
+
+    if not pdf_attachment_bytes:
+        print(f"ERROR EMAIL_SERVICE (RECEIPT): No PDF attachment bytes provided for Order #{order_number}.")
+        return False
+
+    try:
+        client = PostmarkClient(server_token=EMAIL_API_KEY) #
+
+        # Ensure COMPANY_NAME_FOR_EMAIL is loaded, fallback if necessary
+        company_display_name = os.getenv("COMPANY_NAME_FOR_EMAIL", "Global One Technology") #
+
+        subject = f"Your Paid Invoice from {company_display_name} - Order #{order_number}"
+        
+        # Construct a polite HTML body
+        html_body = f"""
+        <p>Dear {escape(customer_name if customer_name else 'Valued Customer')},</p>
+        <p>Thank you for your recent order with {escape(company_display_name)} (Order #{escape(str(order_number))}).</p>
+        <p>Please find your paid invoice attached to this email for your records.</p>
+        <p>We appreciate your business!</p>
+        <p>Sincerely,</p>
+        <p>The Team at {escape(company_display_name)}<br/>
+        {escape(COMPANY_WEBSITE) if 'COMPANY_WEBSITE' in globals() else ''}</p>
+        """
+        
+        text_body = f"""
+        Dear {escape(customer_name if customer_name else 'Valued Customer')},
+
+        Thank you for your recent order with {escape(company_display_name)} (Order #{escape(str(order_number))}).
+        Please find your paid invoice attached to this email for your records.
+        We appreciate your business!
+
+        Sincerely,
+        The Team at {escape(company_display_name)}
+        {escape(COMPANY_WEBSITE) if 'COMPANY_WEBSITE' in globals() else ''}
+        """
+
+        email_attachments_for_postmark = [{
+            "Name": pdf_filename, # e.g., "Paid_Invoice_Order_12345.pdf"
+            "Content": base64.b64encode(pdf_attachment_bytes).decode('utf-8'), #
+            "ContentType": "application/pdf" #
+        }]
+
+        print(f"DEBUG EMAIL_SERVICE (RECEIPT): Sending Postmark email to {recipient_email} for Order #{order_number} with attachment: {pdf_filename}.")
+
+        email_params = {
+            "From": f"{company_display_name} <{EMAIL_SENDER_ADDRESS}>", #
+            "To": recipient_email,
+            "Subject": subject,
+            "HtmlBody": html_body,
+            "TextBody": text_body, # Good practice to include a text version
+            "Attachments": email_attachments_for_postmark, #
+            "TrackOpens": True, # Optional: track if the email is opened
+            "MessageStream": "outbound" # Or your designated stream for transactional customer emails
+        }
+        
+        # Add BCC if configured
+        bcc_address = os.getenv("EMAIL_BCC_ADDRESS") #
+        if bcc_address:
+            email_params["Bcc"] = bcc_address
+            print(f"DEBUG EMAIL_SERVICE (RECEIPT): BCCing to {bcc_address}")
+
+
+        response = client.emails.send(**email_params)
+
+        print(f"INFO EMAIL_SERVICE (RECEIPT): Receipt email for Order #{order_number} sent successfully via Postmark. MessageID: {response.get('MessageID') if isinstance(response, dict) else 'N/A'}")
+        return True
+
+    except Exception as e:
+        print(f"CRITICAL EMAIL_SERVICE (RECEIPT): Failed to send receipt email for Order #{order_number} to {recipient_email} via Postmark: {e}")
         traceback.print_exc()
         return False
 

@@ -1,4 +1,6 @@
 # document_generator.py
+from dotenv import load_dotenv # Add this import
+load_dotenv() # Add this line to load the .env file
 from datetime import datetime, timezone
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepInFrame, HRFlowable
@@ -12,10 +14,15 @@ import traceback
 import re
 from xml.sax.saxutils import escape
 from functools import partial
+from decimal import Decimal # ADDED THIS IMPORT
 
 # --- FONT REGISTRATION ---
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+
+# --- For Rotated Text ---
+from reportlab.graphics.shapes import String, Drawing, Group # For rotated text
+from reportlab.graphics.renderPDF import GraphicsFlowable # To wrap graphics for Platypus
 
 try:
     from svglib.svglib import svg2rlg
@@ -124,29 +131,48 @@ def get_custom_styles():
     styles.add(ParagraphStyle(name='Normal_Eloquia_Center', parent=styles['Normal_Eloquia'], alignment=TA_CENTER))
     styles.add(ParagraphStyle(name='Normal_Eloquia_Bold_Right', parent=styles['Normal_Eloquia_Bold'], alignment=TA_RIGHT))
     styles.add(ParagraphStyle(name='Normal_Eloquia_Bold_Center', parent=styles['Normal_Eloquia_Bold'], alignment=TA_CENTER))
+    
+    styles.add(ParagraphStyle(name='Invoice_Num_Eloquia_Bold_Right', 
+                               parent=styles['Normal_Eloquia_Bold_Right'], 
+                               fontSize=12, # Approx 30% > 9pt
+                               leading=14))
+
+    styles.add(ParagraphStyle(name='Total_Label_Eloquia_Bold_Right', 
+                               parent=styles['Normal_Eloquia_Bold_Right'], 
+                               fontSize=13,
+                               leading=15))
+    styles.add(ParagraphStyle(name='Total_Value_Eloquia_Bold_Right', 
+                               parent=styles['Normal_Eloquia_Bold_Right'], 
+                               fontSize=13, 
+                               leading=15))
+
     styles.add(ParagraphStyle(name='H1_Eloquia', fontName='Helvetica-Bold', fontSize=16, leading=18, parent=styles['h1']))
     styles.add(ParagraphStyle(name='H1_Eloquia_Right', parent=styles['H1_Eloquia'], alignment=TA_RIGHT))
-    styles.add(ParagraphStyle(name='H2_Eloquia', fontName='Helvetica-Bold', fontSize=14, leading=16, parent=styles['h2']))
+    styles.add(ParagraphStyle(name='H2_Eloquia', fontName='Helvetica-Bold', fontSize=14, leading=16, parent=styles['h2'])) # Used for text logo fallback
     styles.add(ParagraphStyle(name='H3_Eloquia', fontName='Helvetica-Bold', fontSize=10, leading=12, parent=styles['h3']))
+    
     styles.add(ParagraphStyle(name='ItemDesc_Eloquia', parent=styles['Normal_Eloquia'], fontSize=9, leading=11))
     styles.add(ParagraphStyle(name='FulfillmentNoteStyle_Eloquia', parent=styles['Normal_Eloquia'], fontSize=9, leading=11, textColor=colors.HexColor("#666666")))
     styles.add(ParagraphStyle(name='ItemDesc_ShippingSeparately_Eloquia', parent=styles['ItemDesc_Eloquia'], textColor=colors.HexColor("#777777")))
     styles.add(ParagraphStyle(name='Normal_Eloquia_Center_ShippingSeparately', parent=styles['Normal_Eloquia_Center'], textColor=colors.HexColor("#777777")))
     styles.add(ParagraphStyle(name='CustomerNotesStyle_Eloquia', parent=styles['Normal_Eloquia'], spaceBefore=6, spaceAfter=6, leading=12, leftIndent=0.25*inch, rightIndent=0.25*inch))
-    styles.add(ParagraphStyle(name='FooterStyle_Eloquia', fontName='Times-Roman', fontSize=8, leading=10, alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name='EnvironmentNoteStyle_Eloquia', fontName='Times-Roman', fontSize=8, leading=10, alignment=TA_CENTER, textColor=colors.HexColor("#888888")))
+    styles.add(ParagraphStyle(name='FooterStyle_Eloquia', fontName='Times-Roman', fontSize=8, leading=10, alignment=TA_CENTER)) # Matched your sample
+    styles.add(ParagraphStyle(name='EnvironmentNoteStyle_Eloquia', fontName='Times-Roman', fontSize=8, leading=10, alignment=TA_CENTER, textColor=colors.HexColor("#888888"))) # From packing slip
+
+    # Original Helvetica styles from your file (if still needed for PO, otherwise review if Eloquia is primary for all)
     styles.add(ParagraphStyle(name='Normal_Helvetica', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=11))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Small', parent=styles['Normal_Helvetica'], fontSize=8, leading=10))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Bold', parent=styles['Normal_Helvetica'], fontName='Helvetica-Bold'))
     styles.add(ParagraphStyle(name='H1_Helvetica_Right', parent=styles['Normal_Helvetica_Bold'], fontSize=16, alignment=TA_RIGHT))
     styles.add(ParagraphStyle(name='H2_Helvetica', parent=styles['Normal_Helvetica_Bold'], fontSize=14))
     styles.add(ParagraphStyle(name='H3_Helvetica', parent=styles['Normal_Helvetica_Bold'], fontSize=10))
-    styles.add(ParagraphStyle(name='ItemDesc', parent=styles['Normal_Helvetica']))
+    styles.add(ParagraphStyle(name='ItemDesc', parent=styles['Normal_Helvetica'])) 
     styles.add(ParagraphStyle(name='Normal_Helvetica_Right', parent=styles['Normal_Helvetica'], alignment=TA_RIGHT))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Bold_Right', parent=styles['Normal_Helvetica_Bold'], alignment=TA_RIGHT))
     styles.add(ParagraphStyle(name='Normal_Helvetica_Center', parent=styles['Normal_Helvetica'], alignment=TA_CENTER))
     styles.add(ParagraphStyle(name='FulfillmentNoteStyle', parent=styles['Normal_Helvetica'], fontSize=9, textColor=colors.HexColor("#666666")))
     return styles
+
 
 def _get_logo_element_from_gcs(styles, logo_gcs_uri=None, desired_logo_width=1.5*inch, is_blind_slip=False):
     if is_blind_slip:
@@ -380,14 +406,12 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     styles = get_custom_styles()
     story = []
 
-    # ... (existing logo, company address, title, order_ref_text logic) ...
     logo_element_to_use = None
     company_address_display_ps_para = None
     packing_slip_title_text = "PACKING SLIP"
     order_ref_text = ""
 
     if is_blind_slip:
-        # ... (existing blind slip header logic) ...
         logo_element_to_use = Paragraph("", styles['H2_Eloquia'])
         if custom_ship_from_address:
             company_address_text_blind = f"{escape(custom_ship_from_address.get('name', ''))}<br/>" \
@@ -424,7 +448,6 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     story.append(header_table)
     story.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=0.05*inch, spaceAfter=0.1*inch))
 
-    # ... (existing ship_to_address logic) ...
     ship_to_address_parts = []
     customer_company = order_data.get('customer_company', '')
     if customer_company: ship_to_address_parts.append(escape(customer_company))
@@ -445,14 +468,12 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     ]
     if not is_blind_slip:
         raw_payment_method = order_data.get('payment_method', 'N/A')
-        # Use the new helper function here
-        formatted_payment_method_display = _format_payment_method_for_packing_slip(raw_payment_method) # MODIFIED LINE
+        formatted_payment_method_display = _format_payment_method_for_packing_slip(raw_payment_method) 
         right_column_content.extend([
             Spacer(1, 0.05 * inch),
             Paragraph(f"<b>Payment Method:</b> {escape(formatted_payment_method_display)}", styles['Normal_Eloquia_Right'])
         ])
 
-    # ... (existing shipping_details_table logic) ...
     shipping_details_data = [
         [Paragraph("<b>Ship To:</b>", styles['H3_Eloquia']), ""],
         [ship_to_para, KeepInFrame(3.5*inch, 1.2*inch, right_column_content)]
@@ -461,7 +482,7 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     shipping_details_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('SPAN', (1,0), (1,0)), # Span for the right column placeholder
+        ('SPAN', (1,0), (1,0)), 
     ]))
     story.append(shipping_details_table)
     story.append(Spacer(1, 0.15 * inch))
@@ -475,7 +496,6 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
             story.append(Paragraph(notes_paragraph_content, styles['CustomerNotesStyle_Eloquia']))
             story.append(Spacer(1, 0.15 * inch))
 
-    # ... (rest of your existing packing slip generation logic: items_in_this_shipment, items_shipping_separately tables) ...
     story.append(Paragraph("<b>IN THIS SHIPMENT:</b>", styles['H3_Eloquia']))
     story.append(Spacer(1, 0.05 * inch))
 
@@ -546,11 +566,266 @@ def generate_packing_slip_pdf(order_data, items_in_this_shipment, items_shipping
     buffer.close()
     return pdf_bytes
 
+# --- START OF INVOICE PDF FUNCTION ---
+def _draw_invoice_footer(canvas, doc, styles): # Renamed from _draw_paid_invoice_footer
+    canvas.saveState()
+    page_width = doc.width 
+    
+    paid_message_text = "This invoice has been paid and is for your records only.<br/>Thank you for your order!"
+    p_paid_message = Paragraph(paid_message_text, styles['Normal_Eloquia_Center'])
+    
+    hr_footer = HRFlowable(width=doc.width, thickness=0.5, color=colors.lightgrey, spaceBefore=3, spaceAfter=3)
+
+    company_footer_lines = [
+        f"<b>{COMPANY_NAME}</b>",
+        f"Voice: {COMPANY_PHONE} &nbsp;&nbsp;&nbsp;&nbsp; Fax: {COMPANY_FAX}",
+        COMPANY_ADDRESS_PACKING_SLIP_FOOTER_LINE1,
+        f"Email: {COMPANY_EMAIL} &nbsp;&nbsp;&nbsp;&nbsp; Website: {COMPANY_WEBSITE}"
+    ]
+    p_company_footer = Paragraph("<br/>".join(company_footer_lines), styles['FooterStyle_Eloquia'])
+
+    # Calculate heights of the elements
+    w_comp, h_comp = p_company_footer.wrapOn(canvas, page_width, doc.bottomMargin)
+    hr_footer.wrapOn(canvas, page_width, 0) 
+    h_hr = hr_footer.height # This includes spaceBefore/After of the HRFlowable itself
+    w_paid, h_paid = p_paid_message.wrapOn(canvas, page_width, doc.bottomMargin)
+
+    # Start drawing from a fixed point from the bottom page edge
+    current_y = 0.30 * inch # Start company footer details here
+
+    p_company_footer.drawOn(canvas, doc.leftMargin, current_y)
+    current_y += h_comp # Move Y position up by the height of the company footer
+
+    # Draw HR line above company footer
+    # The HRFlowable's spaceBefore will add space above the company footer
+    hr_footer.drawOn(canvas, doc.leftMargin, current_y) 
+    current_y += h_hr # Move Y position up by height of HR (which includes its internal spacing)
+
+    # Draw the "This invoice has been paid..." message above the HR line
+    # To move this message up by 1/4 inch, we add 0.25 * inch to its current_y position
+    # relative to where it would have been drawn.
+    # The current_y is now at the top of the HR line.
+    # We want to draw the p_paid_message starting 0.25 inch higher than just above the HR line.
+    
+    # The previous current_y is the bottom of where p_paid_message would start.
+    # Let's adjust where p_paid_message is drawn.
+    # current_y is currently at the position where the bottom of p_paid_message would align with the top of h_hr.
+    # To move it up 1/4 inch, we simply add that to current_y before drawing.
+
+    p_paid_message_y_pos = current_y + (0.25 * inch) # Add 1/4 inch upwards shift
+
+    p_paid_message.drawOn(canvas, doc.leftMargin, p_paid_message_y_pos) 
+    
+    canvas.restoreState()
+
+def create_rotated_paid_stamp(styles): # styles argument might not be strictly needed if fonts hardcoded
+    paid_text_content = "PAID"
+    paid_text_font_name = 'Helvetica-Bold' 
+    paid_text_size = 40 # Increased for "slightly larger" and no border makes it look smaller
+    
+    text_width = pdfmetrics.stringWidth(paid_text_content, paid_text_font_name, paid_text_size)
+    text_height = paid_text_size 
+
+    # Estimate drawing size (can be fine-tuned)
+    # A slightly larger canvas for the rotated text helps prevent clipping
+    rotated_width_estimate = (text_width + text_height) * 0.707 # Approximation for diagonal
+    drawing_width = rotated_width_estimate + 20 # Add some padding
+    drawing_height = rotated_width_estimate + 20
+
+    d = Drawing(drawing_width, drawing_height)
+
+    s = String(0, 0, paid_text_content) 
+    s.fontName = paid_text_font_name
+    s.fontSize = paid_text_size
+    s.fillColor = colors.red
+    s.textAnchor = 'middle' 
+
+    g = Group()
+    g.add(s)
+    
+    # Translate group so string's anchor (middle) is at the center of the drawing, then rotate.
+    g.translate(drawing_width / 2, drawing_height / 2)
+    g.rotate(30) # Positive for counter-clockwise
+
+    d.add(g)
+    return GraphicsFlowable(d)
+
+
+def generate_receipt_pdf(order_data, line_items_data, logo_gcs_uri=None): # Renamed to generate_invoice_pdf if title is "INVOICE"
+    buffer = BytesIO()
+    # Increased bottom margin for footer (was 1.75, trying 2.0 or 2.1)
+    doc_bottom_margin = 2.1 * inch 
+    doc = SimpleDocTemplate(buffer, pagesize=letter,
+                            leftMargin=0.75*inch, rightMargin=0.75*inch,
+                            topMargin=0.5*inch, bottomMargin=doc_bottom_margin)
+    styles = get_custom_styles()
+    story = []
+
+    # --- 1. Top Header (Logo on Left, "INVOICE" on Right) ---
+    desired_logo_width_invoice = 1.8 * inch * 1.3 # 30% larger
+    logo_element = _get_logo_element_from_gcs(styles, logo_gcs_uri, desired_logo_width=desired_logo_width_invoice)
+    
+    # Changed "PAID INVOICE" to "INVOICE"
+    invoice_title_para = Paragraph("INVOICE", styles['H1_Eloquia_Right'])
+
+    top_header_data = [[logo_element, invoice_title_para]]
+    top_header_table = Table(top_header_data, colWidths=[doc.width * 0.55, doc.width * 0.45]) 
+    top_header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'), 
+        ('ALIGN', (0,0), (0,0), 'LEFT'),    
+        ('ALIGN', (1,0), (1,0), 'RIGHT'),   
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6), 
+    ]))
+    story.append(top_header_table)
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey, spaceBefore=0.05*inch, spaceAfter=0.15*inch))
+
+    # --- 2. Invoice # (larger, above Date), Date, Shipping & Payment Method (All Right Justified) ---
+    invoice_date_str = order_data.get('processed_date_display', datetime.now(timezone.utc).strftime("%m/%d/%Y"))
+    invoice_num_str = str(order_data.get('bigcommerce_order_id', 'N/A'))
+    shipping_method_display = _format_shipping_method_for_display(order_data.get('customer_shipping_method', 'N/A'))
+    payment_method_display = _format_payment_method_for_packing_slip(order_data.get('payment_method', 'N/A'))
+
+    invoice_num_para = Paragraph(f"Order #: {invoice_num_str}", styles['Invoice_Num_Eloquia_Bold_Right']) # Uses new larger style
+    date_para = Paragraph(f"Date: {invoice_date_str}", styles['Normal_Eloquia_Right'])
+    shipping_method_para = Paragraph(f"Shipping Method: {escape(shipping_method_display)}", styles['Normal_Eloquia_Right'])
+    payment_method_para = Paragraph(f"Payment Method: {escape(payment_method_display)}", styles['Normal_Eloquia_Right'])
+    
+    story.append(invoice_num_para)
+    story.append(date_para)
+    story.append(shipping_method_para)
+    story.append(payment_method_para)
+    story.append(Spacer(1, 0.2 * inch))
+
+    # --- 3. Addresses & Centered Rotated PAID Stamp ---
+    bill_to_para = Paragraph( 
+        "<br/>".join(filter(None, [
+            escape(order_data.get('customer_billing_company', '') or order_data.get('customer_billing_first_name', '') + ' ' + order_data.get('customer_billing_last_name', '')),
+            escape(order_data.get('customer_billing_street_1', '')),
+            order_data.get('customer_billing_street_2') and escape(order_data.get('customer_billing_street_2')),
+            f"{escape(order_data.get('customer_billing_city', ''))}, {escape(order_data.get('customer_billing_state', ''))} {escape(order_data.get('customer_billing_zip', ''))}",
+            (order_data.get('customer_billing_country_iso2') and order_data.get('customer_billing_country_iso2').upper() != 'US') and escape(order_data.get('customer_billing_country', ''))
+        ])), styles['Normal_Eloquia'])
+
+    ship_to_para = Paragraph( 
+        "<br/>".join(filter(None, [
+            escape(order_data.get('customer_company', '') or order_data.get('customer_name', '')),
+            escape(order_data.get('customer_shipping_address_line1', '')),
+            order_data.get('customer_shipping_address_line2') and escape(order_data.get('customer_shipping_address_line2')),
+            f"{escape(order_data.get('customer_shipping_city', ''))}, {escape(order_data.get('customer_shipping_state', ''))} {escape(order_data.get('customer_shipping_zip', ''))}",
+            (order_data.get('customer_shipping_country_iso2') and order_data.get('customer_shipping_country_iso2').upper() != 'US') and escape(order_data.get('customer_shipping_country', ''))
+        ])), styles['Normal_Eloquia'])
+    
+    address_data = [
+        [Paragraph("<b>Bill To:</b>", styles['H3_Eloquia']), Paragraph("<b>Ship To:</b>", styles['H3_Eloquia'])],
+        [bill_to_para, ship_to_para]
+    ]
+    address_table = Table(address_data, colWidths=[doc.width * 0.5, doc.width * 0.5])
+    address_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(address_table)
+    story.append(Spacer(1, 0.05 * inch)) 
+    
+    rotated_paid_stamp = create_rotated_paid_stamp(styles) 
+    paid_stamp_table_data = [[rotated_paid_stamp]]
+    paid_stamp_table = Table(paid_stamp_table_data, colWidths=[doc.width])
+    paid_stamp_table.setStyle(TableStyle([('ALIGN', (0,0), (0,0), 'CENTER')]))
+    story.append(paid_stamp_table)
+    story.append(Spacer(1, 0.05 * inch))
+
+    # --- 4. Line Items Table (Full Width, Uses pdf_description from orders.py) ---
+    items_header = [
+        Paragraph('', styles['Normal_Eloquia_Bold']),
+        Paragraph('<b>Qty</b>', styles['Normal_Eloquia_Bold_Center']),
+        Paragraph('<b>Each</b>', styles['Normal_Eloquia_Bold_Right']),
+        Paragraph('<b>Total</b>', styles['Normal_Eloquia_Bold_Right'])
+    ]
+    items_table_data = [items_header]
+    subtotal = Decimal('0.00')
+
+    for item in line_items_data:
+        qty = Decimal(str(item.get('quantity', 0)))
+        unit_price = Decimal(str(item.get('sale_price', '0.00')))
+        line_total = qty * unit_price
+        subtotal += line_total
+        desc_text = escape(item.get('pdf_description', item.get('line_item_name', 'N/A')))
+        items_table_data.append([
+            Paragraph(desc_text, styles['ItemDesc_Eloquia']),
+            Paragraph(str(qty), styles['Normal_Eloquia_Center']),
+            Paragraph(format_currency(unit_price), styles['Normal_Eloquia_Right']),
+            Paragraph(format_currency(line_total), styles['Normal_Eloquia_Right'])
+        ])
+    
+    available_width_for_table = doc.width 
+    desc_col_width = available_width_for_table * 0.60 
+    qty_col_width = available_width_for_table * 0.10
+    each_col_width = available_width_for_table * 0.15
+    total_col_width = available_width_for_table * 0.15
+    
+    items_table = Table(items_table_data, colWidths=[desc_col_width, qty_col_width, each_col_width, total_col_width])
+    items_table.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('TOPPADDING', (0,0), (-1,-1), 5), ('LEFTPADDING', (0,1), (0,-1), 2), 
+        ('RIGHTPADDING', (0,1), (0,-1), 2),
+    ]))
+    story.append(items_table)
+    story.append(Spacer(1, 0.05 * inch))
+
+    # --- 5. Financial Summary (TOTAL line emphasized, labels aligned with "Each" column) ---
+    shipping_cost = Decimal(str(order_data.get('bc_shipping_cost_ex_tax', '0.00')))
+    sales_tax = Decimal(str(order_data.get('bigcommerce_order_tax', '0.00')))
+    grand_total = Decimal(str(order_data.get('total_sale_price', '0.00')))
+    
+    summary_spacer_col_width = desc_col_width + qty_col_width 
+    summary_label_col_width = each_col_width 
+    summary_value_col_width = total_col_width 
+
+    summary_data = [
+        ['', Paragraph('Subtotal:', styles['Normal_Eloquia_Bold_Right']), Paragraph(format_currency(subtotal), styles['Normal_Eloquia_Right'])],
+        ['', Paragraph('Shipping:', styles['Normal_Eloquia_Bold_Right']), Paragraph(format_currency(shipping_cost), styles['Normal_Eloquia_Right'])],
+        ['', Paragraph('Sales Tax:', styles['Normal_Eloquia_Bold_Right']), Paragraph(format_currency(sales_tax), styles['Normal_Eloquia_Right'])],
+        ['', Paragraph('TOTAL:', styles['Total_Label_Eloquia_Bold_Right']), Paragraph(f"<b>{format_currency(grand_total)}</b>", styles['Total_Value_Eloquia_Bold_Right'])],
+    ]
+    
+    summary_table = Table(summary_data, 
+                          colWidths=[summary_spacer_col_width, summary_label_col_width, summary_value_col_width])
+    summary_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0), 
+        ('RIGHTPADDING', (0,0), (-1,-1), 0), 
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+        ('TOPPADDING', (0,0), (-1,-1), 2),
+        ('LINEABOVE', (1,3), (2,3), 0.5, colors.black), 
+        ('TOPPADDING', (1,3), (2,3), 5), 
+        ('BOTTOMPADDING', (1,3), (2,3), 5)
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.2 * inch))
+
+    # --- Build with fixed footer ---
+    # Ensure _draw_invoice_footer is used here (was _draw_paid_invoice_footer)
+    draw_footer_partial = partial(_draw_invoice_footer, styles=styles) 
+    doc.build(story, onFirstPage=draw_footer_partial, onLaterPages=draw_footer_partial)
+    
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+# --- END OF generate_receipt_pdf FUNCTION ---
+
+
+
 if __name__ == '__main__':
     print("Running document_generator.py in local test mode.")
     print("NOTE: Logo will be text unless GCS is configured and test_logo_gcs_uri is set.")
 
-    # Define sample data earlier
+    test_logo_gcs_uri = os.getenv("COMPANY_LOGO_GCS_URI")
+    if not test_logo_gcs_uri: 
+        print("WARN (local test): COMPANY_LOGO_GCS_URI environment variable not set. Logo will be company name text or fallbacks.")
+
     sample_order_data_po = {
         'bigcommerce_order_id': 12345,
         'customer_company': 'Customer Company LLC',
@@ -567,7 +842,7 @@ if __name__ == '__main__':
     sample_po_items = [{'sku': 'TEST-SKU-1', 'description': 'Test Item One (Condition Suffix)', 'quantity': 2, 'unit_cost': 10.50, 'condition': 'New'}, {'sku': 'TEST-SKU-2', 'description': 'Test Item Two', 'quantity': 1, 'unit_cost': 25.00, 'condition': 'Used'}]
     po_specific_notes = "Test payment instructions.\nSecond line."
 
-    sample_order_data_ps = { # DEFINED EARLIER
+    sample_order_data_ps = { 
         'bigcommerce_order_id': 'PS-5678',
         'order_date': datetime.now(timezone.utc).isoformat(),
         'customer_company': 'Multi-Ship Company',
@@ -578,20 +853,17 @@ if __name__ == '__main__':
         'customer_shipping_zip': '54321',
         'customer_shipping_country': 'USA',
         'customer_shipping_method': 'Standard Ground (UPS Ground)',
-        'payment_method': 'Net 30 Terms', # Will be overridden for the new format test
+        'payment_method': 'Net 30 Terms', 
         'customer_notes': "This is a test customer note.\nPlease handle with care.\nThird line of notes."
     }
-    sample_items_in_shipment = [ # DEFINED EARLIER
+    sample_items_in_shipment = [ 
         {'quantity': 1, 'name': 'Widget A - Main Part (Black Font Test)', 'sku': 'WIDGET-A'},
         {'quantity': 2, 'name': 'Bolt Set for Widget A (More Details Here)', 'sku': 'BOLT-SET'}
     ]
-    sample_items_shipping_separately = [ # DEFINED EARLIER
+    sample_items_shipping_separately = [ 
         {'quantity': 1, 'name': 'Widget B - Accessory (Ships Later in Grey)', 'sku': 'WIDGET-B'},
         {'quantity': 5, 'name': 'Extra Screws - Backordered (Grey Font Test)', 'sku': 'SCREW-XTRA'}
     ]
-    test_logo_gcs_uri = os.getenv("COMPANY_LOGO_GCS_URI") # DEFINED EARLIER
-    if not test_logo_gcs_uri: print("WARN: COMPANY_LOGO_GCS_URI not set in .env for local logo test.")
-
 
     print("\nTesting Payment Method Formatting:")
     test_payments = [
@@ -615,10 +887,9 @@ if __name__ == '__main__':
     with open(po_filename, "wb") as f: f.write(po_pdf_bytes)
     print(f"Sample Purchase Order PDF generated: {po_filename}")
 
-    # Original Packing Slip Test (uses the initially defined payment_method in sample_order_data_ps)
     print("\nGenerating Sample Packing Slip (Local Test - Mapped Eloquia - Original PM)...")
     packing_slip_pdf_bytes_orig_pm = generate_packing_slip_pdf(
-        order_data=sample_order_data_ps, # uses 'Net 30 Terms'
+        order_data=sample_order_data_ps, 
         items_in_this_shipment=sample_items_in_shipment,
         items_shipping_separately=sample_items_shipping_separately,
         logo_gcs_uri=test_logo_gcs_uri,
@@ -629,12 +900,11 @@ if __name__ == '__main__':
     with open(ps_filename_orig_pm, "wb") as f: f.write(packing_slip_pdf_bytes_orig_pm)
     print(f"Sample Packing Slip PDF generated: {ps_filename_orig_pm}")
 
-
-    # Test with the specific payment method format
-    sample_order_data_ps['payment_method'] = "Net 30 Terms [with credit approval]" # Override for this test
+    sample_order_data_ps_copy = sample_order_data_ps.copy() # Create a copy to modify payment_method
+    sample_order_data_ps_copy['payment_method'] = "Net 30 Terms [with credit approval]" 
     print("\nGenerating Sample Packing Slip (Local Test - With new Payment Method Formatting)...")
     packing_slip_pdf_bytes_new_pm = generate_packing_slip_pdf(
-        order_data=sample_order_data_ps,
+        order_data=sample_order_data_ps_copy,
         items_in_this_shipment=sample_items_in_shipment,
         items_shipping_separately=sample_items_shipping_separately,
         logo_gcs_uri=test_logo_gcs_uri,
@@ -645,10 +915,9 @@ if __name__ == '__main__':
     with open(ps_filename_new_pm, "wb") as f: f.write(packing_slip_pdf_bytes_new_pm)
     print(f"Sample Packing Slip PDF generated with new payment format: {ps_filename_new_pm}")
 
-
     print("\nGenerating BLIND Sample Packing Slip (Local Test - Mapped Eloquia)...")
     blind_ship_from_details = {
-        'name': sample_order_data_ps.get('customer_company', 'Your Shipper Name'), # Uses previously defined sample_order_data_ps
+        'name': sample_order_data_ps.get('customer_company', 'Your Shipper Name'),
         'street_1': 'PO Box 1000',
         'city': 'Some City',
         'state': 'XX',
@@ -656,10 +925,10 @@ if __name__ == '__main__':
         'country': 'USA'
     }
     blind_packing_slip_pdf_bytes = generate_packing_slip_pdf(
-        order_data=sample_order_data_ps, # Uses previously defined sample_order_data_ps
-        items_in_this_shipment=sample_items_in_shipment, # Uses previously defined sample_items_in_shipment
-        items_shipping_separately=sample_items_shipping_separately, # Uses previously defined sample_items_shipping_separately
-        logo_gcs_uri=None, # test_logo_gcs_uri is available but passing None for blind
+        order_data=sample_order_data_ps, 
+        items_in_this_shipment=sample_items_in_shipment, 
+        items_shipping_separately=sample_items_shipping_separately, 
+        logo_gcs_uri=None, 
         is_g1_onsite_fulfillment=False,
         is_blind_slip=True,
         custom_ship_from_address=blind_ship_from_details
@@ -667,3 +936,60 @@ if __name__ == '__main__':
     blind_ps_filename = "LOCAL_TEST_BLIND_packing_slip_mapped_eloquia.pdf"
     with open(blind_ps_filename, "wb") as f: f.write(blind_packing_slip_pdf_bytes)
     print(f"Sample BLIND Packing Slip PDF generated: {blind_ps_filename}")
+
+    # --- Test for PAID INVOICE (Receipt) ---
+    print("\nGenerating Sample PAID INVOICE PDF (Local Test)...")
+    sample_order_data_receipt = {
+        'bigcommerce_order_id': '106157639', # [cite: 2]
+        'processed_date_display': '06/02/2025', # [cite: 2]
+        'customer_billing_company': 'BlueSouth', # [cite: 3]
+        'customer_billing_first_name': 'Federico',
+        'customer_billing_last_name': 'Perez',
+        'customer_billing_street_1': '710 W Hallandale Beach Blvd', # [cite: 3]
+        'customer_billing_street_2': 'Suite 103', # [cite: 3]
+        'customer_billing_city': 'Hallandale Beach', # [cite: 3]
+        'customer_billing_state': 'FL', # [cite: 3]
+        'customer_billing_zip': '33009', # [cite: 3]
+        'customer_billing_country_iso2': 'US',
+        'customer_billing_country': 'United States',
+        'customer_company': 'BlueSouth', 
+        'customer_name': 'Federico Perez Sabater', # [cite: 3]
+        'customer_shipping_address_line1': '87 lefferts lane', # [cite: 3]
+        'customer_shipping_address_line2': '',
+        'customer_shipping_city': 'clark', # [cite: 3]
+        'customer_shipping_state': 'NJ', # [cite: 3]
+        'customer_shipping_zip': '07066', # [cite: 3]
+        'customer_shipping_country_iso2': 'US',
+        'customer_shipping_country': 'United States',
+        'bc_shipping_cost_ex_tax': '0.00', 
+        'bigcommerce_order_tax': '10.53', # [cite: 4]
+        'total_sale_price': '169.53', # [cite: 4]
+        'customer_po_number': '', # [cite: 5]
+        'customer_shipping_method': 'UPS', # [cite: 5]
+        'payment_method': 'Credit Card (Processed Online)', 
+    }
+    sample_line_items_receipt = [
+        {
+            'name': 'HPE Ethernet 10Gb 2-port 562SFP+ Adapter', # [cite: 4]
+            'original_sku': '727055-B21', # [cite: 4]
+            'hpe_option_pn': '727055-B21', # Included for more detailed description
+            'spare_part_pn': '790316-001', # Included for more detailed description
+            'quantity': 1, # [cite: 4]
+            'sale_price': '159.00' # [cite: 4]
+        }
+    ]
+    try:
+        receipt_pdf_bytes = generate_receipt_pdf(
+            order_data=sample_order_data_receipt,
+            line_items_data=sample_line_items_receipt,
+            logo_gcs_uri=test_logo_gcs_uri 
+        )
+        receipt_filename = "LOCAL_TEST_Paid_Invoice.pdf"
+        with open(receipt_filename, "wb") as f:
+            f.write(receipt_pdf_bytes)
+        print(f"Sample PAID INVOICE PDF generated: {receipt_filename}")
+    except Exception as e_receipt:
+        print(f"ERROR generating Paid Invoice PDF: {e_receipt}")
+        traceback.print_exc()
+
+    print("\n--- Document generator local tests complete. ---")

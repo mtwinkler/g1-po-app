@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 // --- Import Core Page/Component Views ---
 import Dashboard from './components/Dashboard';
 import OrderDetail from './components/OrderDetail';
+import SendReceiptForm from './components/SendReceiptForm'; 
 import Login from './components/Login';
 import CustomsInfoList from './components/CustomsInfoList'; // Adjust path as needed
 import CustomsInfoForm from './components/CustomsInfoForm';   // Adjust path as needed
@@ -107,6 +108,17 @@ function AppContent() {
             } 
           />
           
+          {/* --- THIS ROUTE IS CORRECTLY DEFINED AS PER PREVIOUS STEP --- */}
+          <Route 
+            path="/orders/:orderId/send-receipt-form" 
+            element={
+                <ProtectedRoute>
+                    <SendReceiptForm />
+                </ProtectedRoute>
+            } 
+          />
+          {/* --- END OF SEND RECEIPT FORM ROUTE --- */}
+
           {/* Utilities Section Routes */}
           <Route 
             path="/utilities" 
@@ -134,7 +146,6 @@ function AppContent() {
           />
 
           {/* --- MODIFICATION: Supplier CRUD Routes --- */}
-          {/* Route to list all suppliers - path adjusted to match common pattern */}
           <Route 
             path="/utils/suppliers" 
             element={ 
@@ -143,7 +154,6 @@ function AppContent() {
               </ProtectedRoute>
             } 
           />
-          {/* Route to the form for adding a new supplier */}
           <Route 
             path="/utils/suppliers/add"
             element={
@@ -152,7 +162,6 @@ function AppContent() {
               </ProtectedRoute>
             } 
           />
-          {/* Route to the form for editing an existing supplier */}
           <Route 
             path="/utils/suppliers/edit/:supplierId"
             element={
@@ -193,7 +202,7 @@ function AppContent() {
                   <CustomsInfoForm />
               </ProtectedRoute>
           } />
-          <Route path="/admin/customs-info/edit/:itemId" element={ // Use itemId for the integer ID
+          <Route path="/admin/customs-info/edit/:itemId" element={ 
               <ProtectedRoute>
                   <CustomsInfoForm />
               </ProtectedRoute>
@@ -222,11 +231,6 @@ function AppContent() {
 
 function App() {
   return (
-    // Router should wrap AppContent if AppContent uses routing features like Link, Routes, useAuth for nav
-    // However, typically Router is at the very top level.
-    // If AuthProvider doesn't depend on Router, this is fine.
-    // If AuthProvider *does* use navigate or other router hooks, Router needs to be outside AuthProvider.
-    // For now, assuming AuthProvider is independent or this structure is intended.
     <AuthProvider>
         <AppContent />
     </AuthProvider>

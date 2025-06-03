@@ -157,14 +157,20 @@ app.debug = os.getenv("FLASK_DEBUG", "False").lower() == "true"
 
 try:
     cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    firebase_project_id = "g1-po-app-77790" 
-    if cred_path:
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred, {'projectId': firebase_project_id})
-        print(f"DEBUG APP_SETUP: Firebase Admin SDK initialized using service account key from: {cred_path} for project {firebase_project_id}")
+    firebase_project_id = "g1-po-app-77790" #
+    
+    # Check if the default app is already initialized
+    if not firebase_admin._DEFAULT_APP_NAME in firebase_admin._apps: # <--- ADD THIS CHECK
+        if cred_path:
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred, {'projectId': firebase_project_id}) #
+            print(f"DEBUG APP_SETUP: Firebase Admin SDK initialized using service account key from: {cred_path} for project {firebase_project_id}")
+        else:
+            firebase_admin.initialize_app(options={'projectId': firebase_project_id}) #
+            print(f"DEBUG APP_SETUP: Firebase Admin SDK initialized using default environment credentials, explicitly targeting project {firebase_project_id}.")
     else:
-        firebase_admin.initialize_app(options={'projectId': firebase_project_id})
-        print(f"DEBUG APP_SETUP: Firebase Admin SDK initialized using default environment credentials, explicitly targeting project {firebase_project_id}.")
+        print("DEBUG APP_SETUP: Firebase Admin SDK already initialized.") # <--- ADD THIS ELSE
+
 except Exception as e_firebase_admin:
     print(f"ERROR APP_SETUP: Firebase Admin SDK initialization failed: {e_firebase_admin}")
     traceback.print_exc()

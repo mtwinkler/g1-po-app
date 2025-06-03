@@ -402,12 +402,13 @@ h3 { letter-spacing: 0.5px; }
 .clipboard-status { margin-left: var(--spacing-sm); font-size: 0.8em; color: var(--success-text); font-style: italic; } 
 
 .order-actions { 
-  margin-top: var(--spacing-xl);
-  margin-bottom: var(--spacing-md);
+  margin-top: var(--spacing-xl, 32px);
+  margin-bottom: var(--spacing-md, 16px);
   display: flex;
-  flex-direction: column; 
-  align-items: center; /* This will center the button */
-  gap: var(--spacing-md); 
+  flex-direction: column; /* STACK BUTTONS VERTICALLY */
+  align-items: center; 
+  gap: var(--spacing-sm, 8px); /* Reduced gap for stacked buttons */
+  flex-wrap: wrap; 
 }
 
 .process-order-button { 
@@ -1134,4 +1135,34 @@ h3 { letter-spacing: 0.5px; }
   }
    /* Add data-label attributes in your JSX for table cells for mobile view */
    /* Example for one cell: <td data-label="SKU">{item.sku}</td> */
+}
+
+.order-actions > button { /* Common styles for buttons in this section */
+    padding: 10px 20px; 
+    font-size: 1.3em; /* Ensure font size matches */
+    font-weight: 600; /* Ensure font weight matches */
+    border-radius: 5px; /* Match border-radius */
+    cursor: pointer;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+    text-transform: uppercase; /* Match case if needed */
+    min-width: 220px;   /* Example min-width to match */
+    text-align: center;
+    border: none; /* Ensure no default border interferes */
+}
+
+.send-paid-invoice-button {
+  background-color: color-mix(in srgb, var(--primary-accent) 65%, black 35%); /* Slightly darker blue */
+  color: var(--text-on-primary); /* Same text color */
+}
+
+.send-paid-invoice-button:hover:not(:disabled) {
+  /* Make hover even slightly darker, or use primary-accent-dark if it's dark enough */
+  background-color: color-mix(in srgb, var(--primary-accent) 70%, black 30%); 
+}
+
+.send-paid-invoice-button:disabled {
+  background-color: var(--bg-disabled);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  box-shadow: none;
 }
